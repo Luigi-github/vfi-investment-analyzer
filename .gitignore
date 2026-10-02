@@ -1,0 +1,45 @@
+# ==========================================
+# VFI Investment Analyzer - Git Ignore
+# ==========================================
+
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment variables / secrets
+.env
+.env.*
+!.env.example
+
+# Data
+data/raw/*
+data/processed/*
+data/database/*
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+*.cache
+
+# Testing / tooling
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# VS Code
+.vscode/
+
+# Jupyter
+.ipynb_checkpoints/
+
+# OS
+.DS_Store
+Thumbs.db
