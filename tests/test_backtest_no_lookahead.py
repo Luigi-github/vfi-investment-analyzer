@@ -132,6 +132,22 @@ class TestBacktestNoLookahead(unittest.TestCase):
             pd.Timestamp("2024-01-05"),
         )
 
+        self.assertEqual(
+            int(clustered.loc[
+                pd.Timestamp("2024-01-05"),
+                "Recovery_Events_Seen",
+            ]),
+            1,
+        )
+
+        self.assertEqual(
+            int(clustered.loc[
+                pd.Timestamp("2024-02-02"),
+                "Recovery_Events_Seen",
+            ]),
+            2,
+        )
+
     def test_causal_representative_does_not_move_when_future_event_is_added(self):
         dates = [
             "2024-01-05",
