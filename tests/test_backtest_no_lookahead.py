@@ -5,6 +5,9 @@ import pandas as pd
 from app.backtest.recovery_cluster_analyzer import (
     RecoveryClusterAnalyzer,
 )
+from app.backtest.recovery_event_clustering import (
+    RecoveryEventClusterer,
+)
 
 
 class TestBacktestNoLookahead(unittest.TestCase):
@@ -13,6 +16,9 @@ class TestBacktestNoLookahead(unittest.TestCase):
         self.analyzer = RecoveryClusterAnalyzer(
             horizons=(1,),
             primary_horizon=1,
+        )
+        self.clusterer = RecoveryEventClusterer(
+            minimum_separation_weeks=8,
         )
 
     def make_cluster(self, dates, vfi_values):
@@ -64,6 +70,66 @@ class TestBacktestNoLookahead(unittest.TestCase):
                 pd.Timestamp("2024-01-05"),
                 "Return_1W",
             ],
+        )
+
+    def test_causal_cluster_ids_are_stable_when_future_events_are_added(self):
+        dates = pd.to_datetime(
+            ["2024-01-05", "2024-02-02", "2024-04-05"]
+        )
+
+        initial = pd.DataFrame(
+            {
+                "VFI": [-2.0, -1.0],
+                "VFI_Cycle_Stage": ["EARLY_RECOVERY", "EARLY_RECOVERY"],
+                "Close": [100.0, 101.0],
+            },
+            index=dates[:2],
+        )
+
+        extended = pd.concat(
+            [
+                initial,
+                pd.DataFrame(
+                    {
+                        "VFI": [-3.0],
+                        "VFI_Cycle_Stage": ["EARLY_RECOVERY"],
+                        "Close": [102.0],
+                    },
+                    index=dates[2:],
+                ),
+            ]
+        )
+
+        initial_clustered = self.clusterer.cluster_events_causal(initial)
+        extended_clustered = self.clusterer.cluster_events_causal(extended)
+
+        pd.testing.assert_series_equal(
+            initial_clustered["Recovery_Cluster_ID"],
+            extended_clustered.loc[
+                initial.index,
+                "Recovery_Cluster_ID",
+            ],
+            check_names=False,
+        )
+
+    def test_causal_cluster_representative_is_first_event(self):
+        events = pd.DataFrame(
+            {
+                "VFI": [-2.0, -5.0],
+                "VFI_Cycle_Stage": ["EARLY_RECOVERY", "EARLY_RECOVERY"],
+                "Close": [100.0, 101.0],
+            },
+            index=pd.to_datetime(["2024-01-05", "2024-02-02"]),
+        )
+
+        clustered = self.clusterer.cluster_events_causal(events)
+        representatives = self.clusterer.select_causal_representative_events(
+            clustered
+        )
+
+        self.assertEqual(
+            representatives.index[0],
+            pd.Timestamp("2024-01-05"),
         )
 
     def test_causal_representative_does_not_move_when_future_event_is_added(self):
