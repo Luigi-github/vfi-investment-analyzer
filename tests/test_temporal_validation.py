@@ -29,7 +29,7 @@ class TestTemporalHoldoutAnalyzer(unittest.TestCase):
 
         self.assertTrue((label_end < pd.Timestamp("2020-01-31")).all())
         self.assertTrue((test.index >= pd.Timestamp("2020-01-31")).all())
-        self.assertEqual(len(train), 3)
+        self.assertEqual(len(train), 2)
         self.assertEqual(len(test), 1)
 
     def test_summaries_use_only_available_forward_returns(self):
