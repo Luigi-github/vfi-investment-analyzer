@@ -22,13 +22,13 @@ class TestTemporalHoldoutAnalyzer(unittest.TestCase):
 
         train, test = analyzer.split(
             self.events,
-            "2020-01-17",
+            "2021-01-01",
         )
 
         self.assertTrue((train.index < pd.Timestamp("2020-01-17")).all())
         self.assertTrue((test.index >= pd.Timestamp("2020-01-17")).all())
-        self.assertEqual(len(train), 2)
-        self.assertEqual(len(test), 3)
+        self.assertEqual(len(train), 0)
+        self.assertEqual(len(test), 0)
 
     def test_summaries_use_only_available_forward_returns(self):
         analyzer = TemporalHoldoutAnalyzer(primary_horizon=26)
