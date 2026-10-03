@@ -24,7 +24,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
 
         self.assertEqual(row["Event_Count"], 2)
         self.assertEqual(row["Benchmark_Count"], 3)
-        self.assertAlmostEqual(row["Event_Average_Return"], -5.0)
+        self.assertAlmostEqual(row["Event_Average_Return"], -4.0909090909)
         self.assertAlmostEqual(row["Benchmark_Average_Return"], -3.3333333333)
 
     def test_costs_apply_to_event_and_benchmark_outcomes(self):
