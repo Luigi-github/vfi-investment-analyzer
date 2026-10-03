@@ -281,6 +281,19 @@ class MultiAssetRecoveryAnalyzer:
         if combined_data.empty:
             return pd.DataFrame()
 
+        primary_column = f"Return_{self.primary_horizon}W"
+
+        if primary_column not in combined_data.columns:
+            raise ValueError(
+                f"Column '{primary_column}' is required."
+            )
+
+        primary_positive_column = f"Positive_{self.primary_horizon}W"
+        primary_negative_column = f"Negative_{self.primary_horizon}W"
+        primary_rate_column = f"Positive_Rate_{self.primary_horizon}W"
+        primary_average_column = f"Average_Return_{self.primary_horizon}W"
+        primary_median_column = f"Median_Return_{self.primary_horizon}W"
+
         rows = []
 
         for symbol, group in combined_data.groupby(
@@ -320,18 +333,13 @@ class MultiAssetRecoveryAnalyzer:
                 "Symbol": symbol,
                 "Clusters": len(group),
                 "Valid_Clusters": total,
-                "Positive_26W": positive_count,
-                "Negative_26W": negative_count,
-                "Positive_Rate_26W":
-                    positive_rate,
-                "Average_Return_26W":
-                    valid[
-                        "Return_26W"
-                    ].mean(),
-                "Median_Return_26W":
-                    valid[
-                        "Return_26W"
-                    ].median(),
+                primary_positive_column: positive_count,
+                primary_negative_column: negative_count,
+                primary_rate_column: positive_rate,
+                primary_average_column:
+                    valid[primary_column].mean(),
+                primary_median_column:
+                    valid[primary_column].median(),
                 "Average_Return_52W":
                     valid[
                         "Return_52W"
@@ -350,6 +358,13 @@ class MultiAssetRecoveryAnalyzer:
         if combined_data.empty:
             return pd.DataFrame()
 
+        primary_column = f"Return_{self.primary_horizon}W"
+
+        if primary_column not in combined_data.columns:
+            raise ValueError(
+                f"Column '{primary_column}' is required."
+            )
+
         valid = combined_data[
             combined_data["Primary_Result"].isin(
                 ["POSITIVE", "NEGATIVE"]
@@ -359,7 +374,7 @@ class MultiAssetRecoveryAnalyzer:
         if valid.empty:
             return pd.DataFrame()
 
-        positive_count = (
+        positive_count= (
             valid["Primary_Result"]
             .eq("POSITIVE")
             .sum()
@@ -382,20 +397,16 @@ class MultiAssetRecoveryAnalyzer:
                 combined_data
             ),
             "Valid_Clusters": total,
-            "Positive_26W": positive_count,
-            "Negative_26W": negative_count,
-            "Positive_Rate_26W":
+            f"Positive_{self.primary_horizon}W": positive_count,
+            f"Negative_{self.primary_horizon}W": negative_count,
+            f"Positive_Rate_{self.primary_horizon}W":
                 positive_count
                 / total
                 * 100,
-            "Average_Return_26W":
-                valid[
-                    "Return_26W"
-                ].mean(),
-            "Median_Return_26W":
-                valid[
-                    "Return_26W"
-                ].median(),
+            f"Average_Return_{self.primary_horizon}W":
+                valid[primary_column].mean(),
+            f"Median_Return_{self.primary_horizon}W":
+                valid[primary_column].median(),
             "Average_Return_52W":
                 valid[
                     "Return_52W"
@@ -534,11 +545,11 @@ class MultiAssetRecoveryAnalyzer:
                     else np.nan,
                 "Average_Return_26W":
                     selected[
-                        "Return_26W"
+                        primary_column
                     ].mean(),
                 "Median_Return_26W":
                     selected[
-                        "Return_26W"
+                        primary_column
                     ].median(),
                 "Average_Return_52W":
                     selected[
