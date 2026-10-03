@@ -26,7 +26,14 @@ class ForwardRiskAnalyzer:
             values = prices.to_numpy(dtype=float)
 
             for position in range(len(df)):
-                end = min(position + horizon, len(df) - 1)
+                end = position + horizon
+
+                if end >= len(df):
+                    max_favorable.append(np.nan)
+                    max_adverse.append(np.nan)
+                    max_drawdown.append(np.nan)
+                    continue
+
                 future = values[position:end + 1]
 
                 if len(future) <= 1 or not np.isfinite(future).all():
