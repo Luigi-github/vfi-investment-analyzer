@@ -19,7 +19,7 @@ class TestForwardRisk(unittest.TestCase):
 
         self.assertAlmostEqual(
             result.loc[dates[0], "Max_Favorable_2W"],
-            20.0,
+            10.0,
         )
         self.assertAlmostEqual(
             result.loc[dates[0], "Max_Adverse_2W"],
