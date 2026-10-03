@@ -66,7 +66,7 @@ class TestBacktestNoLookahead(unittest.TestCase):
             ],
         )
 
-    def test_representative_signal_must_not_move_to_a_future_event(self):
+    def test_causal_representative_does_not_move_when_future_event_is_added(self):
         dates = [
             "2024-01-05",
             "2024-01-12",
@@ -87,7 +87,7 @@ class TestBacktestNoLookahead(unittest.TestCase):
             self.analyzer
             .select_representatives(
                 data_available_at_signal,
-                "MIN_VFI",
+                "CAUSAL_FIRST_RECOVERY",
             )
         )
 
@@ -95,7 +95,7 @@ class TestBacktestNoLookahead(unittest.TestCase):
             self.analyzer
             .select_representatives(
                 data_with_future_event,
-                "MIN_VFI",
+                "CAUSAL_FIRST_RECOVERY",
             )
         )
 
@@ -109,8 +109,8 @@ class TestBacktestNoLookahead(unittest.TestCase):
         self.assertEqual(
             representative_with_future_data.index[0],
             signal_date,
-            "A future VFI observation must not move a historical "
-            "representative signal to a later date.",
+            "A future VFI observation must not move a causal "
+            "historical representative signal.",
         )
 
 
