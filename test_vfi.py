@@ -13,6 +13,8 @@ from app.backtest.multi_asset_recovery_analysis import (
 from app.backtest.recovery_cluster_analyzer import (
     RecoveryClusterAnalyzer
 )
+from app.backtest.benchmark import BenchmarkAnalyzer
+from app.backtest.execution_costs import LongOnlyExecutionCostModel
 
 
 # ============================================================
@@ -947,6 +949,65 @@ def main():
             asset_data
         )
     )
+
+    # --------------------------------------------------------
+    # BENCHMARK Y COSTES
+    # --------------------------------------------------------
+
+    print_separator(
+        "BENCHMARK Y COSTES DE EJECUCION"
+    )
+
+    cost_model = LongOnlyExecutionCostModel(
+        fee_bps=10,
+        slippage_bps=5
+    )
+
+    benchmark_analyzer = BenchmarkAnalyzer(
+        execution_cost_model=cost_model
+    )
+
+    benchmark_frames = []
+
+    for symbol, data in asset_data.items():
+
+        causal_result = multi_asset_analyzer.analyze_asset_causal(
+            symbol,
+            data
+        )
+
+        if causal_result.empty:
+            continue
+
+        benchmark = benchmark_analyzer.compare_event_dates(
+            data,
+            causal_result.index
+        )
+
+        if benchmark.empty:
+            continue
+
+        benchmark.insert(0, "Symbol", symbol)
+        benchmark_frames.append(benchmark)
+
+    if benchmark_frames:
+        benchmark_summary = pd.concat(
+            benchmark_frames,
+            ignore_index=True
+        )
+
+        format_dataframe(
+            benchmark_summary,
+            float_columns=[
+                "Event_Average_Return",
+                "Benchmark_Average_Return",
+                "Excess_Average_Return",
+                "Event_Positive_Rate",
+                "Benchmark_Positive_Rate"
+            ]
+        )
+    else:
+        print("No hay suficientes datos para benchmark.")
 
     # --------------------------------------------------------
     # FINAL
