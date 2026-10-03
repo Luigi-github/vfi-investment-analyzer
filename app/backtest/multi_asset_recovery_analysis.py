@@ -266,11 +266,13 @@ class MultiAssetRecoveryAnalyzer:
             axis=0
         )
 
-        combined = combined.sort_values(
-            ["Symbol", combined.index.name]
-        )
+        index_name = combined.index.name
+        if index_name is None:
+            return combined.sort_values(["Symbol"])
 
-        return combined
+        return combined.sort_values(
+            ["Symbol", index_name]
+        )
 
     def asset_summary(
         self,
