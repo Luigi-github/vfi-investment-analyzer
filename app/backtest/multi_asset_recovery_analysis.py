@@ -62,6 +62,38 @@ class MultiAssetRecoveryAnalyzer:
 
         return df
 
+    def select_causal_cluster_representatives(self, data):
+        """Select the first observed event in each recovery cluster."""
+        if data.empty:
+            return data.copy()
+
+        if "Recovery_Cluster_ID" not in data.columns:
+            raise ValueError(
+                "Column 'Recovery_Cluster_ID' is required."
+            )
+
+        representatives = []
+
+        for cluster_id, group in data.groupby(
+            "Recovery_Cluster_ID"
+        ):
+            group = group.sort_index()
+            representative = group.iloc[0].copy()
+            representative["Recovery_Cluster_ID"] = cluster_id
+            representative["Cluster_Start_Date"] = group.index[0]
+            representative["Representative_Method"] = (
+                "CAUSAL_FIRST_RECOVERY"
+            )
+            representative["Representative_Causal"] = True
+            representatives.append(representative)
+
+        if not representatives:
+            return pd.DataFrame()
+
+        result = pd.DataFrame(representatives)
+        result.index.name = data.index.name
+        return result.sort_index()
+
     def select_cluster_representatives(self, data):
         if data.empty:
             return data.copy()
@@ -163,6 +195,23 @@ class MultiAssetRecoveryAnalyzer:
             )
 
         return df
+
+    def analyze_asset_causal(
+        self,
+        symbol,
+        data
+    ):
+        """Analyze one asset using point-in-time representatives."""
+        self.validate_data(data)
+        df = self.calculate_forward_returns(data.copy())
+        representatives = self.select_causal_cluster_representatives(df)
+
+        if representatives.empty:
+            return representatives
+
+        representatives = self.classify_results(representatives)
+        representatives["Symbol"] = symbol
+        return representatives
 
     def analyze_asset(
         self,
@@ -499,6 +548,28 @@ class MultiAssetRecoveryAnalyzer:
             })
 
         return pd.DataFrame(rows)
+
+    def analyze_causal(
+        self,
+        asset_data
+    ):
+        """Run the multi-asset analysis with causal representatives."""
+        asset_results = []
+
+        for symbol, data in asset_data.items():
+            result = self.analyze_asset_causal(symbol, data)
+            if not result.empty:
+                asset_results.append(result)
+
+        combined = self.combine_assets(asset_results)
+
+        return {
+            "asset_results": asset_results,
+            "combined": combined,
+            "asset_summary": self.asset_summary(combined),
+            "global_summary": self.global_summary(combined),
+            "condition_analysis": self.condition_analysis(combined),
+        }
 
     def analyze(
         self,
