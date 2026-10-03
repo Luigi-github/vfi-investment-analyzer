@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+from app.backtest.forward_risk import ForwardRiskAnalyzer
+
 
 class MultiAssetRecoveryAnalyzer:
 
@@ -204,6 +206,9 @@ class MultiAssetRecoveryAnalyzer:
         """Analyze one asset using point-in-time representatives."""
         self.validate_data(data)
         df = self.calculate_forward_returns(data.copy())
+        df = ForwardRiskAnalyzer(
+            horizons=self.horizons
+        ).calculate(df)
         representatives = self.select_causal_cluster_representatives(df)
 
         if representatives.empty:
@@ -225,6 +230,10 @@ class MultiAssetRecoveryAnalyzer:
         df = self.calculate_forward_returns(
             df
         )
+
+        df = ForwardRiskAnalyzer(
+            horizons=self.horizons
+        ).calculate(df)
 
         representatives = (
             self.select_cluster_representatives(
