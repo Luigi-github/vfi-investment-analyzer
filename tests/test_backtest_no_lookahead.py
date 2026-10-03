@@ -8,6 +8,9 @@ from app.backtest.recovery_cluster_analyzer import (
 from app.backtest.recovery_event_clustering import (
     RecoveryEventClusterer,
 )
+from app.backtest.multi_asset_recovery_analysis import (
+    MultiAssetRecoveryAnalyzer,
+)
 
 
 class TestBacktestNoLookahead(unittest.TestCase):
@@ -193,6 +196,46 @@ class TestBacktestNoLookahead(unittest.TestCase):
             signal_date,
             "A future VFI observation must not move a causal "
             "historical representative signal.",
+        )
+
+    def test_multi_asset_causal_analysis_uses_first_cluster_event(self):
+        dates = pd.to_datetime(
+            ["2024-01-05", "2024-01-12", "2024-01-19"]
+        )
+        data = pd.DataFrame(
+            {
+                "Close": [100.0, 101.0, 102.0],
+                "VFI": [-2.0, -5.0, -1.0],
+                "VFI_Slope": [0.1, 0.2, 0.3],
+                "VFI_Slope_4W": [0.1, 0.2, 0.3],
+                "VFI_Slope_8W": [0.1, 0.2, 0.3],
+                "VFI_Distance_Zero": [2.0, 5.0, 1.0],
+                "VFI_Range_Position": [0.2, 0.1, 0.3],
+                "VFI_Cycle_Stage": [
+                    "EARLY_RECOVERY",
+                    "EARLY_RECOVERY",
+                    "EARLY_RECOVERY",
+                ],
+                "Recovery_Cluster_ID": [1, 1, 1],
+            },
+            index=dates,
+        )
+
+        analyzer = MultiAssetRecoveryAnalyzer(
+            horizons=(1,),
+            primary_horizon=1,
+        )
+        result = analyzer.analyze_causal({"TEST": data})
+        representatives = result["combined"]
+
+        self.assertEqual(len(representatives), 1)
+        self.assertEqual(representatives.index[0], dates[0])
+        self.assertTrue(
+            bool(representatives.iloc[0]["Representative_Causal"])
+        )
+        self.assertEqual(
+            representatives.iloc[0]["Representative_Method"],
+            "CAUSAL_FIRST_RECOVERY",
         )
 
 
