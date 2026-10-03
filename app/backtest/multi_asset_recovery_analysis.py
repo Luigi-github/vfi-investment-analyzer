@@ -218,6 +218,50 @@ class MultiAssetRecoveryAnalyzer:
         representatives["Symbol"] = symbol
         return representatives
 
+    def analyze_assets_walk_forward(
+        self,
+        asset_events,
+        initial_train_weeks,
+        test_weeks,
+        step_weeks
+    ):
+        """Evaluate causal recovery events in rolling chronological windows."""
+        from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
+
+        analyzer = TemporalHoldoutAnalyzer(
+            primary_horizon=self.primary_horizon
+        )
+
+        rows = []
+
+        for symbol, events in asset_events.items():
+            windows = analyzer.walk_forward(
+                events,
+                initial_train_weeks=initial_train_weeks,
+                test_weeks=test_weeks,
+                step_weeks=step_weeks,
+            )
+
+            for window_number, window in enumerate(windows, start=1):
+                row = {
+                    "Symbol": symbol,
+                    "Window": window_number,
+                    "Cutoff": window["cutoff"],
+                    "Test_End": window["test_end"],
+                }
+
+                for period in ("train", "test"):
+                    summary = window[f"{period}_summary"]
+                    prefix = period.title()
+                    row[f"{prefix}_Events"] = summary["Events"]
+                    row[f"{prefix}_Average_Return"] = summary["Average_Return"]
+                    row[f"{prefix}_Median_Return"] = summary["Median_Return"]
+                    row[f"{prefix}_Positive_Rate"] = summary["Positive_Rate"]
+
+                rows.append(row)
+
+        return pd.DataFrame(rows)
+
     def analyze_asset(
         self,
         symbol,
