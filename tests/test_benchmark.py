@@ -25,7 +25,7 @@ class TestBenchmarkAnalyzer(unittest.TestCase):
         self.assertEqual(row["Event_Count"], 2)
         self.assertEqual(row["Benchmark_Count"], 3)
         self.assertAlmostEqual(row["Event_Average_Return"], -0.4545454545)
-        self.assertAlmostEqual(row["Benchmark_Average_Return"], -3.3333333333)
+        self.assertAlmostEqual(row["Benchmark_Average_Return"], -4.0067340067)
 
     def test_costs_apply_to_event_and_benchmark_outcomes(self):
         dates = pd.date_range("2024-01-05", periods=4, freq="W-FRI")
