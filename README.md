@@ -235,9 +235,6 @@ Una vez estabilizada esta base, las extensiones naturales son:
 - impuestos, spreads, impacto de mercado y restricciones de liquidez;
 - validación walk-forward;
 - análisis por régimen de mercado;
-- benchmark y comparación con estrategias simples;
-- validación walk-forward;
-- análisis por régimen de mercado;
 - exportación de resultados;
 - dashboard Streamlit;
 - ranking multi-activo;
