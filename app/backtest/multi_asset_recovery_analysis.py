@@ -423,6 +423,13 @@ class MultiAssetRecoveryAnalyzer:
         if combined_data.empty:
             return pd.DataFrame()
 
+        primary_column = f"Return_{self.primary_horizon}W"
+
+        if primary_column not in combined_data.columns:
+            raise ValueError(
+                f"Column '{primary_column}' is required."
+            )
+
         valid = combined_data[
             combined_data["Primary_Result"].isin(
                 ["POSITIVE", "NEGATIVE"]
@@ -502,11 +509,11 @@ class MultiAssetRecoveryAnalyzer:
                     "Condition": condition_name,
                     "Clusters": 0,
                     "Assets": 0,
-                    "Positive_26W": 0,
-                    "Negative_26W": 0,
-                    "Positive_Rate_26W": np.nan,
-                    "Average_Return_26W": np.nan,
-                    "Median_Return_26W": np.nan,
+                    f"Positive_{self.primary_horizon}W": 0,
+                    f"Negative_{self.primary_horizon}W": 0,
+                    f"Positive_Rate_{self.primary_horizon}W": np.nan,
+                    f"Average_Return_{self.primary_horizon}W": np.nan,
+                    f"Median_Return_{self.primary_horizon}W": np.nan,
                     "Average_Return_52W": np.nan,
                 })
 
@@ -535,22 +542,18 @@ class MultiAssetRecoveryAnalyzer:
                 "Assets": selected[
                     "Symbol"
                 ].nunique(),
-                "Positive_26W": positive_count,
-                "Negative_26W": negative_count,
-                "Positive_Rate_26W":
+                f"Positive_{self.primary_horizon}W": positive_count,
+                f"Negative_{self.primary_horizon}W": negative_count,
+                f"Positive_Rate_{self.primary_horizon}W":
                     positive_count
                     / total
                     * 100
                     if total > 0
                     else np.nan,
-                "Average_Return_26W":
-                    selected[
-                        primary_column
-                    ].mean(),
-                "Median_Return_26W":
-                    selected[
-                        primary_column
-                    ].median(),
+                f"Average_Return_{self.primary_horizon}W":
+                    selected[primary_column].mean(),
+                f"Median_Return_{self.primary_horizon}W":
+                    selected[primary_column].median(),
                 "Average_Return_52W":
                     selected[
                         "Return_52W"
