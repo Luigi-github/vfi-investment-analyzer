@@ -71,6 +71,41 @@ class TemporalHoldoutAnalyzer:
 
         return pd.DataFrame(rows)
 
+    def walk_forward(self, events, initial_train_weeks, test_weeks, step_weeks):
+        if not isinstance(events.index, pd.DatetimeIndex):
+            raise ValueError("Events must use a DatetimeIndex.")
+        if initial_train_weeks <= 0 or test_weeks <= 0 or step_weeks <= 0:
+            raise ValueError("Window sizes must be positive.")
+
+        events = events.sort_index().copy()
+        if events.empty:
+            return []
+
+        first_test = events.index.min() + pd.Timedelta(weeks=initial_train_weeks)
+        windows = []
+        cutoff = first_test
+
+        while True:
+            test_end = cutoff + pd.Timedelta(weeks=test_weeks)
+            train, test = self.split(events, cutoff)
+            test = test[test.index < test_end].copy()
+
+            if test.empty:
+                break
+
+            windows.append({
+                "cutoff": cutoff,
+                "test_end": test_end,
+                "train": train,
+                "test": test,
+                "train_summary": self.summarize(train),
+                "test_summary": self.summarize(test),
+            })
+
+            cutoff = cutoff + pd.Timedelta(weeks=step_weeks)
+
+        return windows
+
     def analyze(self, events, cutoff):
         train, test = self.split(events, cutoff)
 
