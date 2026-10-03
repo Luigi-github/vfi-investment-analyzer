@@ -15,6 +15,7 @@ from app.backtest.recovery_cluster_analyzer import (
 )
 from app.backtest.benchmark import BenchmarkAnalyzer
 from app.backtest.execution_costs import LongOnlyExecutionCostModel
+from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
 
 
 # ============================================================
@@ -1008,6 +1009,51 @@ def main():
         )
     else:
         print("No hay suficientes datos para benchmark.")
+
+    # --------------------------------------------------------
+    # VALIDACION TEMPORAL HOLDOUT
+    # --------------------------------------------------------
+
+    print_separator(
+        "VALIDACION TEMPORAL HOLDOUT"
+    )
+
+    temporal_analyzer = TemporalHoldoutAnalyzer(
+        primary_horizon=26
+    )
+
+    causal_events_by_asset = {}
+
+    for symbol, data in asset_data.items():
+        causal_events = multi_asset_analyzer.analyze_asset_causal(
+            symbol,
+            data
+        )
+
+        if not causal_events.empty:
+            causal_events_by_asset[symbol] = causal_events
+
+    temporal_cutoff = "2022-01-01"
+
+    if causal_events_by_asset:
+        temporal_summary = temporal_analyzer.analyze_assets(
+            causal_events_by_asset,
+            temporal_cutoff
+        )
+
+        format_dataframe(
+            temporal_summary,
+            float_columns=[
+                "Train_Average_Return",
+                "Train_Median_Return",
+                "Train_Positive_Rate",
+                "Test_Average_Return",
+                "Test_Median_Return",
+                "Test_Positive_Rate"
+            ]
+        )
+    else:
+        print("No hay eventos causales para validacion temporal.")
 
     # --------------------------------------------------------
     # FINAL
