@@ -137,6 +137,15 @@ También se pueden utilizar horizontes pequeños en las pruebas unitarias.
 
 Los retornos forward se calculan desde la fecha de la señal hacia observaciones posteriores. Una observación futura no debe modificar el retorno histórico calculado para una fecha que ya tenía suficiente información.
 
+### Riesgo, costes y benchmark
+
+`ForwardRiskAnalyzer` calcula como resultados posteriores el máximo favorable, máximo adverso y drawdown máximo para cada horizonte. Las ventanas incompletas al final de la muestra se dejan como `NaN` y no se tratan como resultados observados.
+
+`LongOnlyExecutionCostModel` permite aplicar supuestos deterministas de comisión y slippage a retornos largos. El retorno bruto se conserva y el retorno neto se expone por separado.
+
+`BenchmarkAnalyzer` compara los eventos seleccionados con el retorno forward de todas las fechas elegibles del mismo activo y horizonte. El benchmark es descriptivo y no se utiliza como feature de la señal.
+
+
 ## Pruebas
 
 Ejecutar:
@@ -216,16 +225,17 @@ Los cambios metodológicos importantes deben acompañarse de pruebas que demuest
 2. El VFI es un indicador técnico; no incorpora por sí solo fundamentales, valoración, macroeconomía o noticias.
 3. Los resultados históricos no garantizan resultados futuros.
 4. Los métodos retrospectivos son útiles para explorar patrones, pero no deben confundirse con señales disponibles en tiempo real.
-5. El proyecto todavía no incorpora una capa de costos de transacción, slippage, impuestos o restricciones de liquidez en el backtest.
+5. Los costes de comisión y slippage son actualmente supuestos deterministas; todavía no modelan impuestos, spreads variables, impacto de mercado ni restricciones de liquidez.
 6. La clasificación de acumulación es una hipótesis cuantitativa que debe validarse estadísticamente antes de utilizarse para decisiones reales.
 
 ## Próximas extensiones
 
 Una vez estabilizada esta base, las extensiones naturales son:
 
-- métricas de riesgo y drawdown;
-- costos de transacción y slippage;
-- benchmark contra estrategias simples;
+- impuestos, spreads, impacto de mercado y restricciones de liquidez;
+- validación walk-forward;
+- análisis por régimen de mercado;
+- benchmark y comparación con estrategias simples;
 - validación walk-forward;
 - análisis por régimen de mercado;
 - exportación de resultados;
