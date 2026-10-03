@@ -120,6 +120,19 @@ class RecoveryClusterAnalyzer:
 
         return cluster.index[0]
 
+    def select_causal_first_recovery(self, cluster):
+
+        """
+        Select the first observed event in a cluster.
+
+        This method is causal only when Recovery_Cluster_ID itself was
+        assigned online, using information available at each event date.
+        It intentionally does not inspect later VFI values to choose the
+        representative.
+        """
+
+        return self.select_first_recovery(cluster)
+
     def select_best_recovery(self, cluster):
 
         if cluster.empty:
@@ -290,6 +303,14 @@ class RecoveryClusterAnalyzer:
                     )
                 )
 
+            elif method == "CAUSAL_FIRST_RECOVERY":
+
+                representative_index = (
+                    self.select_causal_first_recovery(
+                        cluster
+                    )
+                )
+
             elif method == "BEST_RECOVERY":
 
                 (
@@ -335,6 +356,10 @@ class RecoveryClusterAnalyzer:
             representative[
                 "Representative_Method"
             ] = method
+
+            representative[
+                "Representative_Causal"
+            ] = method == "CAUSAL_FIRST_RECOVERY"
 
             representative[
                 "Fallback_Used"
