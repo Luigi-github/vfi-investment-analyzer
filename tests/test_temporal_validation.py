@@ -53,6 +53,24 @@ class TestTemporalHoldoutAnalyzer(unittest.TestCase):
             100.0,
         )
 
+
+    def test_multi_asset_summary(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=26)
+        result = analyzer.analyze_assets(
+            {"AAA": self.events, "BBB": self.events.iloc[:3]},
+            "2020-01-17",
+        )
+
+        self.assertEqual(set(result["Symbol"]), {"AAA", "BBB"})
+        self.assertEqual(
+            result.loc[result["Symbol"] == "AAA", "Train_Events"].iloc[0],
+            2,
+        )
+        self.assertEqual(
+            result.loc[result["Symbol"] == "AAA", "Test_Events"].iloc[0],
+            2,
+        )
+
     def test_invalid_index_is_rejected(self):
         analyzer = TemporalHoldoutAnalyzer()
 
