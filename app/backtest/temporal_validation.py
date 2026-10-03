@@ -46,6 +46,26 @@ class TemporalHoldoutAnalyzer:
             "Positive_Rate": float((valid > 0).mean() * 100.0),
         }
 
+
+    def analyze_assets(self, asset_events, cutoff):
+        rows = []
+
+        for symbol, events in asset_events.items():
+            result = self.analyze(events, cutoff)
+            row = {"Symbol": symbol, "Cutoff": result["cutoff"]}
+
+            for period in ("train", "test"):
+                summary = result[f"{period}_summary"]
+                prefix = period.title()
+                row[f"{prefix}_Events"] = summary["Events"]
+                row[f"{prefix}_Average_Return"] = summary["Average_Return"]
+                row[f"{prefix}_Median_Return"] = summary["Median_Return"]
+                row[f"{prefix}_Positive_Rate"] = summary["Positive_Rate"]
+
+            rows.append(row)
+
+        return pd.DataFrame(rows)
+
     def analyze(self, events, cutoff):
         train, test = self.split(events, cutoff)
 
