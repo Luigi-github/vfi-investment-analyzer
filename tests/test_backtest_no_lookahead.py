@@ -239,5 +239,44 @@ class TestBacktestNoLookahead(unittest.TestCase):
         )
 
 
+    def test_multi_asset_causal_analysis_includes_forward_risk_outcomes(self):
+        dates = pd.date_range("2024-01-05", periods=3, freq="W-FRI")
+        data = pd.DataFrame(
+            {
+                "Close": [100.0, 110.0, 90.0],
+                "VFI": [-2.0, -1.0, -0.5],
+                "VFI_Slope": [0.1, 0.1, 0.1],
+                "VFI_Slope_4W": [0.1, 0.1, 0.1],
+                "VFI_Slope_8W": [0.1, 0.1, 0.1],
+                "VFI_Distance_Zero": [2.0, 1.0, 0.5],
+                "VFI_Range_Position": [0.2, 0.3, 0.4],
+                "VFI_Cycle_Stage": ["EARLY_RECOVERY"] * 3,
+                "Recovery_Cluster_ID": [1, 1, 1],
+            },
+            index=dates,
+        )
+
+        analyzer = MultiAssetRecoveryAnalyzer(
+            horizons=(2,),
+            primary_horizon=2,
+        )
+        result = analyzer.analyze_causal({"TEST": data})
+        representative = result["combined"].iloc[0]
+
+        self.assertAlmostEqual(
+            representative["Max_Favorable_2W"],
+            10.0,
+        )
+        self.assertAlmostEqual(
+            representative["Max_Adverse_2W"],
+            -10.0,
+        )
+        self.assertAlmostEqual(
+            representative["Max_Drawdown_2W"],
+            -18.18181818,
+            places=5,
+        )
+
+
 if __name__ == "__main__":
     unittest.main()
