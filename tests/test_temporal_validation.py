@@ -73,6 +73,29 @@ class TestTemporalHoldoutAnalyzer(unittest.TestCase):
             1,
         )
 
+    def test_multiple_walk_forward_windows_have_strict_boundaries(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+
+        windows = analyzer.walk_forward(
+            self.events,
+            initial_train_weeks=2,
+            test_weeks=2,
+            step_weeks=2,
+        )
+
+        self.assertGreaterEqual(len(windows), 1)
+        self.assertTrue(
+            (windows[0]["train"].index
+             + pd.to_timedelta(2, unit="W")
+             < windows[0]["cutoff"]).all()
+        )
+
+        for previous, current in zip(windows, windows[1:]):
+            self.assertTrue(
+                previous["test"].index.max()
+                < current["test"].index.min()
+            )
+
     def test_invalid_index_is_rejected(self):
         analyzer = TemporalHoldoutAnalyzer()
 
