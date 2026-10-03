@@ -187,7 +187,7 @@ def analyze_asset(
     print("7. Clustering de EARLY_RECOVERY...")
 
     cluster_result = (
-        clusterer.analyze(
+        clusterer.analyze_causal(
             cycle_data
         )
     )
@@ -200,9 +200,9 @@ def analyze_asset(
         "clustered_events"
     ]
 
-    cluster_summary = cluster_result[
-        "cluster_summary"
-    ]
+    cluster_summary = clusterer.cluster_summary(
+        cluster_result["clustered_events"]
+    )
 
     representatives = cluster_result[
         "representatives"
@@ -769,7 +769,7 @@ def main():
     # --------------------------------------------------------
 
     print_separator(
-        "MULTI-ASSET RECOVERY ANALYSIS"
+        "MULTI-ASSET CAUSAL RECOVERY ANALYSIS"
     )
 
     if not asset_data:
@@ -785,7 +785,7 @@ def main():
     )
 
     multi_asset_result = (
-        multi_asset_analyzer.analyze(
+        multi_asset_analyzer.analyze_causal(
             asset_data
         )
     )
@@ -882,6 +882,8 @@ def main():
             "Symbol",
             "Recovery_Cluster_ID",
             "Cluster_Start_Date",
+            "Representative_Method",
+            "Representative_Causal",
             "Cluster_End_Date",
             "Cluster_Size",
             "VFI",
@@ -934,8 +936,10 @@ def main():
         )
 
     # --------------------------------------------------------
-    # NUEVO ANÁLISIS
+    # ANÁLISIS RETROSPECTIVO EXPLORATORIO
     # COMPARACIÓN DE REPRESENTANTES
+    # MIN_VFI/BEST_RECOVERY pueden usar información futura dentro del cluster.
+    # No deben tratarse como backtest causal.
     # --------------------------------------------------------
 
     representative_comparison = (
