@@ -127,6 +127,16 @@ class RecoveryEventClusterer:
             .transform("size")
         )
 
+        events[
+            "Recovery_Events_Seen"
+        ] = (
+            events
+            .groupby(
+                "Recovery_Cluster_ID"
+            ).cumcount()
+            + 1
+        )
+
         return events
 
 
@@ -176,6 +186,31 @@ class RecoveryEventClusterer:
         result.index.name = clustered_events.index.name
 
         return result.sort_index()
+
+
+    def analyze_causal(
+        self,
+        data
+    ):
+        """
+        Point-in-time recovery analysis.
+
+        Events are detected and clustered using only their chronological
+        ordering. The causal representative is always the first observed
+        event in each cluster.
+        """
+
+        events = self.detect_events(data)
+        clustered_events = self.cluster_events_causal(events)
+        representatives = self.select_causal_representative_events(
+            clustered_events
+        )
+
+        return {
+            "events": events,
+            "clustered_events": clustered_events,
+            "representatives": representatives,
+        }
 
 
     def cluster_summary(
