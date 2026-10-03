@@ -16,7 +16,12 @@ class TemporalHoldoutAnalyzer:
 
         cutoff = pd.Timestamp(cutoff)
 
-        train = events[events.index < cutoff].copy()
+        label_end = events.index + pd.to_timedelta(
+            self.primary_horizon,
+            unit="W"
+        )
+
+        train = events[label_end < cutoff].copy()
         test = events[events.index >= cutoff].copy()
 
         return train, test
