@@ -55,7 +55,7 @@ class RecoveryEventClusterer:
         return events
 
 
-    def cluster_events(
+    def cluster_events_causal(
         self,
         events
     ):
@@ -128,6 +128,54 @@ class RecoveryEventClusterer:
         )
 
         return events
+
+
+    def cluster_events(
+        self,
+        events
+    ):
+        """
+        Retrospective clustering retained for exploratory analysis.
+
+        Cluster membership is assigned from the complete event history.
+        Use cluster_events_causal() for point-in-time signal generation.
+        """
+
+        return self.cluster_events_causal(events)
+
+
+    def select_causal_representative_events(
+        self,
+        clustered_events
+    ):
+        """
+        Select the first observed event from each causal cluster.
+
+        Unlike the historical representative selector, this never searches
+        later events for a lower VFI value.
+        """
+
+        if clustered_events.empty:
+            return clustered_events.copy()
+
+        representatives = []
+
+        for cluster_id, group in clustered_events.groupby(
+            "Recovery_Cluster_ID"
+        ):
+            group = group.sort_index()
+            representative = group.iloc[0].copy()
+            representative["Recovery_Cluster_ID"] = cluster_id
+            representative["Representative_Method"] = (
+                "CAUSAL_FIRST_RECOVERY"
+            )
+            representative["Representative_Causal"] = True
+            representatives.append(representative)
+
+        result = pd.DataFrame(representatives)
+        result.index.name = clustered_events.index.name
+
+        return result.sort_index()
 
 
     def cluster_summary(
