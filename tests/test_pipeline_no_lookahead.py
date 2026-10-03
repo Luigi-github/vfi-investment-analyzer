@@ -113,5 +113,40 @@ class TestPipelineNoLookahead(unittest.TestCase):
                 )
 
 
+    def test_recovery_signal_analyzer_uses_configured_primary_horizon(self):
+        from app.backtest.recovery_signal_analysis import RecoverySignalAnalyzer
+
+        dates = pd.date_range("2024-01-05", periods=3, freq="W-FRI")
+        data = pd.DataFrame(
+            {
+                "Close": [100.0, 110.0, 121.0],
+                "VFI": [-3.0, -2.0, -1.0],
+                "VFI_State": ["BEARISH_FLOW"] * 3,
+                "VFI_Slope": [0.1, 0.1, 0.1],
+                "VFI_Slope_4W": [0.1, 0.1, 0.1],
+                "VFI_Slope_8W": [0.1, 0.1, 0.1],
+                "VFI_Distance_Zero": [3.0, 2.0, 1.0],
+                "VFI_Range_Position": [0.1, 0.2, 0.3],
+                "VFI_Cycle_Stage": ["EARLY_RECOVERY"] * 3,
+            },
+            index=dates,
+        )
+
+        analyzer = RecoverySignalAnalyzer(
+            horizons=(1, 2),
+            primary_horizon=1,
+        )
+        events = analyzer.build_event_dataset(data)
+
+        self.assertAlmostEqual(events.iloc[0]["Primary_Return"], 10.0)
+        self.assertEqual(events.iloc[0]["Primary_Result"], "POSITIVE")
+
+    def test_recovery_signal_analyzer_rejects_primary_horizon_not_in_horizons(self):
+        from app.backtest.recovery_signal_analysis import RecoverySignalAnalyzer
+
+        with self.assertRaises(ValueError):
+            RecoverySignalAnalyzer(horizons=(4, 8), primary_horizon=26)
+
+
 if __name__ == "__main__":
     unittest.main()
