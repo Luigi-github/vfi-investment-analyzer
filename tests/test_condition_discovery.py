@@ -66,7 +66,7 @@ class TestConditionDiscovery(unittest.TestCase):
         )
         windows = analyzer.walk_forward_discovery(
             self.events,
-            initial_train_weeks=2,
+            initial_train_weeks=4,
             test_weeks=2,
             step_weeks=2,
             condition_builder=lambda frame: {
