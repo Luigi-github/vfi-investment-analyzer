@@ -1056,6 +1056,36 @@ def main():
         print("No hay eventos causales para validacion temporal.")
 
     # --------------------------------------------------------
+    # VALIDACION WALK-FORWARD
+    # --------------------------------------------------------
+
+    print_separator(
+        "VALIDACION WALK-FORWARD"
+    )
+
+    walk_forward_summary = multi_asset_analyzer.analyze_assets_walk_forward(
+        causal_events_by_asset,
+        initial_train_weeks=104,
+        test_weeks=52,
+        step_weeks=52
+    )
+
+    if not walk_forward_summary.empty:
+        format_dataframe(
+            walk_forward_summary,
+            float_columns=[
+                "Train_Average_Return",
+                "Train_Median_Return",
+                "Train_Positive_Rate",
+                "Test_Average_Return",
+                "Test_Median_Return",
+                "Test_Positive_Rate"
+            ]
+        )
+    else:
+        print("No hay suficientes eventos para walk-forward.")
+
+    # --------------------------------------------------------
     # FINAL
     # --------------------------------------------------------
 
