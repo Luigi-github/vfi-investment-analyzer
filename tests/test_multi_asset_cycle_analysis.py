@@ -32,7 +32,10 @@ def make_asset(offset=0):
 class TestMultiAssetCycleAnalyzer(unittest.TestCase):
 
     def test_analyzes_multiple_assets(self):
-        result = MultiAssetCycleAnalyzer().analyze(
+        result = MultiAssetCycleAnalyzer(
+            horizons=(4, 8),
+            primary_horizon=4,
+        ).analyze(
             {"DDD": make_asset(), "INTC": make_asset(10)}
         )
 
