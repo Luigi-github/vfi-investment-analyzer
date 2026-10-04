@@ -17,7 +17,7 @@ def make_data():
     ]
     return pd.DataFrame(
         {
-            "Close": [100, 102, 105, 110, 115, 120, 118, 112, 105, 103, 106, 109, 114, 118],
+            "Close": [100, 102, 105, 110, 115, 120, 118, 112, 105, 103, 106, 109, 114, 118, 116, 110, 104, 108],
             "VFI": vfi,
             "VFI_Slope": [0, 1, 1, 1.5, 1.5, 1, -1, -1, -1, 1, 1, 1, 1.5, 1, -1, -1, -1, 1],
             "VFI_Slope_4W": [0, 0.2, 0.5, 0.8, 1, 1, 0.5, -0.5, -1, -0.5, 0.2, 0.5, 0.8, 1, 0.5, -0.2, -0.5, 0.5],
@@ -41,7 +41,7 @@ class TestVFICycleBacktestAnalyzer(unittest.TestCase):
         analyzer = VFICycleBacktestAnalyzer()
         row = pd.Series(
             {
-                "Cycle_Type": "BULLISH_CYCLE",
+                "Cycle_Type": "FULL_VFI_CYCLE",
                 "Complete": True,
                 "Recovery_Weeks": 4,
                 "Weeks_SUSTAINED_RECOVERY": 2,
