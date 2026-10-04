@@ -106,6 +106,48 @@ class TemporalHoldoutAnalyzer:
 
         return windows
 
+    def summarize_walk_forward(self, windows):
+        """Summarize out-of-sample consistency across walk-forward windows."""
+        if not windows:
+            return {
+                "Windows": 0,
+                "Valid_Windows": 0,
+                "Average_Test_Return": float("nan"),
+                "Median_Test_Return": float("nan"),
+                "Positive_Window_Rate": float("nan"),
+                "Worst_Test_Return": float("nan"),
+                "Best_Test_Return": float("nan"),
+            }
+
+        returns = pd.Series(
+            [
+                window["test_summary"]["Average_Return"]
+                for window in windows
+            ],
+            dtype="float64",
+        ).dropna()
+
+        if returns.empty:
+            return {
+                "Windows": len(windows),
+                "Valid_Windows": 0,
+                "Average_Test_Return": float("nan"),
+                "Median_Test_Return": float("nan"),
+                "Positive_Window_Rate": float("nan"),
+                "Worst_Test_Return": float("nan"),
+                "Best_Test_Return": float("nan"),
+            }
+
+        return {
+            "Windows": len(windows),
+            "Valid_Windows": len(returns),
+            "Average_Test_Return": float(returns.mean()),
+            "Median_Test_Return": float(returns.median()),
+            "Positive_Window_Rate": float((returns > 0).mean() * 100.0),
+            "Worst_Test_Return": float(returns.min()),
+            "Best_Test_Return": float(returns.max()),
+        }
+
     def analyze(self, events, cutoff):
         train, test = self.split(events, cutoff)
 
