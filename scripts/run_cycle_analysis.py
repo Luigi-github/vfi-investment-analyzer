@@ -15,7 +15,7 @@ from app.backtest.multi_asset_cycle_analysis import MultiAssetCycleAnalyzer
 
 
 SYMBOLS = ["DDD", "INTC", "NVDA", "BTC-USD", "SQM", "EC"]
-OUTPUT_DIR = Path("reports/cycle_analysis")
+OUTPUT_DIR = ROOT / "reports" / "cycle_analysis"
 
 
 def prepare_asset(symbol, market_data_service, vfi_indicator, vfi_analyzer, scorer, cycle_analyzer):
@@ -24,7 +24,7 @@ def prepare_asset(symbol, market_data_service, vfi_indicator, vfi_analyzer, scor
     vfi = vfi_indicator.calculate(weekly)
     analyzed = vfi_analyzer.analyze(vfi)
     scored = scorer.calculate(analyzed)
-    return cycle_analyzer.analyze(scored)
+    return cycle_analyzer.analyze(scored), len(daily)
 
 
 def main():
@@ -47,7 +47,7 @@ def main():
         print("=" * 80)
         print(f"ANALYZING {symbol}")
         print("=" * 80)
-        data = prepare_asset(
+        data, daily_rows = prepare_asset(
             symbol,
             market_data_service,
             vfi_indicator,
@@ -60,9 +60,7 @@ def main():
         metadata.append(
             {
                 "Symbol": symbol,
-                "Daily_Rows": len(
-                    market_data_service.get_daily_data(symbol, period="max")
-                ),
+                "Daily_Rows": daily_rows,
                 "Weekly_Rows": len(data),
                 "Valid_VFI_Rows": len(valid),
                 "Latest_Date": valid.index[-1] if not valid.empty else None,
