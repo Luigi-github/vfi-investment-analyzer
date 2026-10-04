@@ -1082,6 +1082,26 @@ def main():
                 "Test_Positive_Rate"
             ]
         )
+
+        walk_forward_consistency = (
+            multi_asset_analyzer.summarize_walk_forward_assets(
+                walk_forward_summary
+            )
+        )
+
+        print()
+        print("CONSISTENCIA OUT-OF-SAMPLE POR ACTIVO")
+
+        format_dataframe(
+            walk_forward_consistency,
+            float_columns=[
+                "Average_Test_Return",
+                "Median_Test_Return",
+                "Positive_Window_Rate",
+                "Worst_Test_Return",
+                "Best_Test_Return"
+            ]
+        )
     else:
         print("No hay suficientes eventos para walk-forward.")
 
