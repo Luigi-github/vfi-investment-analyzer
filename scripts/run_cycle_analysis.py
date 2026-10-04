@@ -1,6 +1,10 @@
 from pathlib import Path
+import sys
 
 import pandas as pd
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 from app.analysis.vfi_analyzer import VFIAnalyzer
 from app.analysis.vfi_cycle import VFICycleAnalyzer
