@@ -59,6 +59,45 @@ class TestConditionDiscovery(unittest.TestCase):
             "Deep VFI + positive slope",
         )
 
+    def test_walk_forward_discovery_selects_on_train_and_evaluates_test(self):
+        analyzer = ConditionDiscoveryAnalyzer(
+            primary_horizon=2,
+            minimum_events=2,
+        )
+        windows = analyzer.walk_forward_discovery(
+            self.events,
+            initial_train_weeks=2,
+            test_weeks=2,
+            step_weeks=2,
+            condition_builder=lambda frame: {
+                name: mask.loc[frame.index]
+                for name, mask in self.conditions.items()
+            },
+        )
+
+        self.assertGreaterEqual(len(windows), 1)
+        first = windows[0]
+        self.assertEqual(
+            first["selected"].iloc[0]["Condition"],
+            "Deep VFI + positive slope",
+        )
+        self.assertEqual(
+            first["test_results"].iloc[0]["Condition"],
+            "Deep VFI + positive slope",
+        )
+        self.assertEqual(first["test_results"].iloc[0]["Count"], 0)
+
+    def test_walk_forward_requires_datetime_index(self):
+        analyzer = ConditionDiscoveryAnalyzer(primary_horizon=2)
+
+        with self.assertRaises(ValueError):
+            analyzer.walk_forward_discovery(
+                self.events.reset_index(drop=True),
+                initial_train_weeks=2,
+                test_weeks=2,
+                step_weeks=2,
+            )
+
     def test_selected_conditions_are_evaluated_on_test_without_reranking(self):
         analyzer = ConditionDiscoveryAnalyzer(
             primary_horizon=2,
