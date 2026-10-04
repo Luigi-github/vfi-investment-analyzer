@@ -137,6 +137,18 @@ También se pueden utilizar horizontes pequeños en las pruebas unitarias.
 
 Los retornos forward se calculan desde la fecha de la señal hacia observaciones posteriores. Una observación futura no debe modificar el retorno histórico calculado para una fecha que ya tenía suficiente información.
 
+### Descubrimiento de condiciones sin contaminación del test
+
+`ConditionDiscoveryAnalyzer` permite comparar hipótesis de señal de forma temporalmente separada:
+
+1. las condiciones candidatas se evalúan en el conjunto de entrenamiento;
+2. solo las condiciones que cumplen el mínimo de observaciones pueden ser seleccionadas;
+3. la selección se ordena usando únicamente la métrica configurada del entrenamiento;
+4. las condiciones seleccionadas se llevan al conjunto de prueba sin volver a optimizarlas;
+5. el resultado del test se conserva como evaluación out-of-sample.
+
+Esto evita escoger una condición porque funcionó bien en todo el histórico y luego presentar ese mismo histórico como validación independiente.
+
 ### Riesgo, costes y benchmark
 
 `ForwardRiskAnalyzer` calcula como resultados posteriores el máximo favorable, máximo adverso y drawdown máximo para cada horizonte. Las ventanas incompletas al final de la muestra se dejan como `NaN` y no se tratan como resultados observados.
