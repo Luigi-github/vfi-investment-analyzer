@@ -22,7 +22,7 @@ class TestStatisticalRobustnessAnalyzer(unittest.TestCase):
     def test_independent_excess_bootstrap_is_reproducible(self):
         analyzer = StatisticalRobustnessAnalyzer(bootstrap_samples=200, random_seed=7)
         result = analyzer.bootstrap_excess_independent([10, 20, 30], [5, 10, 15, 20])
-        self.assertAlmostEqual(result["Excess_Mean"], 5.0)
+        self.assertAlmostEqual(result["Excess_Mean"], 7.5)
         self.assertLessEqual(result["CI_Lower"], result["Excess_Mean"])
         self.assertGreaterEqual(result["CI_Upper"], result["Excess_Mean"])
 
