@@ -96,6 +96,25 @@ class TestTemporalHoldoutAnalyzer(unittest.TestCase):
                 < current["test"].index.min()
             )
 
+    def test_walk_forward_summary_measures_consistency(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+
+        windows = [
+            {"test_summary": {"Average_Return": 10.0}},
+            {"test_summary": {"Average_Return": -2.0}},
+            {"test_summary": {"Average_Return": 4.0}},
+        ]
+
+        summary = analyzer.summarize_walk_forward(windows)
+
+        self.assertEqual(summary["Windows"], 3)
+        self.assertEqual(summary["Valid_Windows"], 3)
+        self.assertAlmostEqual(summary["Average_Test_Return"], 4.0)
+        self.assertAlmostEqual(summary["Median_Test_Return"], 4.0)
+        self.assertAlmostEqual(summary["Positive_Window_Rate"], 66.6666666667)
+        self.assertAlmostEqual(summary["Worst_Test_Return"], -2.0)
+        self.assertAlmostEqual(summary["Best_Test_Return"], 10.0)
+
     def test_invalid_index_is_rejected(self):
         analyzer = TemporalHoldoutAnalyzer()
 
