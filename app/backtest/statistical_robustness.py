@@ -46,6 +46,26 @@ class StatisticalRobustnessAnalyzer:
             "Count": int(excess.size),
         }
 
+    def bootstrap_excess_independent(self, event_returns, benchmark_returns):
+        """Bootstrap the difference between two independent return samples."""
+        events = self._finite(event_returns)
+        benchmark = self._finite(benchmark_returns)
+        rng = np.random.default_rng(self.random_seed)
+        event_means = rng.choice(
+            events, size=(self.bootstrap_samples, events.size), replace=True
+        ).mean(axis=1)
+        benchmark_means = rng.choice(
+            benchmark, size=(self.bootstrap_samples, benchmark.size), replace=True
+        ).mean(axis=1)
+        excess = event_means - benchmark_means
+        alpha = 1.0 - self.confidence
+        low, high = np.quantile(excess, [alpha / 2.0, 1.0 - alpha / 2.0])
+        return {
+            "Excess_Mean": float(events.mean() - benchmark.mean()),
+            "CI_Lower": float(low),
+            "CI_Upper": float(high),
+        }
+
     @staticmethod
     def benjamini_hochberg(p_values):
         """Return BH-adjusted q-values in original order."""
