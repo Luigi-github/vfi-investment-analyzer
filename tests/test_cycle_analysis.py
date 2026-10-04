@@ -42,7 +42,10 @@ class TestVFICycleBacktestAnalyzer(unittest.TestCase):
         bullish = cycles[cycles["Cycle_Type"] == "BULLISH_CYCLE"].iloc[0]
         self.assertGreaterEqual(bullish["Weeks_SUSTAINED_RECOVERY"], 1)
         self.assertGreater(bullish["Peak_Return_From_Start_Pct"], 0)
-        self.assertIn(bullish["Cycle_Quality"], {"EXCEPTIONAL", "STRONG", "MODERATE"})
+        self.assertIn(
+            bullish["Cycle_Quality"],
+            {"EXCEPTIONAL", "STRONG", "MODERATE"},
+        )
 
     def test_stage_entry_is_causal_and_only_counts_stage_start(self):
         events = VFICycleBacktestAnalyzer().stage_entry_analysis(
@@ -59,9 +62,44 @@ class TestVFICycleBacktestAnalyzer(unittest.TestCase):
         self.assertTrue(bool(events["Causal_Event"].all()))
         self.assertGreater(events.iloc[1]["VFI_Slope_4W"], 0)
 
+    def test_stage_entries_do_not_change_when_future_rows_are_appended(self):
+        analyzer = VFICycleBacktestAnalyzer()
+        original = analyzer.stage_entry_analysis(make_data())
+        extended = make_data().copy()
+
+        future_index = pd.date_range(
+            extended.index[-1] + pd.Timedelta(weeks=1),
+            periods=4,
+            freq="W-FRI",
+        )
+        future = extended.iloc[-1:].copy().loc[
+            future_index.repeat(1)
+        ]
+        future.index = future_index
+        future["Close"] = [130, 140, 150, 160]
+        future["VFI"] = [2.5, 3, 3.5, 4]
+        future["VFI_Slope"] = [0.5] * 4
+        future["VFI_Slope_4W"] = [0.5] * 4
+        future["VFI_Slope_8W"] = [0.5] * 4
+        future["VFI_Cycle_Stage"] = ["BULLISH_FLOW"] * 4
+
+        extended = pd.concat([extended, future])
+        extended_events = analyzer.stage_entry_analysis(extended)
+
+        self.assertEqual(
+            list(original.index),
+            list(extended_events.loc[original.index].index),
+        )
+        self.assertEqual(
+            list(original["Cycle_Stage_Event"]),
+            list(extended_events.loc[original.index]["Cycle_Stage_Event"]),
+        )
+
     def test_validation_rejects_missing_columns(self):
         with self.assertRaisesRegex(ValueError, "Missing required columns"):
-            VFICycleBacktestAnalyzer().extract_cycles(pd.DataFrame({"Close": [1, 2]}))
+            VFICycleBacktestAnalyzer().extract_cycles(
+                pd.DataFrame({"Close": [1, 2]})
+            )
 
 
 if __name__ == "__main__":
