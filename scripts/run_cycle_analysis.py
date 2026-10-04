@@ -77,6 +77,9 @@ def main():
     result["events"].to_csv(OUTPUT_DIR / "stage_entries.csv")
     result["quality_summary"].to_csv(OUTPUT_DIR / "quality_summary.csv", index=False)
     result["stage_summary"].to_csv(OUTPUT_DIR / "stage_summary.csv", index=False)
+    result["stage_statistical_summary"].to_csv(
+        OUTPUT_DIR / "stage_statistical_summary.csv", index=False
+    )
     result["asset_summary"].to_csv(OUTPUT_DIR / "asset_summary.csv", index=False)
     pd.DataFrame(metadata).to_csv(OUTPUT_DIR / "asset_metadata.csv", index=False)
 
@@ -84,6 +87,11 @@ def main():
     print("STAGE SUMMARY")
     print("=" * 80)
     print(result["stage_summary"].to_string(index=False))
+
+    print("=" * 80)
+    print("STATISTICAL STAGE SUMMARY")
+    print("=" * 80)
+    print(result["stage_statistical_summary"].to_string(index=False))
 
     print("=" * 80)
     print("ASSET SUMMARY")
