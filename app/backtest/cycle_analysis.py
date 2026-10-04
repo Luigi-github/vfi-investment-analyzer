@@ -170,7 +170,7 @@ class VFICycleBacktestAnalyzer:
 
     @staticmethod
     def _classify_cycle_quality(row):
-        if row["Cycle_Type"] != "BULLISH_CYCLE":
+        if row["Cycle_Type"] != "FULL_VFI_CYCLE":
             return "NOT_BULLISH"
 
         if not row["Complete"]:
@@ -226,7 +226,7 @@ class VFICycleBacktestAnalyzer:
         if cycles.empty:
             return pd.DataFrame()
 
-        bullish = cycles[cycles["Cycle_Type"] == "BULLISH_CYCLE"].copy()
+        bullish = cycles[cycles["Cycle_Type"] == "FULL_VFI_CYCLE"].copy()
         if bullish.empty:
             return pd.DataFrame()
 
