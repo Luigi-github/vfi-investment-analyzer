@@ -82,7 +82,7 @@ class MultiAssetCycleAnalyzer:
         if cycles.empty:
             return pd.DataFrame()
 
-        bullish = cycles[cycles["Cycle_Type"] == "BULLISH_CYCLE"].copy()
+        bullish = cycles[cycles["Cycle_Type"] == "FULL_VFI_CYCLE"].copy()
         if bullish.empty:
             return pd.DataFrame()
 
