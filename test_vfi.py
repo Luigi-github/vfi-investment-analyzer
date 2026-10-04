@@ -1106,6 +1106,61 @@ def main():
         print("No hay suficientes eventos para walk-forward.")
 
     # --------------------------------------------------------
+    # BENCHMARK WALK-FORWARD POR VENTANA
+    # --------------------------------------------------------
+
+    print_separator(
+        "BENCHMARK WALK-FORWARD"
+    )
+
+    benchmark_walk_frames = []
+
+    for symbol, events in causal_events_by_asset.items():
+        windows = temporal_analyzer.walk_forward(
+            events,
+            initial_train_weeks=104,
+            test_weeks=52,
+            step_weeks=52
+        )
+
+        if not windows:
+            continue
+
+        benchmark_data = BenchmarkAnalyzer(
+            horizons=(26,)
+        ).calculate_forward_returns(
+            asset_data[symbol]
+        )
+
+        benchmark_series = benchmark_data["Return_26W"]
+
+        window_comparison = temporal_analyzer.summarize_benchmark_by_window(
+            windows,
+            benchmark_series
+        )
+
+        if not window_comparison.empty:
+            window_comparison.insert(0, "Symbol", symbol)
+            benchmark_walk_frames.append(window_comparison)
+
+    if benchmark_walk_frames:
+        benchmark_walk_forward = pd.concat(
+            benchmark_walk_frames,
+            ignore_index=True
+        )
+
+        format_dataframe(
+            benchmark_walk_forward,
+            float_columns=[
+                "Test_Average_Return",
+                "Benchmark_Average_Return",
+                "Excess_Average_Return"
+            ]
+        )
+    else:
+        print("No hay suficientes datos para benchmark walk-forward.")
+
+    # --------------------------------------------------------
     # FINAL
     # --------------------------------------------------------
 
