@@ -12,6 +12,7 @@ from app.data.market_data import MarketDataService
 from app.indicators.vfi import VFIIndicator
 from app.scoring.vfi_score import VFIScore
 from app.backtest.multi_asset_cycle_analysis import MultiAssetCycleAnalyzer
+from app.backtest.regime_analysis import RegimeAnalyzer
 
 
 SYMBOLS = ["DDD", "INTC", "NVDA", "BTC-USD", "SQM", "EC"]
@@ -73,6 +74,14 @@ def main():
 
     result = cycle_analyzer.analyze(asset_data)
 
+    benchmark_daily = market_data_service.get_daily_data("SPY", period="max")
+    benchmark_weekly = market_data_service.convert_to_weekly(benchmark_daily)
+    regime_analyzer = RegimeAnalyzer(lookback_weeks=26)
+    result["events"] = regime_analyzer.label_events(result["events"], benchmark_weekly)
+    result["regime_summary"] = regime_analyzer.summarize(
+        result["events"], f"Return_{cycle_analyzer.primary_horizon}W"
+    )
+
     result["cycles"].to_csv(OUTPUT_DIR / "cycles.csv", index=False)
     result["events"].to_csv(OUTPUT_DIR / "stage_entries.csv")
     result["quality_summary"].to_csv(OUTPUT_DIR / "quality_summary.csv", index=False)
@@ -92,6 +101,11 @@ def main():
     print("STATISTICAL STAGE SUMMARY")
     print("=" * 80)
     print(result["stage_statistical_summary"].to_string(index=False))
+
+    print("=" * 80)
+    print("REGIME SUMMARY")
+    print("=" * 80)
+    print(result["regime_summary"].to_string(index=False))
 
     print("=" * 80)
     print("ASSET SUMMARY")
