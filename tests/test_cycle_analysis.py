@@ -72,19 +72,21 @@ class TestVFICycleBacktestAnalyzer(unittest.TestCase):
             periods=4,
             freq="W-FRI",
         )
-        future = extended.iloc[-1:].copy().loc[
-            future_index.repeat(1)
-        ]
-        future.index = future_index
-        future["Close"] = [130, 140, 150, 160]
-        future["VFI"] = [2.5, 3, 3.5, 4]
-        future["VFI_Slope"] = [0.5] * 4
-        future["VFI_Slope_4W"] = [0.5] * 4
-        future["VFI_Slope_8W"] = [0.5] * 4
-        future["VFI_Cycle_Stage"] = ["BULLISH_FLOW"] * 4
+        future = pd.DataFrame(
+            {
+                "Close": [130, 140, 150, 160],
+                "VFI": [2.5, 3, 3.5, 4],
+                "VFI_Slope": [0.5] * 4,
+                "VFI_Slope_4W": [0.5] * 4,
+                "VFI_Slope_8W": [0.5] * 4,
+                "VFI_Cycle_Stage": ["BULLISH_FLOW"] * 4,
+            },
+            index=future_index,
+        )
 
-        extended = pd.concat([extended, future])
-        extended_events = analyzer.stage_entry_analysis(extended)
+        extended_events = analyzer.stage_entry_analysis(
+            pd.concat([extended, future])
+        )
 
         self.assertEqual(
             list(original.index),
