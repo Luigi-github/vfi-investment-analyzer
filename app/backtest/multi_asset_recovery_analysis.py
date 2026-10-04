@@ -753,9 +753,10 @@ class MultiAssetRecoveryAnalyzer:
             results[symbol] = windows
 
             summary = analyzer.summarize_walk_forward(windows)
-            if not summary.empty:
-                summary.insert(0, "Symbol", symbol)
-                summaries.append(summary)
+            if isinstance(summary, dict):
+                summary = pd.DataFrame([summary])
+            summary.insert(0, "Symbol", symbol)
+            summaries.append(summary)
 
         summary_frame = (
             pd.concat(summaries, ignore_index=True)
