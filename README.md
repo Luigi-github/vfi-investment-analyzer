@@ -149,6 +149,12 @@ Los retornos forward se calculan desde la fecha de la señal hacia observaciones
 
 Esto evita escoger una condición porque funcionó bien en todo el histórico y luego presentar ese mismo histórico como validación independiente.
 
+El flujo multi-activo expone este proceso mediante
+`MultiAssetRecoveryAnalyzer.analyze_condition_discovery_walk_forward()`.
+Cada activo obtiene sus propias ventanas de entrenamiento y prueba, y la
+condición seleccionada en una ventana no se vuelve a optimizar usando su
+respectiva ventana de test.
+
 ### Riesgo, costes y benchmark
 
 `ForwardRiskAnalyzer` calcula como resultados posteriores el máximo favorable, máximo adverso y drawdown máximo para cada horizonte. Las ventanas incompletas al final de la muestra se dejan como `NaN` y no se tratan como resultados observados.
@@ -176,6 +182,26 @@ La suite contiene pruebas para:
 - estabilidad end-to-end de las features del pipeline VFI + análisis + score frente a nuevas observaciones futuras.
 
 GitHub Actions ejecuta automáticamente la suite en Python 3.12.
+
+### Dashboard Streamlit
+
+La interfaz de investigación se encuentra en `dashboard/app.py`.
+
+Ejecutar:
+
+```powershell
+.\venv\Scripts\python.exe -m streamlit run dashboard/app.py
+```
+
+El dashboard muestra:
+
+- estado semanal actual de los activos;
+- VFI, señal y pendientes de 1/4/8 semanas;
+- etapa del ciclo VFI;
+- resultados del descubrimiento walk-forward;
+- gráfico histórico de VFI y su señal.
+
+El dashboard reutiliza el mismo motor cuantitativo; no contiene una implementación paralela del VFI.
 
 ## Instalación
 
