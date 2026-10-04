@@ -27,6 +27,7 @@ SYMBOLS = [
     "DDD",
     "INTC",
     "BTC-USD",
+    "SQM",
     "ETH-USD",
     "EEM",
     "NVDA",
