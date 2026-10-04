@@ -37,6 +37,18 @@ class TestVFICycleBacktestAnalyzer(unittest.TestCase):
         self.assertEqual(cycles.iloc[0]["Cycle_Type"], "FULL_VFI_CYCLE")
         self.assertTrue(bool(cycles.iloc[0]["Complete"]))
         self.assertFalse(bool(cycles.iloc[-1]["Complete"]))
+        self.assertTrue(bool(cycles.iloc[0]["Retrospective_Analysis"]))
+        self.assertFalse(bool(cycles.iloc[0]["Causal_Signal"]))
+        self.assertEqual(len(cycles[cycles["Complete"]]), 1)
+
+    def test_summary_can_exclude_incomplete_cycles(self):
+        analyzer = VFICycleBacktestAnalyzer()
+        cycles = analyzer.extract_cycles(make_data())
+
+        summary = analyzer.summarize(cycles, complete_only=True)
+
+        self.assertEqual(int(summary["Cycles"].sum()), 1)
+        self.assertNotIn("INCOMPLETE", set(summary["Cycle_Quality"]))
 
     def test_bullish_cycle_quality_classification(self):
         analyzer = VFICycleBacktestAnalyzer()

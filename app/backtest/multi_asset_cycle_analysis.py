@@ -41,7 +41,7 @@ class MultiAssetCycleAnalyzer:
         return {
             "cycles": cycles,
             "events": events,
-            "quality_summary": self.analyzer.summarize(cycles),
+            "quality_summary": self.analyzer.summarize(cycles, complete_only=True),
             "stage_summary": self._stage_summary(events),
             "asset_summary": self._asset_summary(cycles),
         }
@@ -82,7 +82,10 @@ class MultiAssetCycleAnalyzer:
         if cycles.empty:
             return pd.DataFrame()
 
-        bullish = cycles[cycles["Cycle_Type"] == "FULL_VFI_CYCLE"].copy()
+        bullish = cycles[
+            (cycles["Cycle_Type"] == "FULL_VFI_CYCLE")
+            & cycles["Complete"]
+        ].copy()
         if bullish.empty:
             return pd.DataFrame()
 

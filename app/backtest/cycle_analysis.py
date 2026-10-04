@@ -89,6 +89,8 @@ class VFICycleBacktestAnalyzer:
             row = {
                 "Cycle_ID": number,
                 "Cycle_Type": "FULL_VFI_CYCLE",
+                "Causal_Signal": False,
+                "Retrospective_Analysis": True,
                 "Start_Date": segment.index[0],
                 "End_Date": segment.index[-1],
                 "Boundary_End_Date": end_date,
@@ -221,12 +223,19 @@ class VFICycleBacktestAnalyzer:
         events["Causal_Event"] = True
         return events
 
-    def summarize(self, cycles):
-        """Summarize completed and incomplete bullish cycles by quality."""
+    def summarize(self, cycles, complete_only=False):
+        """Summarize cycle outcomes, optionally restricting to complete cycles.
+
+        Cycle quality and full-cycle returns are retrospective descriptors:
+        they use information known only after the cycle ends and must not be
+        treated as point-in-time signals.
+        """
         if cycles.empty:
             return pd.DataFrame()
 
         bullish = cycles[cycles["Cycle_Type"] == "FULL_VFI_CYCLE"].copy()
+        if complete_only:
+            bullish = bullish[bullish["Complete"]].copy()
         if bullish.empty:
             return pd.DataFrame()
 
