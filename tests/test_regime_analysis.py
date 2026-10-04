@@ -8,7 +8,7 @@ from app.backtest.regime_analysis import RegimeAnalyzer
 class TestRegimeAnalyzer(unittest.TestCase):
     def test_classifies_bull_bear_and_sideways(self):
         dates = pd.date_range("2024-01-05", periods=30, freq="W-FRI")
-        close = [100.0] * 26 + [120.0, 120.0, 90.0, 90.0]
+        close = [100.0] * 26 + [120.0, 105.0, 90.0, 90.0]
         benchmark = pd.DataFrame({"Close": close}, index=dates)
         result = RegimeAnalyzer(lookback_weeks=26).classify(benchmark)
         self.assertEqual(result.iloc[26]["Market_Regime"], "BULL")
