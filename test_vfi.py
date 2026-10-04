@@ -16,6 +16,7 @@ from app.backtest.recovery_cluster_analyzer import (
 from app.backtest.benchmark import BenchmarkAnalyzer
 from app.backtest.execution_costs import LongOnlyExecutionCostModel
 from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
+from app.scoring.research_ranking import ResearchRankingAnalyzer
 
 
 # ============================================================
@@ -1104,6 +1105,32 @@ def main():
         )
     else:
         print("No hay suficientes eventos para walk-forward.")
+
+    # --------------------------------------------------------
+    # RANKING DE INVESTIGACION OUT-OF-SAMPLE
+    # --------------------------------------------------------
+
+    if not walk_forward_summary.empty:
+        print_separator(
+            "RANKING DE INVESTIGACION OUT-OF-SAMPLE"
+        )
+
+        research_ranking = ResearchRankingAnalyzer(
+            metric="Average_Test_Return"
+        ).rank(
+            walk_forward_consistency
+        )
+
+        format_dataframe(
+            research_ranking,
+            float_columns=[
+                "Average_Test_Return",
+                "Median_Test_Return",
+                "Positive_Window_Rate",
+                "Worst_Test_Return",
+                "Best_Test_Return",
+            ]
+        )
 
     # --------------------------------------------------------
     # DESCUBRIMIENTO DE CONDICIONES WALK-FORWARD
