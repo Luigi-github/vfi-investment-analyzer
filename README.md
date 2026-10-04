@@ -291,3 +291,47 @@ Una vez estabilizada esta base, las extensiones naturales son:
 ## Estado del proyecto
 
 La rama de auditoría actual prioriza la integridad temporal del backtesting y la reproducibilidad antes de añadir modelos predictivos más complejos.
+
+
+## Metodología de investigación
+
+El proyecto separa explícitamente tres niveles de evidencia:
+
+1. **Señal causal:** usa únicamente información disponible en la fecha del evento. Las entradas de etapa y los primeros eventos de recuperación no usan retornos futuros ni información posterior.
+2. **Resultado forward:** los retornos de 4, 8, 12, 26 y 52 semanas se calculan únicamente cuando existe una ventana futura completa.
+3. **Análisis retrospectivo:** los ciclos VFI completos se usan para estudiar resultados históricos y calidad de ciclos, pero no se consideran señales point-in-time.
+
+La validación estadística incluye:
+
+- media, mediana, dispersión y tasas de resultados;
+- bootstrap reproducible de medias;
+- exceso frente a benchmark;
+- intervalo bootstrap del exceso;
+- corrección Benjamini-Hochberg para múltiples hipótesis;
+- validación walk-forward;
+- análisis de estabilidad entre ventanas;
+- clasificación causal de régimen BULL, BEAR y SIDEWAYS usando el benchmark SPY.
+
+### Interpretación
+
+Un retorno histórico positivo no implica una señal válida. Para considerar una condición candidata se debe comprobar simultáneamente:
+
+- separación temporal entre entrenamiento y prueba;
+- ausencia de look-ahead;
+- suficiente número de observaciones;
+- comportamiento fuera de muestra;
+- comparación contra benchmark;
+- estabilidad entre ventanas y activos;
+- sensibilidad a costos y riesgo.
+
+El **stability score** es un ranking descriptivo de investigación y no una recomendación automática de compra o venta.
+
+## Reporte reproducible
+
+El análisis histórico completo puede ejecutarse manualmente o de forma programada mediante GitHub Actions. El workflow genera los reportes CSV en `reports/cycle_analysis/`, incluyendo ciclos, entradas de etapa, estadísticas, resumen por activo y régimen de mercado.
+
+El análisis actual cubre:
+
+`DDD`, `INTC`, `NVDA`, `BTC-USD`, `SQM` y `EC`.
+
+El workflow automatizado no modifica la fórmula original del VFI.
