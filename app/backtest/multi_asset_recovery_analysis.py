@@ -719,6 +719,55 @@ class MultiAssetRecoveryAnalyzer:
             "condition_analysis": self.condition_analysis(combined),
         }
 
+    def analyze_condition_discovery_walk_forward(
+        self,
+        asset_events,
+        initial_train_weeks=104,
+        test_weeks=52,
+        step_weeks=52,
+        minimum_events=10,
+        top_n=1,
+        ranking_metric="Average_Return",
+    ):
+        """Run causal condition discovery independently for every asset."""
+        from app.backtest.condition_discovery import (
+            ConditionDiscoveryAnalyzer,
+        )
+
+        results = {}
+        summaries = []
+
+        for symbol, events in asset_events.items():
+            analyzer = ConditionDiscoveryAnalyzer(
+                primary_horizon=self.primary_horizon,
+                minimum_events=minimum_events,
+                ranking_metric=ranking_metric,
+            )
+            windows = analyzer.walk_forward_discovery(
+                events,
+                initial_train_weeks=initial_train_weeks,
+                test_weeks=test_weeks,
+                step_weeks=step_weeks,
+                top_n=top_n,
+            )
+            results[symbol] = windows
+
+            summary = analyzer.summarize_walk_forward(windows)
+            if not summary.empty:
+                summary.insert(0, "Symbol", symbol)
+                summaries.append(summary)
+
+        summary_frame = (
+            pd.concat(summaries, ignore_index=True)
+            if summaries
+            else pd.DataFrame()
+        )
+
+        return {
+            "asset_windows": results,
+            "summary": summary_frame,
+        }
+
     def analyze(
         self,
         asset_data
