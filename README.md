@@ -183,6 +183,16 @@ La suite contiene pruebas para:
 
 GitHub Actions ejecuta automáticamente la suite en Python 3.12.
 
+### Ranking out-of-sample
+
+`ResearchRankingAnalyzer` genera un ranking transparente a partir de las métricas
+walk-forward ya calculadas. No aprende pesos ni utiliza retornos del conjunto
+de entrenamiento para modificar el resultado del test.
+
+La métrica por defecto es `Average_Test_Return`; en caso de empate se usan
+`Valid_Windows` y `Median_Test_Return` como criterios secundarios. El ranking
+es descriptivo y no constituye una recomendación automática de inversión.
+
 ### Dashboard Streamlit
 
 La interfaz de investigación se encuentra en `dashboard/app.py`.
