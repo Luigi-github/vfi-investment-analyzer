@@ -16,6 +16,7 @@ from app.backtest.recovery_cluster_analyzer import (
 from app.backtest.benchmark import BenchmarkAnalyzer
 from app.backtest.execution_costs import LongOnlyExecutionCostModel
 from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
+from app.backtest.condition_discovery import ConditionDiscoveryAnalyzer
 
 
 # ============================================================
@@ -1104,6 +1105,51 @@ def main():
         )
     else:
         print("No hay suficientes eventos para walk-forward.")
+
+    # --------------------------------------------------------
+    # DESCUBRIMIENTO DE CONDICIONES WALK-FORWARD
+    # --------------------------------------------------------
+
+    print_separator(
+        "DESCUBRIMIENTO DE CONDICIONES WALK-FORWARD"
+    )
+
+    discovery_result = (
+        multi_asset_analyzer
+        .analyze_condition_discovery_walk_forward(
+            causal_events_by_asset,
+            initial_train_weeks=104,
+            test_weeks=52,
+            step_weeks=52,
+            minimum_events=10,
+            top_n=1,
+            ranking_metric="Average_Return",
+        )
+    )
+
+    discovery_summary = discovery_result["summary"]
+
+    if not discovery_summary.empty:
+        format_dataframe(
+            discovery_summary,
+            float_columns=[
+                "Train_Average_Return",
+                "Test_Average_Return",
+                "Test_Median_Return",
+                "Test_Positive_Rate",
+            ]
+        )
+
+        print()
+        print(
+            "IMPORTANTE: la condición fue seleccionada "
+            "solo con TRAIN y evaluada después en TEST."
+        )
+    else:
+        print(
+            "No hay suficientes eventos para descubrimiento "
+            "walk-forward de condiciones."
+        )
 
     # --------------------------------------------------------
     # BENCHMARK WALK-FORWARD POR VENTANA
