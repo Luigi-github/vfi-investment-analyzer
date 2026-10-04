@@ -1,6 +1,7 @@
 import pandas as pd
 
 from app.backtest.cycle_analysis import VFICycleBacktestAnalyzer
+from app.backtest.statistical_validation import StatisticalValidationAnalyzer
 
 
 class MultiAssetCycleAnalyzer:
@@ -11,6 +12,7 @@ class MultiAssetCycleAnalyzer:
             raise ValueError("primary_horizon must be included in horizons.")
         self.primary_horizon = primary_horizon
         self.analyzer = VFICycleBacktestAnalyzer(horizons=horizons)
+        self.statistics = StatisticalValidationAnalyzer()
 
     def analyze(self, asset_data):
         cycle_frames = []
@@ -43,6 +45,7 @@ class MultiAssetCycleAnalyzer:
             "events": events,
             "quality_summary": self.analyzer.summarize(cycles, complete_only=True),
             "stage_summary": self._stage_summary(events),
+            "stage_statistical_summary": self._stage_statistical_summary(events),
             "asset_summary": self._asset_summary(cycles),
         }
 
@@ -76,6 +79,35 @@ class MultiAssetCycleAnalyzer:
             )
 
         return pd.DataFrame(rows).sort_values("Cycle_Stage").reset_index(drop=True)
+
+    def _stage_statistical_summary(self, events):
+        if events.empty:
+            return pd.DataFrame()
+
+        primary = f"Return_{self.primary_horizon}W"
+        rows = []
+        for stage, group in events.groupby("Cycle_Stage_Event"):
+            returns = group[primary].dropna()
+            if returns.empty:
+                continue
+            summary = self.statistics.summarize(returns)
+            bootstrap = self.statistics.bootstrap_mean(returns)
+            rows.append({
+                "Cycle_Stage": stage,
+                "Count": summary["Count"],
+                "Average_Return": summary["Average_Return"],
+                "Median_Return": summary["Median_Return"],
+                "Std_Return": summary["Std_Return"],
+                "Positive_Rate": summary["Positive_Rate"],
+                "Worst_Return": summary["Worst_Return"],
+                "Best_Return": summary["Best_Return"],
+                "Bootstrap_CI_Lower": bootstrap["CI_Lower"],
+                "Bootstrap_CI_Upper": bootstrap["CI_Upper"],
+            })
+
+        return pd.DataFrame(rows).sort_values(
+            "Average_Return", ascending=False
+        ).reset_index(drop=True)
 
     @staticmethod
     def _asset_summary(cycles):
