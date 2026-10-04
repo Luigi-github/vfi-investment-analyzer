@@ -86,23 +86,18 @@ class ConditionDiscoveryAnalyzer:
         eligible["Train_Selected"] = True
         return eligible
 
-    def evaluate_selected(self, test_events, discovered):
-        """Evaluate already-selected train hypotheses on untouched test data."""
+    def evaluate_selected(self, test_events, discovered, conditions):
+        """Evaluate train-selected hypotheses on untouched test data."""
         if discovered.empty:
             return discovered.copy()
 
         names = discovered["Condition"].tolist()
-        missing = [name for name in names if name not in discovered["Condition"].values]
+        missing = [name for name in names if name not in conditions]
         if missing:
-            raise ValueError(f"Unknown discovered conditions: {missing}")
+            raise ValueError(f"Missing condition definitions: {missing}")
 
-        return self.evaluate_conditions(
-            test_events,
-            {
-                name: discovered.loc[
-                    discovered["Condition"] == name, "Condition"
-                ].iloc[0]
-                == name
-                for name in names
-            },
-        )
+        selected_conditions = {
+            name: conditions[name]
+            for name in names
+        }
+        return self.evaluate_conditions(test_events, selected_conditions)
