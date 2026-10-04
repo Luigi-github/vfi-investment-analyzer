@@ -25,6 +25,19 @@ class TestConditionDiscovery(unittest.TestCase):
             "Positive slope": self.events["VFI_Slope"] > 0,
         }
 
+    def test_standard_conditions_match_existing_vfi_hypotheses(self):
+        analyzer = ConditionDiscoveryAnalyzer(primary_horizon=2)
+        conditions = analyzer.build_standard_conditions(self.events)
+
+        self.assertIn("VFI < 0", conditions)
+        self.assertIn("VFI < -5 AND Slope > 0", conditions)
+        self.assertIn(
+            "VFI < 0 AND Slope > 0 AND Slope 8W > 0",
+            conditions,
+        )
+        self.assertEqual(len(conditions), 12)
+
+
     def test_discovery_ranks_using_train_only(self):
         analyzer = ConditionDiscoveryAnalyzer(
             primary_horizon=2,
