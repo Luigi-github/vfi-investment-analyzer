@@ -6,7 +6,10 @@ from app.backtest.cycle_analysis import VFICycleBacktestAnalyzer
 class MultiAssetCycleAnalyzer:
     """Run independent cycle analysis across several assets."""
 
-    def __init__(self, horizons=(4, 8, 12, 26, 52)):
+    def __init__(self, horizons=(4, 8, 12, 26, 52), primary_horizon=26):
+        if primary_horizon not in tuple(horizons):
+            raise ValueError("primary_horizon must be included in horizons.")
+        self.primary_horizon = primary_horizon
         self.analyzer = VFICycleBacktestAnalyzer(horizons=horizons)
 
     def analyze(self, asset_data):
@@ -47,7 +50,7 @@ class MultiAssetCycleAnalyzer:
         if events.empty:
             return pd.DataFrame()
 
-        primary = "Return_26W"
+        primary = f"Return_{self.primary_horizon}W"
         valid = events[events[primary].notna()].copy()
         if valid.empty:
             return pd.DataFrame()
@@ -60,9 +63,9 @@ class MultiAssetCycleAnalyzer:
                     "Cycle_Stage": stage,
                     "Events": len(group),
                     "Assets": group["Symbol"].nunique(),
-                    "Average_Return_26W": returns.mean(),
-                    "Median_Return_26W": returns.median(),
-                    "Positive_Rate_26W": returns.gt(0).mean() * 100,
+                    f"Average_Return_{self.primary_horizon}W": returns.mean(),
+                    f"Median_Return_{self.primary_horizon}W": returns.median(),
+                    f"Positive_Rate_{self.primary_horizon}W": returns.gt(0).mean() * 100,
                     "Average_Return_52W": group["Return_52W"].mean()
                     if "Return_52W" in group.columns
                     else None,
