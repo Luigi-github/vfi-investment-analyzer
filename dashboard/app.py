@@ -9,6 +9,7 @@ from app.analysis.vfi_cycle import VFICycleAnalyzer
 from app.backtest.recovery_event_clustering import RecoveryEventClusterer
 from app.backtest.recovery_signal_analysis import RecoverySignalAnalyzer
 from app.backtest.multi_asset_recovery_analysis import MultiAssetRecoveryAnalyzer
+from app.scoring.research_ranking import ResearchRankingAnalyzer
 
 
 DEFAULT_SYMBOLS = ["DDD", "INTC", "BTC-USD", "ETH-USD", "EEM", "NVDA", "SPY", "AMD"]
@@ -118,6 +119,21 @@ if causal_events:
     summary = discovery["summary"]
     if not summary.empty:
         st.dataframe(summary, use_container_width=True, hide_index=True)
+        ranking = analyzer.summarize_walk_forward_assets(
+            analyzer.analyze_assets_walk_forward(
+                causal_events,
+                initial_train_weeks=104,
+                test_weeks=52,
+                step_weeks=52,
+            )
+        )
+        if not ranking.empty:
+            st.subheader("Ranking out-of-sample")
+            st.dataframe(
+                ResearchRankingAnalyzer().rank(ranking),
+                use_container_width=True,
+                hide_index=True,
+            )
     else:
         st.info("Aún no hay suficientes eventos para descubrimiento walk-forward.")
 else:
