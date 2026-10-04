@@ -262,6 +262,42 @@ class MultiAssetRecoveryAnalyzer:
 
         return pd.DataFrame(rows)
 
+    def summarize_walk_forward_assets(self, walk_forward_results):
+        """Summarize out-of-sample consistency by asset."""
+        from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
+
+        if walk_forward_results.empty:
+            return pd.DataFrame()
+
+        analyzer = TemporalHoldoutAnalyzer(
+            primary_horizon=self.primary_horizon
+        )
+        rows = []
+
+        for symbol, group in walk_forward_results.groupby("Symbol"):
+            windows = []
+            for _, row in group.sort_values("Window").iterrows():
+                windows.append({
+                    "test_summary": {
+                        "Average_Return": row["Test_Average_Return"]
+                    }
+                })
+
+            summary = analyzer.summarize_walk_forward(windows)
+            summary["Symbol"] = symbol
+            rows.append(summary)
+
+        return pd.DataFrame(rows)[[
+            "Symbol",
+            "Windows",
+            "Valid_Windows",
+            "Average_Test_Return",
+            "Median_Test_Return",
+            "Positive_Window_Rate",
+            "Worst_Test_Return",
+            "Best_Test_Return",
+        ]]
+
     def analyze_asset(
         self,
         symbol,
