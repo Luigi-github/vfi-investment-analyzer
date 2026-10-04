@@ -7,10 +7,17 @@ class RecoverySignalAnalyzer:
     def __init__(
         self,
         horizons=(4, 8, 12, 26, 52),
+        primary_horizon=26,
         positive_return_threshold=0.0
     ):
-        self.horizons = horizons
+        self.horizons = tuple(horizons)
+        self.primary_horizon = primary_horizon
         self.positive_return_threshold = positive_return_threshold
+
+        if self.primary_horizon not in self.horizons:
+            raise ValueError(
+                "primary_horizon must be included in horizons."
+            )
 
     # ==========================================================
     # 1. DETECTAR EVENTOS EARLY_RECOVERY
@@ -98,12 +105,16 @@ class RecoverySignalAnalyzer:
         # Resultado principal
         # ------------------------------------------------------
 
-        primary_horizon = 26
+        primary_column = f"Return_{self.primary_horizon}W"
 
-        if f"Return_{primary_horizon}W" in events.columns:
+        if primary_column in events.columns:
             events["Primary_Return"] = events[
-                f"Return_{primary_horizon}W"
+                primary_column
             ]
+        else:
+            raise ValueError(
+                f"Column '{primary_column}' is required."
+            )
 
         # ------------------------------------------------------
         # Clasificación según retorno
@@ -253,11 +264,12 @@ class RecoverySignalAnalyzer:
                 "Count": 0,
                 "Positive_Count": 0,
                 "Positive_Rate": np.nan,
-                "Average_Return_26W": np.nan,
-                "Median_Return_26W": np.nan,
+                f"Average_Return_{self.primary_horizon}W": np.nan,
+                f"Median_Return_{self.primary_horizon}W": np.nan,
             }
 
-        returns = selected["Return_26W"].dropna()
+        primary_column = f"Return_{self.primary_horizon}W"
+        returns = selected[primary_column].dropna()
 
         positive_count = (
             selected["Primary_Result"]
@@ -274,8 +286,8 @@ class RecoverySignalAnalyzer:
             "Count": len(selected),
             "Positive_Count": positive_count,
             "Positive_Rate": positive_rate,
-            "Average_Return_26W": returns.mean(),
-            "Median_Return_26W": returns.median(),
+            f"Average_Return_{self.primary_horizon}W": returns.mean(),
+            f"Median_Return_{self.primary_horizon}W": returns.median(),
         }
 
     # ==========================================================
@@ -476,8 +488,8 @@ class RecoverySignalAnalyzer:
                     "Count": 0,
                     "Positive_Count": 0,
                     "Positive_Rate": np.nan,
-                    "Average_Return_26W": np.nan,
-                    "Median_Return_26W": np.nan,
+                    f"Average_Return_{self.primary_horizon}W": np.nan,
+                    f"Median_Return_{self.primary_horizon}W": np.nan,
                     "Average_Return_52W": np.nan,
                 })
 
@@ -489,8 +501,8 @@ class RecoverySignalAnalyzer:
                 .sum()
             )
 
-            returns_26 = (
-                selected["Return_26W"]
+            primary_returns = (
+                selected[f"Return_{self.primary_horizon}W"]
                 .dropna()
             )
 
@@ -505,10 +517,10 @@ class RecoverySignalAnalyzer:
                 "Positive_Count": positive_count,
                 "Positive_Rate":
                     positive_count / len(selected) * 100,
-                "Average_Return_26W":
-                    returns_26.mean(),
-                "Median_Return_26W":
-                    returns_26.median(),
+                f"Average_Return_{self.primary_horizon}W":
+                    primary_returns.mean(),
+                f"Median_Return_{self.primary_horizon}W":
+                    primary_returns.median(),
                 "Average_Return_52W":
                     returns_52.mean(),
             })

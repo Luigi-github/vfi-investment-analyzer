@@ -13,6 +13,10 @@ from app.backtest.multi_asset_recovery_analysis import (
 from app.backtest.recovery_cluster_analyzer import (
     RecoveryClusterAnalyzer
 )
+from app.backtest.benchmark import BenchmarkAnalyzer
+from app.backtest.execution_costs import LongOnlyExecutionCostModel
+from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
+from app.scoring.research_ranking import ResearchRankingAnalyzer
 
 
 # ============================================================
@@ -187,7 +191,7 @@ def analyze_asset(
     print("7. Clustering de EARLY_RECOVERY...")
 
     cluster_result = (
-        clusterer.analyze(
+        clusterer.analyze_causal(
             cycle_data
         )
     )
@@ -200,9 +204,9 @@ def analyze_asset(
         "clustered_events"
     ]
 
-    cluster_summary = cluster_result[
-        "cluster_summary"
-    ]
+    cluster_summary = clusterer.cluster_summary(
+        cluster_result["clustered_events"]
+    )
 
     representatives = cluster_result[
         "representatives"
@@ -769,7 +773,7 @@ def main():
     # --------------------------------------------------------
 
     print_separator(
-        "MULTI-ASSET RECOVERY ANALYSIS"
+        "MULTI-ASSET CAUSAL RECOVERY ANALYSIS"
     )
 
     if not asset_data:
@@ -785,7 +789,7 @@ def main():
     )
 
     multi_asset_result = (
-        multi_asset_analyzer.analyze(
+        multi_asset_analyzer.analyze_causal(
             asset_data
         )
     )
@@ -882,6 +886,8 @@ def main():
             "Symbol",
             "Recovery_Cluster_ID",
             "Cluster_Start_Date",
+            "Representative_Method",
+            "Representative_Causal",
             "Cluster_End_Date",
             "Cluster_Size",
             "VFI",
@@ -934,8 +940,10 @@ def main():
         )
 
     # --------------------------------------------------------
-    # NUEVO ANÁLISIS
+    # ANÁLISIS RETROSPECTIVO EXPLORATORIO
     # COMPARACIÓN DE REPRESENTANTES
+    # MIN_VFI/BEST_RECOVERY pueden usar información futura dentro del cluster.
+    # No deben tratarse como backtest causal.
     # --------------------------------------------------------
 
     representative_comparison = (
@@ -943,6 +951,286 @@ def main():
             asset_data
         )
     )
+
+    # --------------------------------------------------------
+    # BENCHMARK Y COSTES
+    # --------------------------------------------------------
+
+    print_separator(
+        "BENCHMARK Y COSTES DE EJECUCION"
+    )
+
+    cost_model = LongOnlyExecutionCostModel(
+        fee_bps=10,
+        slippage_bps=5
+    )
+
+    benchmark_analyzer = BenchmarkAnalyzer(
+        execution_cost_model=cost_model
+    )
+
+    benchmark_frames = []
+
+    for symbol, data in asset_data.items():
+
+        causal_result = multi_asset_analyzer.analyze_asset_causal(
+            symbol,
+            data
+        )
+
+        if causal_result.empty:
+            continue
+
+        benchmark = benchmark_analyzer.compare_event_dates(
+            data,
+            causal_result.index
+        )
+
+        if benchmark.empty:
+            continue
+
+        benchmark.insert(0, "Symbol", symbol)
+        benchmark_frames.append(benchmark)
+
+    if benchmark_frames:
+        benchmark_summary = pd.concat(
+            benchmark_frames,
+            ignore_index=True
+        )
+
+        format_dataframe(
+            benchmark_summary,
+            float_columns=[
+                "Event_Average_Return",
+                "Benchmark_Average_Return",
+                "Excess_Average_Return",
+                "Event_Positive_Rate",
+                "Benchmark_Positive_Rate"
+            ]
+        )
+    else:
+        print("No hay suficientes datos para benchmark.")
+
+    # --------------------------------------------------------
+    # VALIDACION TEMPORAL HOLDOUT
+    # --------------------------------------------------------
+
+    print_separator(
+        "VALIDACION TEMPORAL HOLDOUT"
+    )
+
+    temporal_analyzer = TemporalHoldoutAnalyzer(
+        primary_horizon=26
+    )
+
+    causal_events_by_asset = {}
+
+    for symbol, data in asset_data.items():
+        causal_events = multi_asset_analyzer.analyze_asset_causal(
+            symbol,
+            data
+        )
+
+        if not causal_events.empty:
+            causal_events_by_asset[symbol] = causal_events
+
+    temporal_cutoff = "2022-01-01"
+
+    if causal_events_by_asset:
+        temporal_summary = temporal_analyzer.analyze_assets(
+            causal_events_by_asset,
+            temporal_cutoff
+        )
+
+        format_dataframe(
+            temporal_summary,
+            float_columns=[
+                "Train_Average_Return",
+                "Train_Median_Return",
+                "Train_Positive_Rate",
+                "Test_Average_Return",
+                "Test_Median_Return",
+                "Test_Positive_Rate"
+            ]
+        )
+    else:
+        print("No hay eventos causales para validacion temporal.")
+
+    # --------------------------------------------------------
+    # VALIDACION WALK-FORWARD
+    # --------------------------------------------------------
+
+    print_separator(
+        "VALIDACION WALK-FORWARD"
+    )
+
+    walk_forward_summary = multi_asset_analyzer.analyze_assets_walk_forward(
+        causal_events_by_asset,
+        initial_train_weeks=104,
+        test_weeks=52,
+        step_weeks=52
+    )
+
+    if not walk_forward_summary.empty:
+        format_dataframe(
+            walk_forward_summary,
+            float_columns=[
+                "Train_Average_Return",
+                "Train_Median_Return",
+                "Train_Positive_Rate",
+                "Test_Average_Return",
+                "Test_Median_Return",
+                "Test_Positive_Rate"
+            ]
+        )
+
+        walk_forward_consistency = (
+            multi_asset_analyzer.summarize_walk_forward_assets(
+                walk_forward_summary
+            )
+        )
+
+        print()
+        print("CONSISTENCIA OUT-OF-SAMPLE POR ACTIVO")
+
+        format_dataframe(
+            walk_forward_consistency,
+            float_columns=[
+                "Average_Test_Return",
+                "Median_Test_Return",
+                "Positive_Window_Rate",
+                "Worst_Test_Return",
+                "Best_Test_Return"
+            ]
+        )
+    else:
+        print("No hay suficientes eventos para walk-forward.")
+
+    # --------------------------------------------------------
+    # RANKING DE INVESTIGACION OUT-OF-SAMPLE
+    # --------------------------------------------------------
+
+    if not walk_forward_summary.empty:
+        print_separator(
+            "RANKING DE INVESTIGACION OUT-OF-SAMPLE"
+        )
+
+        research_ranking = ResearchRankingAnalyzer(
+            metric="Average_Test_Return"
+        ).rank(
+            walk_forward_consistency
+        )
+
+        format_dataframe(
+            research_ranking,
+            float_columns=[
+                "Average_Test_Return",
+                "Median_Test_Return",
+                "Positive_Window_Rate",
+                "Worst_Test_Return",
+                "Best_Test_Return",
+            ]
+        )
+
+    # --------------------------------------------------------
+    # DESCUBRIMIENTO DE CONDICIONES WALK-FORWARD
+    # --------------------------------------------------------
+
+    print_separator(
+        "DESCUBRIMIENTO DE CONDICIONES WALK-FORWARD"
+    )
+
+    discovery_result = (
+        multi_asset_analyzer
+        .analyze_condition_discovery_walk_forward(
+            causal_events_by_asset,
+            initial_train_weeks=104,
+            test_weeks=52,
+            step_weeks=52,
+            minimum_events=10,
+            top_n=1,
+            ranking_metric="Average_Return",
+        )
+    )
+
+    discovery_summary = discovery_result["summary"]
+
+    if not discovery_summary.empty:
+        format_dataframe(
+            discovery_summary,
+            float_columns=[
+                "Train_Average_Return",
+                "Test_Average_Return",
+                "Test_Median_Return",
+                "Test_Positive_Rate",
+            ]
+        )
+
+        print()
+        print(
+            "IMPORTANTE: la condición fue seleccionada "
+            "solo con TRAIN y evaluada después en TEST."
+        )
+    else:
+        print(
+            "No hay suficientes eventos para descubrimiento "
+            "walk-forward de condiciones."
+        )
+
+    # --------------------------------------------------------
+    # BENCHMARK WALK-FORWARD POR VENTANA
+    # --------------------------------------------------------
+
+    print_separator(
+        "BENCHMARK WALK-FORWARD"
+    )
+
+    benchmark_walk_frames = []
+
+    for symbol, events in causal_events_by_asset.items():
+        windows = temporal_analyzer.walk_forward(
+            events,
+            initial_train_weeks=104,
+            test_weeks=52,
+            step_weeks=52
+        )
+
+        if not windows:
+            continue
+
+        benchmark_data = BenchmarkAnalyzer(
+            horizons=(26,)
+        ).calculate_forward_returns(
+            asset_data[symbol]
+        )
+
+        benchmark_series = benchmark_data["Return_26W"]
+
+        window_comparison = temporal_analyzer.summarize_benchmark_by_window(
+            windows,
+            benchmark_series
+        )
+
+        if not window_comparison.empty:
+            window_comparison.insert(0, "Symbol", symbol)
+            benchmark_walk_frames.append(window_comparison)
+
+    if benchmark_walk_frames:
+        benchmark_walk_forward = pd.concat(
+            benchmark_walk_frames,
+            ignore_index=True
+        )
+
+        format_dataframe(
+            benchmark_walk_forward,
+            float_columns=[
+                "Test_Average_Return",
+                "Benchmark_Average_Return",
+                "Excess_Average_Return"
+            ]
+        )
+    else:
+        print("No hay suficientes datos para benchmark walk-forward.")
 
     # --------------------------------------------------------
     # FINAL

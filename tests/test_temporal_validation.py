@@ -1,0 +1,158 @@
+import unittest
+
+import numpy as np
+import pandas as pd
+
+from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
+
+
+class TestTemporalHoldoutAnalyzer(unittest.TestCase):
+
+    def setUp(self):
+        index = pd.date_range("2020-01-03", periods=5, freq="W-FRI")
+        self.events = pd.DataFrame(
+            {
+                "Return_2W": [10.0, -5.0, 20.0, np.nan, 5.0],
+            },
+            index=index,
+        )
+
+    def test_split_requires_train_labels_to_end_before_cutoff(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+
+        train, test = analyzer.split(
+            self.events,
+            "2020-01-31",
+        )
+
+        label_end = train.index + pd.to_timedelta(2, unit="W")
+
+        self.assertTrue((label_end < pd.Timestamp("2020-01-31")).all())
+        self.assertTrue((test.index >= pd.Timestamp("2020-01-31")).all())
+        self.assertEqual(len(train), 2)
+        self.assertEqual(len(test), 1)
+
+    def test_summaries_use_only_available_forward_returns(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+
+        result = analyzer.analyze(
+            self.events,
+            "2020-01-31",
+        )
+
+        self.assertEqual(result["train_summary"]["Events"], 2)
+        self.assertAlmostEqual(
+            result["train_summary"]["Average_Return"],
+            2.5,
+        )
+        self.assertEqual(result["test_summary"]["Events"], 1)
+        self.assertAlmostEqual(
+            result["test_summary"]["Average_Return"],
+            5.0,
+        )
+        self.assertAlmostEqual(
+            result["test_summary"]["Positive_Rate"],
+            100.0,
+        )
+
+    def test_multi_asset_summary(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+
+        result = analyzer.analyze_assets(
+            {"AAA": self.events, "BBB": self.events.iloc[:3]},
+            "2020-01-31",
+        )
+
+        self.assertEqual(set(result["Symbol"]), {"AAA", "BBB"})
+        self.assertEqual(
+            result.loc[result["Symbol"] == "AAA", "Train_Events"].iloc[0],
+            2,
+        )
+        self.assertEqual(
+            result.loc[result["Symbol"] == "AAA", "Test_Events"].iloc[0],
+            1,
+        )
+
+    def test_multiple_walk_forward_windows_have_strict_boundaries(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+
+        windows = analyzer.walk_forward(
+            self.events,
+            initial_train_weeks=2,
+            test_weeks=2,
+            step_weeks=2,
+        )
+
+        self.assertGreaterEqual(len(windows), 1)
+        self.assertTrue(
+            (windows[0]["train"].index
+             + pd.to_timedelta(2, unit="W")
+             < windows[0]["cutoff"]).all()
+        )
+
+        for previous, current in zip(windows, windows[1:]):
+            self.assertTrue(
+                previous["test"].index.max()
+                < current["test"].index.min()
+            )
+
+    def test_walk_forward_summary_measures_consistency(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+
+        windows = [
+            {"test_summary": {"Average_Return": 10.0}},
+            {"test_summary": {"Average_Return": -2.0}},
+            {"test_summary": {"Average_Return": 4.0}},
+        ]
+
+        summary = analyzer.summarize_walk_forward(windows)
+
+        self.assertEqual(summary["Windows"], 3)
+        self.assertEqual(summary["Valid_Windows"], 3)
+        self.assertAlmostEqual(summary["Average_Test_Return"], 4.0)
+        self.assertAlmostEqual(summary["Median_Test_Return"], 4.0)
+        self.assertAlmostEqual(summary["Positive_Window_Rate"], 66.6666666667)
+        self.assertAlmostEqual(summary["Worst_Test_Return"], -2.0)
+        self.assertAlmostEqual(summary["Best_Test_Return"], 10.0)
+
+    def test_window_benchmark_comparison_is_date_matched(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+        index = pd.date_range("2020-01-03", periods=6, freq="W-FRI")
+
+        events = pd.DataFrame(
+            {"Return_2W": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]},
+            index=index,
+        )
+
+        windows = analyzer.walk_forward(
+            events,
+            initial_train_weeks=2,
+            test_weeks=2,
+            step_weeks=2,
+        )
+
+        benchmark = pd.Series(
+            [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+            index=index,
+        )
+
+        result = analyzer.summarize_benchmark_by_window(
+            windows,
+            benchmark,
+        )
+
+        self.assertFalse(result.empty)
+        self.assertEqual(result.iloc[0]["Benchmark_Average_Return"], 35.0)
+        self.assertEqual(result.iloc[0]["Excess_Average_Return"], -31.5)
+
+    def test_invalid_index_is_rejected(self):
+        analyzer = TemporalHoldoutAnalyzer()
+
+        events = self.events.reset_index(drop=True)
+
+        with self.assertRaises(ValueError):
+            analyzer.split(events, "2020-01-31")
+
+
+if __name__ == "__main__":
+    unittest.main()

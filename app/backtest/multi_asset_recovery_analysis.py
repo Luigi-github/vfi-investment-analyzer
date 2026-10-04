@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+from app.backtest.forward_risk import ForwardRiskAnalyzer
+
 
 class MultiAssetRecoveryAnalyzer:
 
@@ -61,6 +63,78 @@ class MultiAssetRecoveryAnalyzer:
             ) * 100.0
 
         return df
+
+    def select_causal_cluster_representatives(self, data):
+        """Select the first observed event in each recovery cluster."""
+        if data.empty:
+            return data.copy()
+
+        if "Recovery_Cluster_ID" not in data.columns:
+            raise ValueError(
+                "Column 'Recovery_Cluster_ID' is required."
+            )
+
+        representatives = []
+
+        for cluster_id, group in data.groupby(
+            "Recovery_Cluster_ID"
+        ):
+            group = group.sort_index()
+            representative = group.iloc[0].copy()
+            representative["Recovery_Cluster_ID"] = cluster_id
+            representative["Cluster_Start_Date"] = group.index[0]
+            representative["Representative_Method"] = (
+                "CAUSAL_FIRST_RECOVERY"
+            )
+            representative["Representative_Causal"] = True
+            representatives.append(representative)
+
+        if not representatives:
+            return pd.DataFrame()
+
+        result = pd.DataFrame(representatives)
+        result.index.name = data.index.name
+        return result.sort_index()
+
+    def select_causal_non_overlapping_events(self, data):
+        """Keep causal representatives whose forward windows do not overlap.
+
+        Selection uses only chronological event dates and the configured
+        primary horizon. Forward returns, risk metrics, and future VFI values
+        are never used to decide which event is retained.
+        """
+        if data.empty:
+            return data.copy()
+
+        if not isinstance(data.index, pd.DatetimeIndex):
+            raise ValueError("Events must use a DatetimeIndex.")
+
+        ordered = data.sort_index().copy()
+        minimum_gap = pd.Timedelta(weeks=self.primary_horizon)
+
+        selected_rows = []
+        last_selected_date = None
+
+        for event_date, row in ordered.iterrows():
+            if (
+                last_selected_date is None
+                or event_date >= last_selected_date + minimum_gap
+            ):
+                selected = row.copy()
+                selected["NonOverlapping_Causal"] = True
+                selected_rows.append((event_date, selected))
+                last_selected_date = event_date
+
+        if not selected_rows:
+            return ordered.iloc[0:0].copy()
+
+        result = pd.DataFrame(
+            [row for _, row in selected_rows],
+            index=[event_date for event_date, _ in selected_rows],
+        )
+        result.index.name = ordered.index.name
+        return result
+
 
     def select_cluster_representatives(self, data):
         if data.empty:
@@ -164,6 +238,109 @@ class MultiAssetRecoveryAnalyzer:
 
         return df
 
+    def analyze_asset_causal(
+        self,
+        symbol,
+        data
+    ):
+        """Analyze one asset using point-in-time representatives."""
+        self.validate_data(data)
+        df = self.calculate_forward_returns(data.copy())
+        df = ForwardRiskAnalyzer(
+            horizons=self.horizons
+        ).calculate(df)
+        representatives = self.select_causal_cluster_representatives(df)
+        representatives = self.select_causal_non_overlapping_events(
+            representatives
+        )
+
+        if representatives.empty:
+            return representatives
+
+        representatives = self.classify_results(representatives)
+        representatives["Symbol"] = symbol
+        return representatives
+
+    def analyze_assets_walk_forward(
+        self,
+        asset_events,
+        initial_train_weeks,
+        test_weeks,
+        step_weeks
+    ):
+        """Evaluate causal recovery events in rolling chronological windows."""
+        from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
+
+        analyzer = TemporalHoldoutAnalyzer(
+            primary_horizon=self.primary_horizon
+        )
+
+        rows = []
+
+        for symbol, events in asset_events.items():
+            windows = analyzer.walk_forward(
+                events,
+                initial_train_weeks=initial_train_weeks,
+                test_weeks=test_weeks,
+                step_weeks=step_weeks,
+            )
+
+            for window_number, window in enumerate(windows, start=1):
+                row = {
+                    "Symbol": symbol,
+                    "Window": window_number,
+                    "Cutoff": window["cutoff"],
+                    "Test_End": window["test_end"],
+                }
+
+                for period in ("train", "test"):
+                    summary = window[f"{period}_summary"]
+                    prefix = period.title()
+                    row[f"{prefix}_Events"] = summary["Events"]
+                    row[f"{prefix}_Average_Return"] = summary["Average_Return"]
+                    row[f"{prefix}_Median_Return"] = summary["Median_Return"]
+                    row[f"{prefix}_Positive_Rate"] = summary["Positive_Rate"]
+
+                rows.append(row)
+
+        return pd.DataFrame(rows)
+
+    def summarize_walk_forward_assets(self, walk_forward_results):
+        """Summarize out-of-sample consistency by asset."""
+        from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
+
+        if walk_forward_results.empty:
+            return pd.DataFrame()
+
+        analyzer = TemporalHoldoutAnalyzer(
+            primary_horizon=self.primary_horizon
+        )
+        rows = []
+
+        for symbol, group in walk_forward_results.groupby("Symbol"):
+            windows = []
+            for _, row in group.sort_values("Window").iterrows():
+                windows.append({
+                    "test_summary": {
+                        "Average_Return": row["Test_Average_Return"]
+                    }
+                })
+
+            summary = analyzer.summarize_walk_forward(windows)
+            summary["Symbol"] = symbol
+            rows.append(summary)
+
+        return pd.DataFrame(rows)[[
+            "Symbol",
+            "Windows",
+            "Valid_Windows",
+            "Average_Test_Return",
+            "Median_Test_Return",
+            "Positive_Window_Rate",
+            "Worst_Test_Return",
+            "Best_Test_Return",
+        ]]
+
     def analyze_asset(
         self,
         symbol,
@@ -176,6 +353,10 @@ class MultiAssetRecoveryAnalyzer:
         df = self.calculate_forward_returns(
             df
         )
+
+        df = ForwardRiskAnalyzer(
+            horizons=self.horizons
+        ).calculate(df)
 
         representatives = (
             self.select_cluster_representatives(
@@ -217,11 +398,13 @@ class MultiAssetRecoveryAnalyzer:
             axis=0
         )
 
-        combined = combined.sort_values(
-            ["Symbol", combined.index.name]
-        )
+        index_name = combined.index.name
+        if index_name is None:
+            return combined.sort_values(["Symbol"])
 
-        return combined
+        return combined.sort_values(
+            ["Symbol", index_name]
+        )
 
     def asset_summary(
         self,
@@ -229,6 +412,19 @@ class MultiAssetRecoveryAnalyzer:
     ):
         if combined_data.empty:
             return pd.DataFrame()
+
+        primary_column = f"Return_{self.primary_horizon}W"
+
+        if primary_column not in combined_data.columns:
+            raise ValueError(
+                f"Column '{primary_column}' is required."
+            )
+
+        primary_positive_column = f"Positive_{self.primary_horizon}W"
+        primary_negative_column = f"Negative_{self.primary_horizon}W"
+        primary_rate_column = f"Positive_Rate_{self.primary_horizon}W"
+        primary_average_column = f"Average_Return_{self.primary_horizon}W"
+        primary_median_column = f"Median_Return_{self.primary_horizon}W"
 
         rows = []
 
@@ -269,18 +465,13 @@ class MultiAssetRecoveryAnalyzer:
                 "Symbol": symbol,
                 "Clusters": len(group),
                 "Valid_Clusters": total,
-                "Positive_26W": positive_count,
-                "Negative_26W": negative_count,
-                "Positive_Rate_26W":
-                    positive_rate,
-                "Average_Return_26W":
-                    valid[
-                        "Return_26W"
-                    ].mean(),
-                "Median_Return_26W":
-                    valid[
-                        "Return_26W"
-                    ].median(),
+                primary_positive_column: positive_count,
+                primary_negative_column: negative_count,
+                primary_rate_column: positive_rate,
+                primary_average_column:
+                    valid[primary_column].mean(),
+                primary_median_column:
+                    valid[primary_column].median(),
                 "Average_Return_52W":
                     valid[
                         "Return_52W"
@@ -299,6 +490,13 @@ class MultiAssetRecoveryAnalyzer:
         if combined_data.empty:
             return pd.DataFrame()
 
+        primary_column = f"Return_{self.primary_horizon}W"
+
+        if primary_column not in combined_data.columns:
+            raise ValueError(
+                f"Column '{primary_column}' is required."
+            )
+
         valid = combined_data[
             combined_data["Primary_Result"].isin(
                 ["POSITIVE", "NEGATIVE"]
@@ -308,7 +506,7 @@ class MultiAssetRecoveryAnalyzer:
         if valid.empty:
             return pd.DataFrame()
 
-        positive_count = (
+        positive_count= (
             valid["Primary_Result"]
             .eq("POSITIVE")
             .sum()
@@ -331,20 +529,16 @@ class MultiAssetRecoveryAnalyzer:
                 combined_data
             ),
             "Valid_Clusters": total,
-            "Positive_26W": positive_count,
-            "Negative_26W": negative_count,
-            "Positive_Rate_26W":
+            f"Positive_{self.primary_horizon}W": positive_count,
+            f"Negative_{self.primary_horizon}W": negative_count,
+            f"Positive_Rate_{self.primary_horizon}W":
                 positive_count
                 / total
                 * 100,
-            "Average_Return_26W":
-                valid[
-                    "Return_26W"
-                ].mean(),
-            "Median_Return_26W":
-                valid[
-                    "Return_26W"
-                ].median(),
+            f"Average_Return_{self.primary_horizon}W":
+                valid[primary_column].mean(),
+            f"Median_Return_{self.primary_horizon}W":
+                valid[primary_column].median(),
             "Average_Return_52W":
                 valid[
                     "Return_52W"
@@ -360,6 +554,13 @@ class MultiAssetRecoveryAnalyzer:
     ):
         if combined_data.empty:
             return pd.DataFrame()
+
+        primary_column = f"Return_{self.primary_horizon}W"
+
+        if primary_column not in combined_data.columns:
+            raise ValueError(
+                f"Column '{primary_column}' is required."
+            )
 
         valid = combined_data[
             combined_data["Primary_Result"].isin(
@@ -440,11 +641,11 @@ class MultiAssetRecoveryAnalyzer:
                     "Condition": condition_name,
                     "Clusters": 0,
                     "Assets": 0,
-                    "Positive_26W": 0,
-                    "Negative_26W": 0,
-                    "Positive_Rate_26W": np.nan,
-                    "Average_Return_26W": np.nan,
-                    "Median_Return_26W": np.nan,
+                    f"Positive_{self.primary_horizon}W": 0,
+                    f"Negative_{self.primary_horizon}W": 0,
+                    f"Positive_Rate_{self.primary_horizon}W": np.nan,
+                    f"Average_Return_{self.primary_horizon}W": np.nan,
+                    f"Median_Return_{self.primary_horizon}W": np.nan,
                     "Average_Return_52W": np.nan,
                 })
 
@@ -473,22 +674,18 @@ class MultiAssetRecoveryAnalyzer:
                 "Assets": selected[
                     "Symbol"
                 ].nunique(),
-                "Positive_26W": positive_count,
-                "Negative_26W": negative_count,
-                "Positive_Rate_26W":
+                f"Positive_{self.primary_horizon}W": positive_count,
+                f"Negative_{self.primary_horizon}W": negative_count,
+                f"Positive_Rate_{self.primary_horizon}W":
                     positive_count
                     / total
                     * 100
                     if total > 0
                     else np.nan,
-                "Average_Return_26W":
-                    selected[
-                        "Return_26W"
-                    ].mean(),
-                "Median_Return_26W":
-                    selected[
-                        "Return_26W"
-                    ].median(),
+                f"Average_Return_{self.primary_horizon}W":
+                    selected[primary_column].mean(),
+                f"Median_Return_{self.primary_horizon}W":
+                    selected[primary_column].median(),
                 "Average_Return_52W":
                     selected[
                         "Return_52W"
@@ -499,6 +696,78 @@ class MultiAssetRecoveryAnalyzer:
             })
 
         return pd.DataFrame(rows)
+
+    def analyze_causal(
+        self,
+        asset_data
+    ):
+        """Run the multi-asset analysis with causal representatives."""
+        asset_results = []
+
+        for symbol, data in asset_data.items():
+            result = self.analyze_asset_causal(symbol, data)
+            if not result.empty:
+                asset_results.append(result)
+
+        combined = self.combine_assets(asset_results)
+
+        return {
+            "asset_results": asset_results,
+            "combined": combined,
+            "asset_summary": self.asset_summary(combined),
+            "global_summary": self.global_summary(combined),
+            "condition_analysis": self.condition_analysis(combined),
+        }
+
+    def analyze_condition_discovery_walk_forward(
+        self,
+        asset_events,
+        initial_train_weeks=104,
+        test_weeks=52,
+        step_weeks=52,
+        minimum_events=10,
+        top_n=1,
+        ranking_metric="Average_Return",
+    ):
+        """Run causal condition discovery independently for every asset."""
+        from app.backtest.condition_discovery import (
+            ConditionDiscoveryAnalyzer,
+        )
+
+        results = {}
+        summaries = []
+
+        for symbol, events in asset_events.items():
+            analyzer = ConditionDiscoveryAnalyzer(
+                primary_horizon=self.primary_horizon,
+                minimum_events=minimum_events,
+                ranking_metric=ranking_metric,
+            )
+            windows = analyzer.walk_forward_discovery(
+                events,
+                initial_train_weeks=initial_train_weeks,
+                test_weeks=test_weeks,
+                step_weeks=step_weeks,
+                top_n=top_n,
+            )
+            results[symbol] = windows
+
+            summary = analyzer.summarize_walk_forward(windows)
+            if isinstance(summary, dict):
+                summary = pd.DataFrame([summary])
+            summary.insert(0, "Symbol", symbol)
+            summaries.append(summary)
+
+        summary_frame = (
+            pd.concat(summaries, ignore_index=True)
+            if summaries
+            else pd.DataFrame()
+        )
+
+        return {
+            "asset_windows": results,
+            "summary": summary_frame,
+        }
 
     def analyze(
         self,

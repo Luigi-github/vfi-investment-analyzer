@@ -1,13 +1,25 @@
 import pandas as pd
 
+from app.backtest.execution_costs import LongOnlyExecutionCostModel
+
 
 class VFICycleBacktest:
 
     def __init__(
         self,
-        horizons=(4, 8, 12, 26, 52)
+        horizons=(4, 8, 12, 26, 52),
+        execution_cost_model=None
     ):
-        self.horizons = horizons
+        self.horizons = tuple(horizons)
+
+        if execution_cost_model is not None and not isinstance(
+            execution_cost_model, LongOnlyExecutionCostModel
+        ):
+            raise TypeError(
+                "execution_cost_model must be a LongOnlyExecutionCostModel or None."
+            )
+
+        self.execution_cost_model = execution_cost_model
 
     def detect_transitions(
         self,
@@ -223,15 +235,20 @@ class VFICycleBacktest:
                 .shift(-horizon)
             )
 
-            df[
-                f"Return_{horizon}W"
-            ] = (
+            gross_return = (
                 (
                     future_price
                     / df["Close"]
                 )
                 - 1.0
             ) * 100.0
+
+            df[f"Return_{horizon}W"] = gross_return
+
+            if self.execution_cost_model is not None:
+                df[f"Net_Return_{horizon}W"] = (
+                    self.execution_cost_model.net_return(gross_return)
+                )
 
         return df
 
