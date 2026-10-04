@@ -82,7 +82,7 @@ def main():
     result["asset_summary"].to_csv(OUTPUT_DIR / "asset_summary.csv", index=False)
     pd.DataFrame(metadata).to_csv(OUTPUT_DIR / "asset_metadata.csv", index=False)
 
-    print("\\n" + "=" * 80)
+    print("=" * 80)
     print("STAGE SUMMARY")
     print("=" * 80)
     print(result["stage_summary"].to_string(index=False))
@@ -92,14 +92,12 @@ def main():
     print("=" * 80)
     print(result["asset_summary"].to_string(index=False))
 
-    print("
-" + "=" * 80)
+    print("=" * 80)
     print("QUALITY SUMMARY")
     print("=" * 80)
     print(result["quality_summary"].to_string(index=False))
 
-    print("
-Reports written to", OUTPUT_DIR)
+    print("Reports written to", OUTPUT_DIR)
 
 
 if __name__ == "__main__":
