@@ -96,6 +96,46 @@ class MultiAssetRecoveryAnalyzer:
         result.index.name = data.index.name
         return result.sort_index()
 
+    def select_causal_non_overlapping_events(self, data):
+        """Keep causal representatives whose forward windows do not overlap.
+
+        Selection uses only chronological event dates and the configured
+        primary horizon. Forward returns, risk metrics, and future VFI values
+        are never used to decide which event is retained.
+        """
+        if data.empty:
+            return data.copy()
+
+        if not isinstance(data.index, pd.DatetimeIndex):
+            raise ValueError("Events must use a DatetimeIndex.")
+
+        ordered = data.sort_index().copy()
+        minimum_gap = pd.Timedelta(weeks=self.primary_horizon)
+
+        selected_rows = []
+        last_selected_date = None
+
+        for event_date, row in ordered.iterrows():
+            if (
+                last_selected_date is None
+                or event_date >= last_selected_date + minimum_gap
+            ):
+                selected = row.copy()
+                selected["NonOverlapping_Causal"] = True
+                selected_rows.append((event_date, selected))
+                last_selected_date = event_date
+
+        if not selected_rows:
+            return ordered.iloc[0:0].copy()
+
+        result = pd.DataFrame(
+            [row for _, row in selected_rows],
+            index=[event_date for event_date, _ in selected_rows],
+        )
+        result.index.name = ordered.index.name
+        return result
+
+
     def select_cluster_representatives(self, data):
         if data.empty:
             return data.copy()
@@ -210,6 +250,9 @@ class MultiAssetRecoveryAnalyzer:
             horizons=self.horizons
         ).calculate(df)
         representatives = self.select_causal_cluster_representatives(df)
+        representatives = self.select_causal_non_overlapping_events(
+            representatives
+        )
 
         if representatives.empty:
             return representatives
