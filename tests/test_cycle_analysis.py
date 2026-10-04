@@ -13,7 +13,8 @@ def make_data():
         "ZERO_CROSS_UP", "ACCUMULATION", "BULLISH_FLOW", "WEAKENING",
         "ZERO_CROSS_DOWN", "BEARISH_FLOW", "EARLY_RECOVERY",
         "SUSTAINED_RECOVERY", "APPROACHING_ZERO", "ZERO_CROSS_UP",
-        "ACCUMULATION",
+        "ACCUMULATION", "WEAKENING", "ZERO_CROSS_DOWN",
+        "BEARISH_FLOW", "ZERO_CROSS_UP",
     ]
     return pd.DataFrame(
         {
