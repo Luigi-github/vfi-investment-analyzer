@@ -239,6 +239,55 @@ class TestBacktestNoLookahead(unittest.TestCase):
         )
 
 
+    def test_causal_non_overlapping_filter_uses_only_event_dates(self):
+        analyzer = MultiAssetRecoveryAnalyzer(
+            horizons=(26,),
+            primary_horizon=26,
+        )
+        dates = pd.to_datetime([
+            "2024-01-05",
+            "2024-03-01",
+            "2024-07-05",
+        ])
+        events = pd.DataFrame(
+            {"VFI": [-2.0, -1.0, 0.5]},
+            index=dates,
+        )
+
+        result = analyzer.select_causal_non_overlapping_events(events)
+
+        self.assertEqual(
+            list(result.index),
+            [dates[0], dates[2]],
+        )
+        self.assertTrue(result["NonOverlapping_Causal"].all())
+
+    def test_causal_non_overlapping_selection_is_stable_when_future_events_are_added(self):
+        analyzer = MultiAssetRecoveryAnalyzer(
+            horizons=(26,),
+            primary_horizon=26,
+        )
+        dates = pd.to_datetime([
+            "2024-01-05",
+            "2024-03-01",
+            "2024-07-05",
+        ])
+        initial = pd.DataFrame(
+            {"VFI": [-2.0, -1.0]},
+            index=dates[:2],
+        )
+        extended = pd.concat([
+            initial,
+            pd.DataFrame({"VFI": [0.5]}, index=dates[2:]),
+        ])
+
+        initial_result = analyzer.select_causal_non_overlapping_events(initial)
+        extended_result = analyzer.select_causal_non_overlapping_events(extended)
+
+        self.assertEqual(initial_result.index[0], extended_result.index[0])
+        self.assertEqual(initial_result.index[0], dates[0])
+
+
     def test_multi_asset_causal_analysis_includes_forward_risk_outcomes(self):
         dates = pd.date_range("2024-01-05", periods=3, freq="W-FRI")
         data = pd.DataFrame(
