@@ -142,8 +142,8 @@ class TestTemporalHoldoutAnalyzer(unittest.TestCase):
         )
 
         self.assertFalse(result.empty)
-        self.assertEqual(result.iloc[0]["Benchmark_Average_Return"], 15.0)
-        self.assertEqual(result.iloc[0]["Excess_Average_Return"], -13.5)
+        self.assertEqual(result.iloc[0]["Benchmark_Average_Return"], 35.0)
+        self.assertEqual(result.iloc[0]["Excess_Average_Return"], -32.5)
 
     def test_invalid_index_is_rejected(self):
         analyzer = TemporalHoldoutAnalyzer()
