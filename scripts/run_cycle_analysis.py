@@ -87,8 +87,7 @@ def main():
     print("=" * 80)
     print(result["stage_summary"].to_string(index=False))
 
-    print("
-" + "=" * 80)
+    print("=" * 80)
     print("ASSET SUMMARY")
     print("=" * 80)
     print(result["asset_summary"].to_string(index=False))
