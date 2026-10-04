@@ -2,6 +2,7 @@ import pandas as pd
 
 from app.backtest.cycle_analysis import VFICycleBacktestAnalyzer
 from app.backtest.statistical_validation import StatisticalValidationAnalyzer
+from app.backtest.statistical_robustness import StatisticalRobustnessAnalyzer
 
 
 class MultiAssetCycleAnalyzer:
@@ -13,6 +14,7 @@ class MultiAssetCycleAnalyzer:
         self.primary_horizon = primary_horizon
         self.analyzer = VFICycleBacktestAnalyzer(horizons=horizons)
         self.statistics = StatisticalValidationAnalyzer()
+        self.robustness = StatisticalRobustnessAnalyzer()
 
     def analyze(self, asset_data):
         cycle_frames = []
@@ -85,14 +87,24 @@ class MultiAssetCycleAnalyzer:
             return pd.DataFrame()
 
         primary = f"Return_{self.primary_horizon}W"
-        rows = []
+        valid_all = events[primary].dropna()
+        if valid_all.empty:
+            return pd.DataFrame()
+
+        benchmark = valid_all
+        condition_returns = {}
+        base_rows = []
         for stage, group in events.groupby("Cycle_Stage_Event"):
             returns = group[primary].dropna()
             if returns.empty:
                 continue
+            condition_returns[stage] = returns
             summary = self.statistics.summarize(returns)
             bootstrap = self.statistics.bootstrap_mean(returns)
-            rows.append({
+            excess = self.robustness.bootstrap_excess_independent(
+                returns, benchmark
+            )
+            base_rows.append({
                 "Cycle_Stage": stage,
                 "Count": summary["Count"],
                 "Average_Return": summary["Average_Return"],
@@ -101,11 +113,25 @@ class MultiAssetCycleAnalyzer:
                 "Positive_Rate": summary["Positive_Rate"],
                 "Worst_Return": summary["Worst_Return"],
                 "Best_Return": summary["Best_Return"],
+                "Benchmark_Average_Return": float(benchmark.mean()),
+                "Excess_Average_Return": excess["Excess_Mean"],
+                "Excess_CI_Lower": excess["CI_Lower"],
+                "Excess_CI_Upper": excess["CI_Upper"],
                 "Bootstrap_CI_Lower": bootstrap["CI_Lower"],
                 "Bootstrap_CI_Upper": bootstrap["CI_Upper"],
             })
 
-        return pd.DataFrame(rows).sort_values(
+        significance = self.robustness.test_conditions(condition_returns)
+        if significance.empty:
+            return pd.DataFrame(base_rows)
+
+        significance = significance[[
+            "Condition", "Raw_P_Value", "BH_Q_Value", "BH_Significant_5pct"
+        ]].rename(columns={"Condition": "Cycle_Stage"})
+        result = pd.DataFrame(base_rows).merge(
+            significance, on="Cycle_Stage", how="left"
+        )
+        return result.sort_values(
             "Average_Return", ascending=False
         ).reset_index(drop=True)
 
