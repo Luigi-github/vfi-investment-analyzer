@@ -66,6 +66,52 @@ class ConditionDiscoveryAnalyzer:
 
         return pd.DataFrame(rows)
 
+    @staticmethod
+    def build_standard_conditions(events):
+        """Build the project's predefined VFI hypotheses from event data."""
+        required = [
+            "VFI",
+            "VFI_Slope",
+            "VFI_Slope_4W",
+            "VFI_Slope_8W",
+            "VFI_Distance_Zero",
+            "VFI_Range_Position",
+        ]
+        missing = [column for column in required if column not in events.columns]
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+
+        return {
+            "VFI < 0": events["VFI"] < 0,
+            "VFI < -5": events["VFI"] < -5,
+            "VFI near zero": events["VFI_Distance_Zero"] <= 1,
+            "Slope > 0": events["VFI_Slope"] > 0,
+            "Slope 4W > 0": events["VFI_Slope_4W"] > 0,
+            "Slope 8W > 0": events["VFI_Slope_8W"] > 0,
+            "Range position <= 20%": events["VFI_Range_Position"] <= 0.20,
+            "Slope > 0 AND Slope 8W > 0": (
+                (events["VFI_Slope"] > 0)
+                & (events["VFI_Slope_8W"] > 0)
+            ),
+            "Slope 4W > 0 AND Slope 8W > 0": (
+                (events["VFI_Slope_4W"] > 0)
+                & (events["VFI_Slope_8W"] > 0)
+            ),
+            "VFI < 0 AND Slope > 0": (
+                (events["VFI"] < 0)
+                & (events["VFI_Slope"] > 0)
+            ),
+            "VFI < -5 AND Slope > 0": (
+                (events["VFI"] < -5)
+                & (events["VFI_Slope"] > 0)
+            ),
+            "VFI < 0 AND Slope > 0 AND Slope 8W > 0": (
+                (events["VFI"] < 0)
+                & (events["VFI_Slope"] > 0)
+                & (events["VFI_Slope_8W"] > 0)
+            ),
+        }
+
     def discover(self, train_events, conditions):
         """Rank hypotheses using train data only."""
         result = self.evaluate_conditions(train_events, conditions)
