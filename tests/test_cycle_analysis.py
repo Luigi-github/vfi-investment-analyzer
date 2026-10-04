@@ -37,14 +37,21 @@ class TestVFICycleBacktestAnalyzer(unittest.TestCase):
         self.assertTrue(bool(cycles.iloc[0]["Complete"]))
         self.assertFalse(bool(cycles.iloc[-1]["Complete"]))
 
-    def test_bullish_cycle_quality_uses_only_cycle_information(self):
-        cycles = VFICycleBacktestAnalyzer().extract_cycles(make_data())
-        bullish = cycles[cycles["Cycle_Type"] == "BULLISH_CYCLE"].iloc[0]
-        self.assertGreaterEqual(bullish["Weeks_SUSTAINED_RECOVERY"], 1)
-        self.assertGreater(bullish["Peak_Return_From_Start_Pct"], 0)
-        self.assertIn(
-            bullish["Cycle_Quality"],
-            {"EXCEPTIONAL", "STRONG", "MODERATE"},
+    def test_bullish_cycle_quality_classification(self):
+        analyzer = VFICycleBacktestAnalyzer()
+        row = pd.Series(
+            {
+                "Cycle_Type": "BULLISH_CYCLE",
+                "Complete": True,
+                "Recovery_Weeks": 4,
+                "Weeks_SUSTAINED_RECOVERY": 2,
+                "Peak_Return_From_Start_Pct": 35.0,
+                "Price_Return_Pct": 12.0,
+            }
+        )
+        self.assertEqual(
+            analyzer._classify_cycle_quality(row),
+            "EXCEPTIONAL",
         )
 
     def test_stage_entry_is_causal_and_only_counts_stage_start(self):
