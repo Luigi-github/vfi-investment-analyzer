@@ -43,3 +43,5 @@ data/database/*
 # OS
 .DS_Store
 Thumbs.db
+# Generated research reports
+reports/cycle_analysis/
