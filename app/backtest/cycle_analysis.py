@@ -51,41 +51,32 @@ class VFICycleBacktestAnalyzer:
         return up, down
 
     def extract_cycles(self, data):
-        """Extract alternating VFI cycles bounded by zero-cross events.
+        """Extract full VFI cycles from one zero-cross-down to the next.
 
-        A cycle starts at a zero-cross event and ends immediately before the
-        next opposite zero-cross event. Incomplete cycles are retained but
-        marked as incomplete so they cannot be mistaken for finished cycles.
+        A full cycle contains the negative-flow phase, recovery, zero-cross-up,
+        bullish-flow phase, weakening and the next zero-cross-down. This keeps
+        recovery statistics inside the same causal cycle instead of starting
+        the cycle after recovery has already happened.
         """
         self.validate_data(data)
         df = data.sort_index().copy()
-        zero_up, zero_down = self._zero_cross_events(df)
+        _, zero_down = self._zero_cross_events(df)
+        boundary_dates = list(df.index[zero_down])
 
-        events = []
-        for date in df.index[zero_up | zero_down]:
-            events.append(
-                {
-                    "Date": date,
-                    "Event": (
-                        "ZERO_CROSS_UP"
-                        if zero_up.loc[date]
-                        else "ZERO_CROSS_DOWN"
-                    ),
-                }
-            )
-
-        if not events:
+        if not boundary_dates:
             return pd.DataFrame()
 
         rows = []
-        for number, start_event in enumerate(events, start=1):
-            start_date = start_event["Date"]
-            start_type = start_event["Event"]
-            end_event = events[number] if number < len(events) else None
-            end_date = end_event["Date"] if end_event else df.index[-1]
+        for number, start_date in enumerate(boundary_dates, start=1):
+            end_date = (
+                boundary_dates[number]
+                if number < len(boundary_dates)
+                else df.index[-1]
+            )
+            complete = number < len(boundary_dates)
 
             segment = df.loc[start_date:end_date]
-            if end_event is not None:
+            if complete:
                 segment = segment.iloc[:-1]
 
             if segment.empty:
@@ -97,15 +88,11 @@ class VFICycleBacktestAnalyzer:
 
             row = {
                 "Cycle_ID": number,
-                "Cycle_Type": (
-                    "BULLISH_CYCLE"
-                    if start_type == "ZERO_CROSS_UP"
-                    else "BEARISH_CYCLE"
-                ),
+                "Cycle_Type": "FULL_VFI_CYCLE",
                 "Start_Date": segment.index[0],
                 "End_Date": segment.index[-1],
                 "Boundary_End_Date": end_date,
-                "Complete": end_event is not None,
+                "Complete": complete,
                 "Weeks": len(segment),
                 "Start_VFI": start["VFI"],
                 "End_VFI": end["VFI"],
@@ -159,10 +146,27 @@ class VFICycleBacktestAnalyzer:
                 + result["Weeks_ACCUMULATION"]
                 + result["Weeks_BULLISH_FLOW"]
             )
+            result["Weeks_To_Zero_Cross_Up"] = result.apply(
+                lambda row: self._weeks_to_stage(
+                    df,
+                    row["Start_Date"],
+                    row["Boundary_End_Date"],
+                    "ZERO_CROSS_UP",
+                ),
+                axis=1,
+            )
             result["Cycle_Quality"] = result.apply(
                 self._classify_cycle_quality, axis=1
             )
         return result
+
+    @staticmethod
+    def _weeks_to_stage(data, start_date, end_date, stage):
+        segment = data.loc[start_date:end_date]
+        matches = segment.index[segment["VFI_Cycle_Stage"].eq(stage)]
+        if len(matches) == 0:
+            return None
+        return int(segment.index.get_loc(matches[0]))
 
     @staticmethod
     def _classify_cycle_quality(row):
