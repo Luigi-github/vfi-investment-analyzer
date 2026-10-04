@@ -45,6 +45,8 @@ class TestMultiAssetCycleAnalyzer(unittest.TestCase):
         self.assertEqual(set(result["events"]["Symbol"]), {"DDD", "INTC"})
         self.assertFalse(result["stage_statistical_summary"].empty)
         self.assertIn("Bootstrap_CI_Lower", result["stage_statistical_summary"].columns)
+        self.assertIn("Excess_CI_Lower", result["stage_statistical_summary"].columns)
+        self.assertIn("BH_Q_Value", result["stage_statistical_summary"].columns)
 
     def test_primary_horizon_is_configurable(self):
         analyzer = MultiAssetCycleAnalyzer(horizons=(4, 8), primary_horizon=4)
