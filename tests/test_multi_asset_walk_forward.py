@@ -36,7 +36,7 @@ class TestMultiAssetWalkForward(unittest.TestCase):
         )
 
         self.assertEqual(set(result["summary"]["Symbol"]), {"AAA", "BBB"})
-        self.assertTrue((result["summary"]["Windows"] >= 1).all())
+        self.assertTrue((result["summary"]["Window"] >= 1).all())
         self.assertIn("Selected_Condition", result["summary"].columns)
 
     def test_walk_forward_runs_per_asset_and_preserves_boundaries(self):
