@@ -6,8 +6,8 @@ from app.backtest.cycle_analysis import VFICycleBacktestAnalyzer
 
 
 def make_data():
-    index = pd.date_range("2024-01-05", periods=14, freq="W-FRI")
-    vfi = [-3, -2, -1, 0.5, 2, 3, 2, 1, 0, -1, -2, -1, 0.5, 2]
+    index = pd.date_range("2024-01-05", periods=18, freq="W-FRI")
+    vfi = [-3, -2, -1, 0.5, 2, 3, 2, 1, 0, -1, -2, -1, 0.5, 2, 1, 0, -1, 1]
     stages = [
         "EARLY_RECOVERY", "SUSTAINED_RECOVERY", "SUSTAINED_RECOVERY",
         "ZERO_CROSS_UP", "ACCUMULATION", "BULLISH_FLOW", "WEAKENING",
@@ -19,9 +19,9 @@ def make_data():
         {
             "Close": [100, 102, 105, 110, 115, 120, 118, 112, 105, 103, 106, 109, 114, 118],
             "VFI": vfi,
-            "VFI_Slope": [0, 1, 1, 1.5, 1.5, 1, -1, -1, -1, 1, 1, 1, 1.5, 1],
-            "VFI_Slope_4W": [0, 0.2, 0.5, 0.8, 1, 1, 0.5, -0.5, -1, -0.5, 0.2, 0.5, 0.8, 1],
-            "VFI_Slope_8W": [0, 0.1, 0.3, 0.5, 0.7, 0.8, 0.4, -0.2, -0.6, -0.3, 0.1, 0.3, 0.5, 0.6],
+            "VFI_Slope": [0, 1, 1, 1.5, 1.5, 1, -1, -1, -1, 1, 1, 1, 1.5, 1, -1, -1, -1, 1],
+            "VFI_Slope_4W": [0, 0.2, 0.5, 0.8, 1, 1, 0.5, -0.5, -1, -0.5, 0.2, 0.5, 0.8, 1, 0.5, -0.2, -0.5, 0.5],
+            "VFI_Slope_8W": [0, 0.1, 0.3, 0.5, 0.7, 0.8, 0.4, -0.2, -0.6, -0.3, 0.1, 0.3, 0.5, 0.6, 0.3, -0.1, -0.4, 0.2],
             "VFI_Cycle_Stage": stages,
         },
         index=index,
@@ -32,8 +32,8 @@ class TestVFICycleBacktestAnalyzer(unittest.TestCase):
 
     def test_extract_cycles_creates_complete_and_incomplete_cycles(self):
         cycles = VFICycleBacktestAnalyzer().extract_cycles(make_data())
-        self.assertEqual(len(cycles), 3)
-        self.assertEqual(cycles.iloc[0]["Cycle_Type"], "BULLISH_CYCLE")
+        self.assertEqual(len(cycles), 2)
+        self.assertEqual(cycles.iloc[0]["Cycle_Type"], "FULL_VFI_CYCLE")
         self.assertTrue(bool(cycles.iloc[0]["Complete"]))
         self.assertFalse(bool(cycles.iloc[-1]["Complete"]))
 
