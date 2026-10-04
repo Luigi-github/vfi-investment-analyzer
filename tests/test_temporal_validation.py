@@ -115,6 +115,36 @@ class TestTemporalHoldoutAnalyzer(unittest.TestCase):
         self.assertAlmostEqual(summary["Worst_Test_Return"], -2.0)
         self.assertAlmostEqual(summary["Best_Test_Return"], 10.0)
 
+    def test_window_benchmark_comparison_is_date_matched(self):
+        analyzer = TemporalHoldoutAnalyzer(primary_horizon=2)
+        index = pd.date_range("2020-01-03", periods=6, freq="W-FRI")
+
+        events = pd.DataFrame(
+            {"Return_2W": [1.0, 2.0, 3.0, 4.0, 5.0, 6.0]},
+            index=index,
+        )
+
+        windows = analyzer.walk_forward(
+            events,
+            initial_train_weeks=2,
+            test_weeks=2,
+            step_weeks=2,
+        )
+
+        benchmark = pd.Series(
+            [10.0, 20.0, 30.0, 40.0, 50.0, 60.0],
+            index=index,
+        )
+
+        result = analyzer.summarize_benchmark_by_window(
+            windows,
+            benchmark,
+        )
+
+        self.assertFalse(result.empty)
+        self.assertEqual(result.iloc[0]["Benchmark_Average_Return"], 15.0)
+        self.assertEqual(result.iloc[0]["Excess_Average_Return"], -13.5)
+
     def test_invalid_index_is_rejected(self):
         analyzer = TemporalHoldoutAnalyzer()
 
