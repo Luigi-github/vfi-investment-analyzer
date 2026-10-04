@@ -16,7 +16,6 @@ from app.backtest.recovery_cluster_analyzer import (
 from app.backtest.benchmark import BenchmarkAnalyzer
 from app.backtest.execution_costs import LongOnlyExecutionCostModel
 from app.backtest.temporal_validation import TemporalHoldoutAnalyzer
-from app.backtest.condition_discovery import ConditionDiscoveryAnalyzer
 
 
 # ============================================================
