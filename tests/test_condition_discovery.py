@@ -13,6 +13,10 @@ class TestConditionDiscovery(unittest.TestCase):
             {
                 "VFI": [-8, -7, -6, -5, -4, -3, -2, -1],
                 "VFI_Slope": [1, 1, 1, 1, -1, -1, -1, -1],
+                "VFI_Slope_4W": [1, 1, 1, 1, -1, -1, -1, -1],
+                "VFI_Slope_8W": [1, 1, 1, 1, -1, -1, -1, -1],
+                "VFI_Distance_Zero": [8, 7, 6, 5, 4, 3, 2, 1],
+                "VFI_Range_Position": [0.0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7],
                 "Return_2W": [30, 25, 20, 15, -5, -10, -15, -20],
             },
             index=dates,
