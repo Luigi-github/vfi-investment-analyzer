@@ -89,7 +89,7 @@ class MultiAssetCycleAnalyzer:
         return (
             bullish.groupby("Symbol")
             .agg(
-                Bullish_Cycles=("Cycle_ID", "count"),
+                Full_Cycles=("Cycle_ID", "count"),
                 Complete_Cycles=("Complete", "sum"),
                 Average_Weeks=("Weeks", "mean"),
                 Average_Recovery_Weeks=("Recovery_Weeks", "mean"),
