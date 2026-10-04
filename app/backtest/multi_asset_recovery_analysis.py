@@ -697,6 +697,118 @@ class MultiAssetRecoveryAnalyzer:
 
         return pd.DataFrame(rows)
 
+    def select_causal_cycle_stage_events(
+        self,
+        data,
+        stages=(
+            "EARLY_RECOVERY",
+            "SUSTAINED_RECOVERY",
+            "APPROACHING_ZERO",
+            "ZERO_CROSS_UP",
+        ),
+    ):
+        """Select the first observed week when each requested cycle stage begins.
+
+        This is intentionally separate from recovery-cluster analysis. Recovery
+        clusters are based on EARLY_RECOVERY, while this method lets us compare
+        later confirmation stages without changing the definition of an early
+        recovery event. The selection is causal: only the current and previous
+        stage values are used to detect the stage transition.
+        """
+        if data.empty:
+            return data.copy()
+
+        if "VFI_Cycle_Stage" not in data.columns:
+            raise ValueError("Column 'VFI_Cycle_Stage' is required.")
+
+        ordered = data.sort_index().copy()
+        previous_stage = ordered["VFI_Cycle_Stage"].shift(1)
+        stage_mask = ordered["VFI_Cycle_Stage"].isin(stages)
+        entry_mask = stage_mask & (
+            previous_stage.isna()
+            | previous_stage.ne(ordered["VFI_Cycle_Stage"])
+        )
+
+        events = ordered.loc[entry_mask].copy()
+        if events.empty:
+            return events
+
+        events["Cycle_Stage_Event"] = events["VFI_Cycle_Stage"]
+        events["Cycle_Stage_Event_Causal"] = True
+        events["Representative_Method"] = "CAUSAL_STAGE_ENTRY"
+        return events
+
+    def analyze_cycle_stages(
+        self,
+        asset_data,
+        stages=(
+            "EARLY_RECOVERY",
+            "SUSTAINED_RECOVERY",
+            "APPROACHING_ZERO",
+            "ZERO_CROSS_UP",
+        ),
+    ):
+        """Compare causal cycle-stage entries using forward returns.
+
+        Unlike condition_analysis(), this analysis is not restricted to
+        recovery-cluster representatives. It therefore allows conditions such
+        as VFI_Slope_4W > 0 to be evaluated without creating a logical
+        contradiction with EARLY_RECOVERY, whose definition requires
+        VFI_Slope_4W <= 0.
+        """
+        event_frames = []
+
+        for symbol, data in asset_data.items():
+            self.validate_data(data)
+            df = self.calculate_forward_returns(data.copy())
+            df = ForwardRiskAnalyzer(horizons=self.horizons).calculate(df)
+            events = self.select_causal_cycle_stage_events(df, stages=stages)
+            if events.empty:
+                continue
+            events["Symbol"] = symbol
+            event_frames.append(events)
+
+        if not event_frames:
+            return {
+                "events": pd.DataFrame(),
+                "stage_summary": pd.DataFrame(),
+            }
+
+        events = pd.concat(event_frames, axis=0).sort_index()
+        primary_column = f"Return_{self.primary_horizon}W"
+        valid = events[events[primary_column].notna()].copy()
+
+        rows = []
+        for stage, group in valid.groupby("Cycle_Stage_Event"):
+            positive = group[primary_column] > self.positive_return_threshold
+            rows.append({
+                "Cycle_Stage": stage,
+                "Events": len(group),
+                "Assets": group["Symbol"].nunique(),
+                f"Positive_{self.primary_horizon}W": int(positive.sum()),
+                f"Negative_{self.primary_horizon}W": int((~positive).sum()),
+                f"Positive_Rate_{self.primary_horizon}W": positive.mean() * 100,
+                f"Average_Return_{self.primary_horizon}W": group[primary_column].mean(),
+                f"Median_Return_{self.primary_horizon}W": group[primary_column].median(),
+                "Average_Return_52W": (
+                    group["Return_52W"].mean()
+                    if "Return_52W" in group.columns
+                    else np.nan
+                ),
+                "Average_VFI": group["VFI"].mean(),
+                "Average_Slope_4W": group["VFI_Slope_4W"].mean(),
+                "Average_Slope_8W": group["VFI_Slope_8W"].mean(),
+            })
+
+        summary = pd.DataFrame(rows)
+        if not summary.empty:
+            summary = summary.sort_values("Cycle_Stage").reset_index(drop=True)
+
+        return {
+            "events": events,
+            "stage_summary": summary,
+        }
+
     def analyze_causal(
         self,
         asset_data
