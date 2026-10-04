@@ -1,4 +1,3 @@
-import numpy as np
 import pandas as pd
 
 
@@ -14,6 +13,11 @@ class VFICycleBacktestAnalyzer:
 
     def __init__(self, horizons=None):
         self.horizons = tuple(horizons or self.DEFAULT_HORIZONS)
+        if not self.horizons or any(
+            not isinstance(horizon, int) or horizon <= 0
+            for horizon in self.horizons
+        ):
+            raise ValueError("Horizons must contain positive integers.")
 
     def validate_data(self, data):
         required = [
@@ -62,7 +66,11 @@ class VFICycleBacktestAnalyzer:
             events.append(
                 {
                     "Date": date,
-                    "Event": "ZERO_CROSS_UP" if zero_up.loc[date] else "ZERO_CROSS_DOWN",
+                    "Event": (
+                        "ZERO_CROSS_UP"
+                        if zero_up.loc[date]
+                        else "ZERO_CROSS_DOWN"
+                    ),
                 }
             )
 
@@ -90,7 +98,8 @@ class VFICycleBacktestAnalyzer:
             row = {
                 "Cycle_ID": number,
                 "Cycle_Type": (
-                    "BULLISH_CYCLE" if start_type == "ZERO_CROSS_UP"
+                    "BULLISH_CYCLE"
+                    if start_type == "ZERO_CROSS_UP"
                     else "BEARISH_CYCLE"
                 ),
                 "Start_Date": segment.index[0],
@@ -183,21 +192,21 @@ class VFICycleBacktestAnalyzer:
         self.validate_data(data)
         df = self.add_forward_returns(data.sort_index())
 
-        stages = tuple(stages or (
-            "EARLY_RECOVERY",
-            "SUSTAINED_RECOVERY",
-            "APPROACHING_ZERO",
-            "ZERO_CROSS_UP",
-            "ACCUMULATION",
-        ))
+        stages = tuple(
+            stages
+            or (
+                "EARLY_RECOVERY",
+                "SUSTAINED_RECOVERY",
+                "APPROACHING_ZERO",
+                "ZERO_CROSS_UP",
+                "ACCUMULATION",
+            )
+        )
 
         previous = df["VFI_Cycle_Stage"].shift(1)
         entry = (
             df["VFI_Cycle_Stage"].isin(stages)
-            & (
-                previous.isna()
-                | previous.ne(df["VFI_Cycle_Stage"])
-            )
+            & (previous.isna() | previous.ne(df["VFI_Cycle_Stage"]))
         )
 
         events = df.loc[entry].copy()
@@ -209,7 +218,7 @@ class VFICycleBacktestAnalyzer:
         return events
 
     def summarize(self, cycles):
-        """Summarize completed bullish cycles by quality."""
+        """Summarize completed and incomplete bullish cycles by quality."""
         if cycles.empty:
             return pd.DataFrame()
 
