@@ -148,6 +148,39 @@ class TemporalHoldoutAnalyzer:
             "Best_Test_Return": float(returns.max()),
         }
 
+    def summarize_benchmark_by_window(self, windows, benchmark_returns):
+        """Compare each test window with a matching benchmark return."""
+        if not windows:
+            return pd.DataFrame()
+
+        rows = []
+        for number, window in enumerate(windows, start=1):
+            test = window["test"]
+            test_dates = test.index
+            benchmark = benchmark_returns.reindex(test_dates).dropna()
+
+            test_return = window["test_summary"]["Average_Return"]
+
+            rows.append({
+                "Window": number,
+                "Cutoff": window["cutoff"],
+                "Test_End": window["test_end"],
+                "Test_Events": window["test_summary"]["Events"],
+                "Test_Average_Return": test_return,
+                "Benchmark_Average_Return": (
+                    float(benchmark.mean())
+                    if not benchmark.empty
+                    else float("nan")
+                ),
+                "Excess_Average_Return": (
+                    test_return - float(benchmark.mean())
+                    if not benchmark.empty
+                    else float("nan")
+                ),
+            })
+
+        return pd.DataFrame(rows)
+
     def analyze(self, events, cutoff):
         train, test = self.split(events, cutoff)
 
