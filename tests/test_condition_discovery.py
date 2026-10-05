@@ -98,6 +98,43 @@ class TestConditionDiscovery(unittest.TestCase):
                 step_weeks=2,
             )
 
+    def test_cost_adjusted_returns_are_reported(self):
+        analyzer = ConditionDiscoveryAnalyzer(
+            primary_horizon=2,
+            minimum_events=2,
+            fee_bps=10,
+            slippage_bps=10,
+        )
+        result = analyzer.evaluate_conditions(
+            self.events,
+            {"all": pd.Series(True, index=self.events.index)},
+        )
+        self.assertIn("Average_Net_Return", result.columns)
+        self.assertLess(
+            result.iloc[0]["Average_Net_Return"],
+            result.iloc[0]["Average_Return"],
+        )
+
+    def test_cost_adjusted_walk_forward_preserves_gross_and_net_metrics(self):
+        analyzer = ConditionDiscoveryAnalyzer(
+            primary_horizon=2,
+            minimum_events=2,
+            fee_bps=10,
+            slippage_bps=10,
+        )
+        windows = analyzer.walk_forward_discovery(
+            self.events,
+            initial_train_weeks=4,
+            test_weeks=2,
+            step_weeks=2,
+            condition_builder=lambda frame: {
+                "Positive slope": frame["VFI_Slope"] > 0,
+            },
+        )
+        summary = analyzer.summarize_walk_forward(windows)
+        self.assertIn("Train_Average_Net_Return", summary.columns)
+        self.assertIn("Test_Average_Net_Return", summary.columns)
+
     def test_selected_conditions_are_evaluated_on_test_without_reranking(self):
         analyzer = ConditionDiscoveryAnalyzer(
             primary_horizon=2,
