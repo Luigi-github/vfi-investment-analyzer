@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 
 from app.backtest.forward_risk import ForwardRiskAnalyzer
+from app.backtest.recovery_event_clustering import RecoveryEventClusterer
 
 
 class MultiAssetRecoveryAnalyzer:
@@ -16,6 +17,28 @@ class MultiAssetRecoveryAnalyzer:
         self.primary_horizon = primary_horizon
         self.positive_return_threshold = positive_return_threshold
 
+    def _ensure_causal_recovery_clusters(self, data):
+        """Add causal recovery clusters when the caller has not precomputed them.
+
+        Cluster membership is derived only from the current/previous chronological
+        EARLY_RECOVERY observations. Existing cluster IDs are preserved so callers
+        that already materialize the causal clustering keep their exact data.
+        """
+        if "Recovery_Cluster_ID" in data.columns:
+            return data.copy()
+
+        clusterer = RecoveryEventClusterer()
+        events = clusterer.detect_events(data)
+        clustered = clusterer.cluster_events_causal(events)
+
+        result = data.copy()
+        result["Recovery_Cluster_ID"] = pd.Series(
+            clustered["Recovery_Cluster_ID"],
+            index=clustered.index,
+            dtype="Int64",
+        )
+        return result
+
     def validate_data(self, data):
         required_columns = [
             "Close",
@@ -26,7 +49,6 @@ class MultiAssetRecoveryAnalyzer:
             "VFI_Distance_Zero",
             "VFI_Range_Position",
             "VFI_Cycle_Stage",
-            "Recovery_Cluster_ID",
         ]
 
         missing = [
@@ -244,6 +266,7 @@ class MultiAssetRecoveryAnalyzer:
         data
     ):
         """Analyze one asset using point-in-time representatives."""
+        data = self._ensure_causal_recovery_clusters(data)
         self.validate_data(data)
         df = self.calculate_forward_returns(data.copy())
         df = ForwardRiskAnalyzer(
