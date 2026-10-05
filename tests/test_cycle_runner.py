@@ -26,7 +26,8 @@ class TestCycleRunner(unittest.TestCase):
 
     def test_output_directory_is_grouped_by_universe(self):
         output = build_output_dir("USA_STOCKS")
-        self.assertEqual(output.name, "usa_stocks")\n        self.assertEqual(output.parent.name, "cycle_analysis")
+        self.assertEqual(output.name, "usa_stocks")
+        self.assertEqual(output.parent.name, "cycle_analysis")
 
     def test_asset_event_summary_is_sorted(self):
         events = pd.DataFrame(
