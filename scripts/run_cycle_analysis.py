@@ -198,6 +198,7 @@ def main(argv=None):
                 {
                     "Symbol": symbol,
                     "Status": "ERROR",
+                    "Instrument_Type": "ADR" if symbol == "CIB" else "EQUITY",
                     "Error": str(exc),
                 }
             )
@@ -209,6 +210,7 @@ def main(argv=None):
             {
                 "Symbol": symbol,
                 "Status": "OK",
+                "Instrument_Type": "ADR" if symbol == "CIB" else "EQUITY",
                 "Daily_Rows": daily_rows,
                 "Weekly_Rows": len(data),
                 "Valid_VFI_Rows": len(valid),
