@@ -53,9 +53,15 @@ class StatisticalRobustnessAnalyzer:
         or other declared group may be dependent. Cluster labels are never used
         to select signals; they only define the resampling unit.
         """
+        value_series = pd.Series(values).reset_index(drop=True)
+        cluster_series = pd.Series(clusters).reset_index(drop=True)
+
+        if len(value_series) != len(cluster_series):
+            raise ValueError("Values and clusters must have the same length.")
+
         frame = pd.DataFrame({
-            "value": pd.to_numeric(values, errors="coerce"),
-            "cluster": pd.Series(clusters),
+            "value": pd.to_numeric(value_series, errors="coerce"),
+            "cluster": cluster_series,
         }).dropna(subset=["value", "cluster"])
 
         if frame.empty:
