@@ -91,13 +91,23 @@ class MultiAssetCycleAnalyzer:
         if valid_all.empty:
             return pd.DataFrame()
 
-        benchmark = valid_all
         condition_returns = {}
         base_rows = []
         for stage, group in events.groupby("Cycle_Stage_Event"):
             returns = group[primary].dropna()
             if returns.empty:
                 continue
+
+            # Compare each stage against the complementary set of valid
+            # event returns, so the stage is not included in its own benchmark.
+            complement_mask = (
+                events["Cycle_Stage_Event"].ne(stage)
+                & events[primary].notna()
+            )
+            benchmark = events.loc[complement_mask, primary].dropna()
+            if benchmark.empty:
+                continue
+
             condition_returns[stage] = returns
             summary = self.statistics.summarize(returns)
             bootstrap = self.statistics.bootstrap_mean(returns)

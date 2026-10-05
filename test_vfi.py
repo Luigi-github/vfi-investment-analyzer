@@ -28,6 +28,7 @@ SYMBOLS = [
     "INTC",
     "BTC-USD",
     "SQM",
+    "EC",
     "ETH-USD",
     "EEM",
     "NVDA",
