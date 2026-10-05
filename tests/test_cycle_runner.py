@@ -20,6 +20,11 @@ class TestCycleRunner(unittest.TestCase):
         self.assertIn("NVDA", symbols)
         self.assertIn("DDD", symbols)
 
+    def test_colombia_universe_includes_cib_adr(self):
+        symbols = resolve_symbols("COLOMBIA")
+        self.assertIn("CIB", symbols)
+        self.assertIn("CIBEST.CL", symbols)
+
     def test_custom_symbols_override_universe_and_deduplicate(self):
         symbols = resolve_symbols("CRYPTO", "BTC-USD, ETH-USD, BTC-USD")
         self.assertEqual(symbols, ["BTC-USD", "ETH-USD"])
