@@ -110,6 +110,53 @@ def build_asset_event_summary(events, primary_horizon):
     )
 
 
+def build_cost_sensitivity(asset_data, cost_bps_levels=(0, 10, 25, 50, 100)):
+    """Evaluate OOS condition discovery under a range of round-trip cost assumptions."""
+    recovery = MultiAssetRecoveryAnalyzer(
+        horizons=(4, 8, 12, 26, 52),
+        primary_horizon=26,
+    )
+    causal_events = {}
+    for symbol, data in asset_data.items():
+        events = recovery.analyze_asset_causal(symbol, data)
+        if not events.empty:
+            causal_events[symbol] = events
+
+    rows = []
+    for cost_bps in cost_bps_levels:
+        discovery = recovery.analyze_condition_discovery_walk_forward(
+            causal_events,
+            initial_train_weeks=104,
+            test_weeks=52,
+            step_weeks=52,
+            minimum_events=10,
+            top_n=1,
+            ranking_metric="Average_Net_Return",
+            fee_bps=cost_bps / 4.0,
+            slippage_bps=cost_bps / 4.0,
+        )
+        summary = discovery["summary"]
+        if summary.empty:
+            continue
+
+        valid = summary["Test_Average_Net_Return"].dropna()
+        if valid.empty:
+            continue
+
+        rows.append({
+            "Round_Trip_Cost_Bps": cost_bps,
+            "Assets": summary["Symbol"].nunique(),
+            "Valid_Windows": int(valid.size),
+            "Average_Test_Net_Return": float(valid.mean()),
+            "Median_Test_Net_Return": float(valid.median()),
+            "Positive_Window_Rate": float((valid > 0).mean() * 100.0),
+            "Worst_Window_Return": float(valid.min()),
+            "Best_Window_Return": float(valid.max()),
+        })
+
+    return pd.DataFrame(rows)
+
+
 def build_oos_research_outputs(asset_data):
     """Build causal recovery walk-forward summaries and transparent OOS ranking."""
     recovery = MultiAssetRecoveryAnalyzer(
@@ -253,6 +300,7 @@ def main(argv=None):
     )
 
     oos = build_oos_research_outputs(asset_data)
+    cost_sensitivity = build_cost_sensitivity(asset_data)
     oos["walk_forward"].to_csv(
         output_dir / "asset_walk_forward.csv", index=False
     )
@@ -261,6 +309,9 @@ def main(argv=None):
     )
     oos["condition_discovery"].to_csv(
         output_dir / "condition_discovery_walk_forward.csv", index=False
+    )
+    cost_sensitivity.to_csv(
+        output_dir / "cost_sensitivity.csv", index=False
     )
 
     pd.DataFrame(metadata).to_csv(output_dir / "asset_metadata.csv", index=False)
@@ -279,6 +330,10 @@ def main(argv=None):
     print("CONDITION DISCOVERY WALK-FORWARD")
     print("=" * 80)
     print(oos["condition_discovery"].to_string(index=False))
+    print("=" * 80)
+    print("COST SENSITIVITY")
+    print("=" * 80)
+    print(cost_sensitivity.to_string(index=False))
 
     print("=" * 80)
     print("STAGE STATISTICAL SUMMARY")
