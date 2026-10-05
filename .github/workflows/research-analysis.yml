@@ -40,10 +40,13 @@ jobs:
 
       - name: Run research analysis
         env:
+          EVENT_NAME: ${{ github.event_name }}
           RESEARCH_UNIVERSE: ${{ inputs.universe || 'ALL' }}
           RESEARCH_SYMBOLS: ${{ inputs.symbols || '' }}
         run: |
-          if [ -n "$RESEARCH_SYMBOLS" ]; then
+          if [ "$EVENT_NAME" = "schedule" ]; then
+            python scripts/run_full_research.py
+          elif [ -n "$RESEARCH_SYMBOLS" ]; then
             python scripts/run_cycle_analysis.py --symbols "$RESEARCH_SYMBOLS"
           else
             python scripts/run_cycle_analysis.py --universe "$RESEARCH_UNIVERSE"
