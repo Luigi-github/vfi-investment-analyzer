@@ -21,8 +21,8 @@ MARKET_UNIVERSES = {
         "XRP-USD", "ADA-USD", "DOGE-USD", "AVAX-USD",
     ],
     "COLOMBIA": [
-        "ECOPETROL.CL", "PFECOPETROL.CL", "ISA.CL",
-        "MINEROS.CL", "BCOLOMBIA.CL", "GRUPOARGOS.CL",
+        "ECOPETROL.CL", "CIBEST.CL", "ISA.CL",
+        "MINEROS.CL", "GRUPOARGOS.CL",
         "CEMARGOS.CL", "NUTRESA.CL",
     ],
     "CHILE": [
