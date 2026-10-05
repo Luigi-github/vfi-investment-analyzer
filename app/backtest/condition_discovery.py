@@ -1,6 +1,8 @@
 import numpy as np
 import pandas as pd
 
+from app.backtest.execution_costs import LongOnlyExecutionCostModel
+
 
 class ConditionDiscoveryAnalyzer:
     """Select rule hypotheses on train data and evaluate them on held-out data."""
@@ -10,6 +12,8 @@ class ConditionDiscoveryAnalyzer:
         primary_horizon=26,
         minimum_events=10,
         ranking_metric="Average_Return",
+        fee_bps=0.0,
+        slippage_bps=0.0,
     ):
         if primary_horizon <= 0:
             raise ValueError("primary_horizon must be positive.")
@@ -19,12 +23,17 @@ class ConditionDiscoveryAnalyzer:
             "Average_Return",
             "Median_Return",
             "Positive_Rate",
+            "Average_Net_Return",
         }:
             raise ValueError("Unsupported ranking_metric.")
 
         self.primary_horizon = primary_horizon
         self.minimum_events = minimum_events
         self.ranking_metric = ranking_metric
+        self.cost_model = LongOnlyExecutionCostModel(
+            fee_bps=fee_bps,
+            slippage_bps=slippage_bps,
+        )
 
     def _primary_returns(self, events):
         column = f"Return_{self.primary_horizon}W"
@@ -47,6 +56,7 @@ class ConditionDiscoveryAnalyzer:
             selected_returns = returns.loc[selected.index].dropna()
 
             count = len(selected_returns)
+            net_returns = self.cost_model.net_return(selected_returns)
             rows.append({
                 "Condition": name,
                 "Count": count,
@@ -60,6 +70,10 @@ class ConditionDiscoveryAnalyzer:
                 ),
                 "Median_Return": (
                     float(selected_returns.median())
+                    if count else np.nan
+                ),
+                "Average_Net_Return": (
+                    float(net_returns.mean())
                     if count else np.nan
                 ),
             })
@@ -219,8 +233,10 @@ class ConditionDiscoveryAnalyzer:
                     "Selected_Condition": None,
                     "Train_Count": 0,
                     "Train_Average_Return": np.nan,
+                    "Train_Average_Net_Return": np.nan,
                     "Test_Count": 0,
                     "Test_Average_Return": np.nan,
+                    "Test_Average_Net_Return": np.nan,
                     "Test_Median_Return": np.nan,
                     "Test_Positive_Rate": np.nan,
                 })
@@ -236,8 +252,10 @@ class ConditionDiscoveryAnalyzer:
                 "Selected_Condition": best["Condition"],
                 "Train_Count": int(best["Count"]),
                 "Train_Average_Return": float(best["Average_Return"]),
+                "Train_Average_Net_Return": float(best["Average_Net_Return"]),
                 "Test_Count": int(evaluated["Count"]),
                 "Test_Average_Return": float(evaluated["Average_Return"]),
+                "Test_Average_Net_Return": float(evaluated["Average_Net_Return"]),
                 "Test_Median_Return": float(evaluated["Median_Return"]),
                 "Test_Positive_Rate": float(evaluated["Positive_Rate"]),
             })
