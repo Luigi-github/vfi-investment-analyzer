@@ -13,7 +13,9 @@ from app.data.market_data import MarketDataService
 from app.indicators.vfi import VFIIndicator
 from app.scoring.vfi_score import VFIScore
 from app.backtest.multi_asset_cycle_analysis import MultiAssetCycleAnalyzer
+from app.backtest.multi_asset_recovery_analysis import MultiAssetRecoveryAnalyzer
 from app.backtest.regime_analysis import RegimeAnalyzer
+from app.scoring.research_ranking import ResearchRankingAnalyzer
 from app.research.universes import MARKET_UNIVERSES, all_symbols, get_universe
 
 
@@ -106,6 +108,52 @@ def build_asset_event_summary(events, primary_horizon):
         )
         .reset_index(drop=True)
     )
+
+
+def build_oos_research_outputs(asset_data):
+    """Build causal recovery walk-forward summaries and transparent OOS ranking."""
+    recovery = MultiAssetRecoveryAnalyzer(
+        horizons=(4, 8, 12, 26, 52),
+        primary_horizon=26,
+    )
+    causal_events = {}
+    for symbol, data in asset_data.items():
+        events = recovery.analyze_asset_causal(symbol, data)
+        if not events.empty:
+            causal_events[symbol] = events
+
+    if not causal_events:
+        return {
+            "walk_forward": pd.DataFrame(),
+            "ranking": pd.DataFrame(),
+            "condition_discovery": pd.DataFrame(),
+        }
+
+    walk_forward = recovery.analyze_assets_walk_forward(
+        causal_events,
+        initial_train_weeks=104,
+        test_weeks=52,
+        step_weeks=52,
+    )
+    ranking_input = recovery.summarize_walk_forward_assets(walk_forward)
+    ranking = ResearchRankingAnalyzer().rank(ranking_input)
+
+    discovery = recovery.analyze_condition_discovery_walk_forward(
+        causal_events,
+        initial_train_weeks=104,
+        test_weeks=52,
+        step_weeks=52,
+        minimum_events=10,
+        top_n=1,
+        ranking_metric="Average_Return",
+    )
+
+    condition_discovery = discovery["summary"]
+    return {
+        "walk_forward": walk_forward,
+        "ranking": ranking,
+        "condition_discovery": condition_discovery,
+    }
 
 
 def main(argv=None):
@@ -201,12 +249,34 @@ def main(argv=None):
     result["asset_event_summary"].to_csv(
         output_dir / "asset_event_summary.csv", index=False
     )
+
+    oos = build_oos_research_outputs(asset_data)
+    oos["walk_forward"].to_csv(
+        output_dir / "asset_walk_forward.csv", index=False
+    )
+    oos["ranking"].to_csv(
+        output_dir / "asset_oos_ranking.csv", index=False
+    )
+    oos["condition_discovery"].to_csv(
+        output_dir / "condition_discovery_walk_forward.csv", index=False
+    )
+
     pd.DataFrame(metadata).to_csv(output_dir / "asset_metadata.csv", index=False)
 
     print("=" * 80)
     print("ASSET EVENT SUMMARY")
     print("=" * 80)
     print(result["asset_event_summary"].to_string(index=False))
+
+    print("=" * 80)
+    print("OUT-OF-SAMPLE ASSET RANKING")
+    print("=" * 80)
+    print(oos["ranking"].to_string(index=False))
+
+    print("=" * 80)
+    print("CONDITION DISCOVERY WALK-FORWARD")
+    print("=" * 80)
+    print(oos["condition_discovery"].to_string(index=False))
 
     print("=" * 80)
     print("STAGE STATISTICAL SUMMARY")
