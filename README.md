@@ -161,7 +161,7 @@ respectiva ventana de test.
 
 `LongOnlyExecutionCostModel` permite aplicar supuestos deterministas de comisión y slippage a retornos largos. El retorno bruto se conserva y el retorno neto se expone por separado.
 
-El descubrimiento walk-forward puede ordenar hipótesis por `Average_Net_Return`, de modo que los costes formen parte de la selección realizada exclusivamente sobre entrenamiento y la condición seleccionada se evalúe después sobre test intacto.
+El descubrimiento walk-forward puede ordenar hipótesis por `Average_Net_Return`, de modo que los costes formen parte de la selección realizada exclusivamente sobre entrenamiento y la condición seleccionada se evalúe después sobre test intacto. El runner genera además `cost_sensitivity.csv` para 0, 10, 25, 50 y 100 bps de coste round-trip supuesto.
 
 `BenchmarkAnalyzer` compara los eventos seleccionados con el retorno forward de todas las fechas elegibles del mismo activo y horizonte. El benchmark es descriptivo y no se utiliza como feature de la señal.
 
