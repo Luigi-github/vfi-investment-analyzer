@@ -48,6 +48,28 @@ class TestMultiAssetCycleAnalyzer(unittest.TestCase):
         self.assertIn("Excess_CI_Lower", result["stage_statistical_summary"].columns)
         self.assertIn("BH_Q_Value", result["stage_statistical_summary"].columns)
 
+
+
+    def test_stage_benchmark_excludes_current_stage(self):
+        events = pd.DataFrame(
+            {
+                "Cycle_Stage_Event": ["A", "A", "B", "B"],
+                "Return_4W": [10.0, 20.0, 30.0, 40.0],
+                "VFI": [1.0, 1.0, 1.0, 1.0],
+                "VFI_Slope_4W": [1.0, 1.0, 1.0, 1.0],
+                "VFI_Slope_8W": [1.0, 1.0, 1.0, 1.0],
+            },
+            index=pd.date_range("2024-01-05", periods=4, freq="W-FRI"),
+        )
+        result = MultiAssetCycleAnalyzer(
+            horizons=(4,),
+            primary_horizon=4,
+        )._stage_statistical_summary(events)
+
+        stage_a = result[result["Cycle_Stage"] == "A"].iloc[0]
+        self.assertAlmostEqual(stage_a["Benchmark_Average_Return"], 35.0)
+        self.assertAlmostEqual(stage_a["Excess_Average_Return"], -20.0)
+
     def test_primary_horizon_is_configurable(self):
         analyzer = MultiAssetCycleAnalyzer(horizons=(4, 8), primary_horizon=4)
         result = analyzer.analyze({"DDD": make_asset()})
