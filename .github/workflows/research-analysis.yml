@@ -2,31 +2,55 @@ name: Research Analysis
 
 on:
   workflow_dispatch:
+    inputs:
+      universe:
+        description: "Research universe"
+        required: true
+        default: "ALL"
+        type: choice
+        options:
+          - ALL
+          - USA_STOCKS
+          - USA_ETFS
+          - CRYPTO
+          - COLOMBIA
+          - CHILE
+          - LATAM
+          - COMMODITIES_ETFS
+      symbols:
+        description: "Optional comma-separated symbols; overrides universe"
+        required: false
+        default: ""
+        type: string
   schedule:
     - cron: "0 2 * * 6"
 
 jobs:
   cycle-analysis:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
 
-      - name: Run historical cycle analysis
-        run: python scripts/run_cycle_analysis.py
+      - name: Run research analysis
+        env:
+          RESEARCH_UNIVERSE: ${{ inputs.universe || 'ALL' }}
+          RESEARCH_SYMBOLS: ${{ inputs.symbols || '' }}
+        run: |
+          if [ -n "$RESEARCH_SYMBOLS" ]; then
+            python scripts/run_cycle_analysis.py --symbols "$RESEARCH_SYMBOLS"
+          else
+            python scripts/run_cycle_analysis.py --universe "$RESEARCH_UNIVERSE"
+          fi
 
-      - name: Upload research reports
+      - name: Upload reports
         uses: actions/upload-artifact@v4
         with:
-          name: vfi-cycle-analysis
+          name: cycle-analysis
           path: reports/cycle_analysis/
-          if-no-files-found: error
