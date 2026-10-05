@@ -840,6 +840,8 @@ class MultiAssetRecoveryAnalyzer:
         minimum_events=10,
         top_n=1,
         ranking_metric="Average_Return",
+        fee_bps=0.0,
+        slippage_bps=0.0,
     ):
         """Run causal condition discovery independently for every asset."""
         from app.backtest.condition_discovery import (
@@ -854,6 +856,8 @@ class MultiAssetRecoveryAnalyzer:
                 primary_horizon=self.primary_horizon,
                 minimum_events=minimum_events,
                 ranking_metric=ranking_metric,
+                fee_bps=fee_bps,
+                slippage_bps=slippage_bps,
             )
             windows = analyzer.walk_forward_discovery(
                 events,
