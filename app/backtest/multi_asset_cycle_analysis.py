@@ -111,6 +111,18 @@ class MultiAssetCycleAnalyzer:
             condition_returns[stage] = returns
             summary = self.statistics.summarize(returns)
             bootstrap = self.statistics.bootstrap_mean(returns)
+            clusters = (
+                group["Symbol"]
+                if "Symbol" in group.columns
+                else pd.Series(
+                    range(len(group)),
+                    index=group.index,
+                )
+            )
+            cluster_bootstrap = self.robustness.bootstrap_clustered_mean(
+                returns,
+                clusters,
+            )
             excess = self.robustness.bootstrap_excess_independent(
                 returns, benchmark
             )
@@ -129,6 +141,9 @@ class MultiAssetCycleAnalyzer:
                 "Excess_CI_Upper": excess["CI_Upper"],
                 "Bootstrap_CI_Lower": bootstrap["CI_Lower"],
                 "Bootstrap_CI_Upper": bootstrap["CI_Upper"],
+                "Cluster_Bootstrap_CI_Lower": cluster_bootstrap["CI_Lower"],
+                "Cluster_Bootstrap_CI_Upper": cluster_bootstrap["CI_Upper"],
+                "Cluster_Count": cluster_bootstrap["Cluster_Count"],
             })
 
         significance = self.robustness.test_conditions(condition_returns)

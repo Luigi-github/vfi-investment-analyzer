@@ -32,6 +32,14 @@ class MultiAssetRecoveryAnalyzer:
         clustered = clusterer.cluster_events_causal(events)
 
         result = data.copy()
+        if clustered.empty:
+            result["Recovery_Cluster_ID"] = pd.Series(
+                pd.NA,
+                index=result.index,
+                dtype="Int64",
+            )
+            return result
+
         result["Recovery_Cluster_ID"] = pd.Series(
             clustered["Recovery_Cluster_ID"],
             index=clustered.index,

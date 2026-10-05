@@ -27,6 +27,16 @@ class TestMultiAssetRecoveryAnalyzer(unittest.TestCase):
             index=dates,
         )
 
+    def test_causal_analysis_handles_assets_without_recovery_events(self):
+        analyzer = MultiAssetRecoveryAnalyzer(primary_horizon=26)
+        data = self.make_data()
+        data["VFI_Cycle_Stage"] = "ACCUMULATION"
+
+        result = analyzer.analyze_asset_causal("TEST", data)
+
+        self.assertTrue(result.empty)
+        self.assertIn("Recovery_Cluster_ID", analyzer._ensure_causal_recovery_clusters(data).columns)
+
     def test_causal_analysis_builds_clusters_when_missing(self):
         analyzer = MultiAssetRecoveryAnalyzer(primary_horizon=26)
         data = self.make_data()

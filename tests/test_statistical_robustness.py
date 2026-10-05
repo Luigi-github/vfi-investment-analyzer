@@ -19,6 +19,16 @@ class TestStatisticalRobustnessAnalyzer(unittest.TestCase):
         self.assertEqual(first, second)
         self.assertEqual(first["Excess_Mean"], 10.0)
 
+    def test_cluster_bootstrap_is_reproducible_and_reports_clusters(self):
+        analyzer = StatisticalRobustnessAnalyzer(bootstrap_samples=200, random_seed=7)
+        values = [10, 12, 14, -2, -4, -6]
+        clusters = ["A", "A", "A", "B", "B", "B"]
+        first = analyzer.bootstrap_clustered_mean(values, clusters)
+        second = analyzer.bootstrap_clustered_mean(values, clusters)
+        self.assertEqual(first, second)
+        self.assertEqual(first["Cluster_Count"], 2)
+        self.assertEqual(first["Observation_Count"], 6)
+
     def test_independent_excess_bootstrap_is_reproducible(self):
         analyzer = StatisticalRobustnessAnalyzer(bootstrap_samples=200, random_seed=7)
         result = analyzer.bootstrap_excess_independent([10, 20, 30], [5, 10, 15, 20])

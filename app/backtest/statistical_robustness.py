@@ -46,6 +46,53 @@ class StatisticalRobustnessAnalyzer:
             "Count": int(excess.size),
         }
 
+    def bootstrap_clustered_mean(self, values, clusters):
+        """Bootstrap a mean by resampling whole clusters instead of observations.
+
+        This is useful when observations within the same asset, recovery cluster,
+        or other declared group may be dependent. Cluster labels are never used
+        to select signals; they only define the resampling unit.
+        """
+        frame = pd.DataFrame({
+            "value": pd.to_numeric(values, errors="coerce"),
+            "cluster": pd.Series(clusters),
+        }).dropna(subset=["value", "cluster"])
+
+        if frame.empty:
+            raise ValueError("Values and clusters must contain finite observations.")
+
+        grouped = [
+            group["value"].to_numpy()
+            for _, group in frame.groupby("cluster", sort=False)
+        ]
+        if not grouped:
+            raise ValueError("At least one non-empty cluster is required.")
+
+        rng = np.random.default_rng(self.random_seed)
+        cluster_count = len(grouped)
+        sample_ids = rng.integers(
+            0,
+            cluster_count,
+            size=(self.bootstrap_samples, cluster_count),
+        )
+        means = np.empty(self.bootstrap_samples, dtype="float64")
+        for row_number, ids in enumerate(sample_ids):
+            sampled = np.concatenate([grouped[index] for index in ids])
+            means[row_number] = sampled.mean()
+
+        alpha = 1.0 - self.confidence
+        low, high = np.quantile(
+            means,
+            [alpha / 2.0, 1.0 - alpha / 2.0],
+        )
+        return {
+            "Mean": float(frame["value"].mean()),
+            "CI_Lower": float(low),
+            "CI_Upper": float(high),
+            "Cluster_Count": int(cluster_count),
+            "Observation_Count": int(len(frame)),
+        }
+
     def bootstrap_excess_independent(self, event_returns, benchmark_returns):
         """Bootstrap the difference between two independent return samples."""
         events = self._finite(event_returns)
