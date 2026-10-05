@@ -248,9 +248,33 @@ Para una prueba básica de datos de mercado:
 .\venv\Scripts\python.exe test_market_data.py
 ```
 
-## Activos
+## Universos de investigación
 
-Los activos analizados se configuran en `test_vfi.py`. El pipeline admite símbolos compatibles con yfinance, incluyendo acciones, ETFs y criptomonedas.
+Los candidatos de investigación están centralizados en `app/research/universes.py`, separados de la fórmula original del VFI:
+
+- `USA_STOCKS`
+- `USA_ETFS`
+- `CRYPTO`
+- `COLOMBIA`
+- `CHILE`
+- `LATAM`
+- `COMMODITIES_ETFS`
+
+El runner admite `ALL` para analizar todos los símbolos únicos.
+
+Ejemplos:
+
+```powershell
+.\venv\Scripts\python.exe scripts\run_cycle_analysis.py --universe USA_STOCKS
+.\venv\Scripts\python.exe scripts\run_cycle_analysis.py --universe CRYPTO
+.\venv\Scripts\python.exe scripts\run_cycle_analysis.py --universe COLOMBIA
+.\venv\Scripts\python.exe scripts\run_cycle_analysis.py --universe ALL
+.\venv\Scripts\python.exe scripts\run_cycle_analysis.py --symbols DDD,EC,SQM,NVDA
+```
+
+Cada ejecución guarda sus resultados en `reports/cycle_analysis/<universe>/` e incluye un `asset_event_summary.csv` para comparar resultados forward por activo.
+
+Los activos analizados admiten símbolos compatibles con yfinance, incluyendo acciones, ETFs y criptomonedas. La lista de candidatos es una hipótesis de investigación, no una recomendación de inversión.
 
 ## Reproducibilidad
 
@@ -276,21 +300,16 @@ Los cambios metodológicos importantes deben acompañarse de pruebas que demuest
 5. Los costes de comisión y slippage son actualmente supuestos deterministas; todavía no modelan impuestos, spreads variables, impacto de mercado ni restricciones de liquidez.
 6. La clasificación de acumulación es una hipótesis cuantitativa que debe validarse estadísticamente antes de utilizarse para decisiones reales.
 
-## Próximas extensiones
+## Estado actual y extensiones pendientes
 
-Una vez estabilizada esta base, las extensiones naturales son:
+La base de investigación ya incluye validación causal, walk-forward, análisis por régimen, robustez estadística, dashboard, ranking descriptivo y selección de universos. Lo que queda fuera del núcleo actual es:
 
-- impuestos, spreads, impacto de mercado y restricciones de liquidez;
-- validación walk-forward;
-- análisis por régimen de mercado;
-- exportación de resultados;
-- dashboard Streamlit;
-- ranking multi-activo;
-- integración futura de modelos de machine learning/IA, manteniendo separación entre datos disponibles en cada fecha y datos posteriores.
+- modelado más realista de impuestos, spreads variables, impacto de mercado y liquidez;
+- validación adicional de hipótesis descubiertas bajo distintos costes;
+- integración futura de modelos de machine learning/IA, manteniendo separación estricta entre información disponible en cada fecha y datos posteriores;
+- validación económica/fundamental independiente del VFI.
 
-## Estado del proyecto
-
-La rama de auditoría actual prioriza la integridad temporal del backtesting y la reproducibilidad antes de añadir modelos predictivos más complejos.
+Estas extensiones no son necesarias para ejecutar el estudio histórico multi-mercado del VFI.
 
 
 ## Metodología de investigación
@@ -330,8 +349,19 @@ El **stability score** es un ranking descriptivo de investigación y no una reco
 
 El análisis histórico completo puede ejecutarse manualmente o de forma programada mediante GitHub Actions. El workflow genera los reportes CSV en `reports/cycle_analysis/`, incluyendo ciclos, entradas de etapa, estadísticas, resumen por activo y régimen de mercado.
 
-El análisis actual cubre:
+El análisis histórico multi-mercado se ejecuta sobre los universos definidos en `app/research/universes.py`. El runner separa la selección de activos del cálculo del VFI y no modifica la fórmula original.
 
-`DDD`, `INTC`, `NVDA`, `BTC-USD`, `SQM` y `EC`.
+El flujo recomendado es:
+
+1. ejecutar `USA_STOCKS`;
+2. ejecutar `USA_ETFS`;
+3. ejecutar `CRYPTO`;
+4. ejecutar `COLOMBIA`;
+5. ejecutar `CHILE`;
+6. ejecutar `LATAM`;
+7. ejecutar `COMMODITIES_ETFS`;
+8. consolidar los resultados y aplicar el filtro de robustez antes de interpretar qué activos merecen una investigación adicional.
+
+El resultado final debe distinguir entre rendimiento histórico, evidencia out-of-sample y estado VFI actual. Ninguna de estas métricas constituye por sí sola una predicción de rentabilidad futura.
 
 El workflow automatizado no modifica la fórmula original del VFI.

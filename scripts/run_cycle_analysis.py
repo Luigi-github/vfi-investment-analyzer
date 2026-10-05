@@ -1,3 +1,4 @@
+from argparse import ArgumentParser
 from pathlib import Path
 import sys
 
@@ -13,13 +14,61 @@ from app.indicators.vfi import VFIIndicator
 from app.scoring.vfi_score import VFIScore
 from app.backtest.multi_asset_cycle_analysis import MultiAssetCycleAnalyzer
 from app.backtest.regime_analysis import RegimeAnalyzer
+from app.research.universes import MARKET_UNIVERSES, all_symbols, get_universe
 
 
-SYMBOLS = ["DDD", "INTC", "NVDA", "BTC-USD", "SQM", "EC"]
-OUTPUT_DIR = ROOT / "reports" / "cycle_analysis"
+DEFAULT_UNIVERSE = "ALL"
+OUTPUT_ROOT = ROOT / "reports" / "cycle_analysis"
 
 
-def prepare_asset(symbol, market_data_service, vfi_indicator, vfi_analyzer, scorer, cycle_analyzer):
+def parse_args(argv=None):
+    parser = ArgumentParser(description="Run causal VFI cycle research.")
+    parser.add_argument(
+        "--universe",
+        choices=[*MARKET_UNIVERSES.keys(), "ALL"],
+        default=DEFAULT_UNIVERSE,
+        help="Configured research universe to analyze.",
+    )
+    parser.add_argument(
+        "--symbols",
+        default=None,
+        help="Comma-separated yfinance symbols. Overrides --universe.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        default=None,
+        help="Optional report directory. Defaults to reports/cycle_analysis/<universe>.",
+    )
+    return parser.parse_args(argv)
+
+
+def resolve_symbols(universe=DEFAULT_UNIVERSE, symbols=None):
+    if symbols:
+        resolved = [item.strip() for item in symbols.split(",") if item.strip()]
+        if not resolved:
+            raise ValueError("--symbols must contain at least one symbol.")
+        return list(dict.fromkeys(resolved))
+
+    if universe == "ALL":
+        return all_symbols()
+
+    return get_universe(universe)
+
+
+def build_output_dir(universe, output_dir=None):
+    if output_dir:
+        return Path(output_dir)
+    return OUTPUT_ROOT / universe.lower()
+
+
+def prepare_asset(
+    symbol,
+    market_data_service,
+    vfi_indicator,
+    vfi_analyzer,
+    scorer,
+    cycle_analyzer,
+):
     daily = market_data_service.get_daily_data(symbol, period="max")
     weekly = market_data_service.convert_to_weekly(daily)
     vfi = vfi_indicator.calculate(weekly)
@@ -28,8 +77,46 @@ def prepare_asset(symbol, market_data_service, vfi_indicator, vfi_analyzer, scor
     return cycle_analyzer.analyze(scored), len(daily)
 
 
-def main():
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+def build_asset_event_summary(events, primary_horizon):
+    if events.empty:
+        return pd.DataFrame()
+
+    column = f"Return_{primary_horizon}W"
+    if column not in events.columns:
+        return pd.DataFrame()
+
+    valid = events.dropna(subset=[column]).copy()
+    if valid.empty:
+        return pd.DataFrame()
+
+    return (
+        valid.groupby("Symbol")
+        .agg(
+            Events=(column, "count"),
+            Average_Return=(column, "mean"),
+            Median_Return=(column, "median"),
+            Positive_Rate=(column, lambda values: values.gt(0).mean() * 100),
+            Worst_Return=(column, "min"),
+            Best_Return=(column, "max"),
+        )
+        .reset_index()
+        .sort_values(
+            ["Average_Return", "Positive_Rate", "Events"],
+            ascending=[False, False, False],
+        )
+        .reset_index(drop=True)
+    )
+
+
+def main(argv=None):
+    args = parse_args(argv)
+    symbols = resolve_symbols(args.universe, args.symbols)
+    output_dir = build_output_dir(args.universe, args.output_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    print(f"Universe: {args.universe}")
+    print(f"Symbols: {', '.join(symbols)}")
+    print(f"Output: {output_dir}")
 
     market_data_service = MarketDataService()
     vfi_indicator = VFIIndicator()
@@ -44,23 +131,36 @@ def main():
     asset_data = {}
     metadata = []
 
-    for symbol in SYMBOLS:
+    for symbol in symbols:
         print("=" * 80)
         print(f"ANALYZING {symbol}")
         print("=" * 80)
-        data, daily_rows = prepare_asset(
-            symbol,
-            market_data_service,
-            vfi_indicator,
-            vfi_analyzer,
-            scorer,
-            cycle_stage_analyzer,
-        )
+        try:
+            data, daily_rows = prepare_asset(
+                symbol,
+                market_data_service,
+                vfi_indicator,
+                vfi_analyzer,
+                scorer,
+                cycle_stage_analyzer,
+            )
+        except Exception as exc:
+            print(f"ERROR {symbol}: {exc}")
+            metadata.append(
+                {
+                    "Symbol": symbol,
+                    "Status": "ERROR",
+                    "Error": str(exc),
+                }
+            )
+            continue
+
         asset_data[symbol] = data
         valid = data[data["VFI"].notna()]
         metadata.append(
             {
                 "Symbol": symbol,
+                "Status": "OK",
                 "Daily_Rows": daily_rows,
                 "Weekly_Rows": len(data),
                 "Valid_VFI_Rows": len(valid),
@@ -72,33 +172,44 @@ def main():
             }
         )
 
+    if not asset_data:
+        raise RuntimeError("No asset could be analyzed successfully.")
+
     result = cycle_analyzer.analyze(asset_data)
 
     benchmark_daily = market_data_service.get_daily_data("SPY", period="max")
     benchmark_weekly = market_data_service.convert_to_weekly(benchmark_daily)
     regime_analyzer = RegimeAnalyzer(lookback_weeks=26)
-    result["events"] = regime_analyzer.label_events(result["events"], benchmark_weekly)
+    result["events"] = regime_analyzer.label_events(
+        result["events"], benchmark_weekly
+    )
     result["regime_summary"] = regime_analyzer.summarize(
         result["events"], f"Return_{cycle_analyzer.primary_horizon}W"
     )
-
-    result["cycles"].to_csv(OUTPUT_DIR / "cycles.csv", index=False)
-    result["events"].to_csv(OUTPUT_DIR / "stage_entries.csv")
-    result["quality_summary"].to_csv(OUTPUT_DIR / "quality_summary.csv", index=False)
-    result["stage_summary"].to_csv(OUTPUT_DIR / "stage_summary.csv", index=False)
-    result["stage_statistical_summary"].to_csv(
-        OUTPUT_DIR / "stage_statistical_summary.csv", index=False
+    result["asset_event_summary"] = build_asset_event_summary(
+        result["events"], cycle_analyzer.primary_horizon
     )
-    result["asset_summary"].to_csv(OUTPUT_DIR / "asset_summary.csv", index=False)
-    pd.DataFrame(metadata).to_csv(OUTPUT_DIR / "asset_metadata.csv", index=False)
+
+    result["cycles"].to_csv(output_dir / "cycles.csv", index=False)
+    result["events"].to_csv(output_dir / "stage_entries.csv")
+    result["quality_summary"].to_csv(output_dir / "quality_summary.csv", index=False)
+    result["stage_summary"].to_csv(output_dir / "stage_summary.csv", index=False)
+    result["stage_statistical_summary"].to_csv(
+        output_dir / "stage_statistical_summary.csv", index=False
+    )
+    result["asset_summary"].to_csv(output_dir / "asset_summary.csv", index=False)
+    result["asset_event_summary"].to_csv(
+        output_dir / "asset_event_summary.csv", index=False
+    )
+    pd.DataFrame(metadata).to_csv(output_dir / "asset_metadata.csv", index=False)
 
     print("=" * 80)
-    print("STAGE SUMMARY")
+    print("ASSET EVENT SUMMARY")
     print("=" * 80)
-    print(result["stage_summary"].to_string(index=False))
+    print(result["asset_event_summary"].to_string(index=False))
 
     print("=" * 80)
-    print("STATISTICAL STAGE SUMMARY")
+    print("STAGE STATISTICAL SUMMARY")
     print("=" * 80)
     print(result["stage_statistical_summary"].to_string(index=False))
 
@@ -107,17 +218,7 @@ def main():
     print("=" * 80)
     print(result["regime_summary"].to_string(index=False))
 
-    print("=" * 80)
-    print("ASSET SUMMARY")
-    print("=" * 80)
-    print(result["asset_summary"].to_string(index=False))
-
-    print("=" * 80)
-    print("QUALITY SUMMARY")
-    print("=" * 80)
-    print(result["quality_summary"].to_string(index=False))
-
-    print("Reports written to", OUTPUT_DIR)
+    print("Reports written to", output_dir)
 
 
 if __name__ == "__main__":
