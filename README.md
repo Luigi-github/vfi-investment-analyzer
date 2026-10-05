@@ -161,6 +161,8 @@ respectiva ventana de test.
 
 `LongOnlyExecutionCostModel` permite aplicar supuestos deterministas de comisión y slippage a retornos largos. El retorno bruto se conserva y el retorno neto se expone por separado.
 
+El descubrimiento walk-forward puede ordenar hipótesis por `Average_Net_Return`, de modo que los costes formen parte de la selección realizada exclusivamente sobre entrenamiento y la condición seleccionada se evalúe después sobre test intacto.
+
 `BenchmarkAnalyzer` compara los eventos seleccionados con el retorno forward de todas las fechas elegibles del mismo activo y horizonte. El benchmark es descriptivo y no se utiliza como feature de la señal.
 
 
@@ -272,7 +274,7 @@ Ejemplos:
 .\venv\Scripts\python.exe scripts\run_cycle_analysis.py --symbols DDD,EC,SQM,NVDA
 ```
 
-Cada ejecución guarda sus resultados en `reports/cycle_analysis/<universe>/` e incluye un `asset_event_summary.csv` para comparar resultados forward por activo.
+Cada ejecución guarda sus resultados en `reports/cycle_analysis/<universe>/` e incluye, además de `asset_event_summary.csv`, los artefactos `asset_walk_forward.csv`, `asset_oos_ranking.csv` y `condition_discovery_walk_forward.csv`. El ranking OOS se construye únicamente con las ventanas de prueba del análisis walk-forward.
 
 Los activos analizados admiten símbolos compatibles con yfinance, incluyendo acciones, ETFs y criptomonedas. La lista de candidatos es una hipótesis de investigación, no una recomendación de inversión.
 
