@@ -441,8 +441,6 @@ class VFIScore:
                 df["Accumulation_Negative_VFI"]
                 |
                 df["VFI_Zero_Cross_Up"]
-                |
-                df["VFI_Positive"]
             )
             &
             df["Accumulation_Direction"]
