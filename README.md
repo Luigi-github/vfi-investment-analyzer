@@ -367,3 +367,128 @@ El flujo recomendado es:
 El resultado final debe distinguir entre rendimiento histórico, evidencia out-of-sample y estado VFI actual. Ninguna de estas métricas constituye por sí sola una predicción de rentabilidad futura.
 
 El workflow automatizado no modifica la fórmula original del VFI.
+
+
+## Capa de cartera
+
+El proyecto incluye un backtest de cartera point-in-time en `app/backtest/portfolio_backtest.py`.
+
+La estrategia recibe únicamente eventos causales de recuperación. La fecha del evento es la fecha de decisión; el retorno de cartera empieza en la siguiente observación semanal, evitando utilizar el retorno de la misma vela para construir la señal.
+
+Métodos de ponderación disponibles:
+
+- `equal`: peso igual entre posiciones activas;
+- `inverse_vol`: ponderación inversa a volatilidad histórica;
+- `risk_parity`: búsqueda de pesos de contribución de riesgo aproximadamente iguales mediante la matriz de covarianzas histórica.
+
+Además permite:
+
+- máximo de posiciones;
+- peso máximo por activo;
+- comisión y slippage;
+- turnover;
+- exposición;
+- curva de equity;
+- drawdown;
+- CAGR;
+- volatilidad anualizada;
+- Sharpe;
+- Sortino;
+- tasa de periodos positivos.
+
+Ejemplo:
+
+```powershell
+.\venv\Scripts\python.exe scripts\run_portfolio_backtest.py --symbols DDD,INTC,NVDA,BTC-USD,SQM,EC --horizon-weeks 26 --max-positions 10 --fee-bps 25 --slippage-bps 25
+```
+
+Los resultados se guardan en `reports/portfolio_backtest/<universe>/`.
+
+## Benchmarks
+
+`app/backtest/portfolio_benchmark.py` genera referencias pasivas para evitar evaluar una cartera VFI en aislamiento:
+
+- cartera equal-weight reequilibrada del universo;
+- Buy & Hold de SPY;
+- Buy & Hold de QQQ;
+- Buy & Hold de BTC-USD cuando existe el histórico correspondiente.
+
+Los benchmarks no participan en la construcción de la señal.
+
+## Liquidez y capacidad
+
+`app/backtest/liquidity.py` calcula métricas point-in-time usando únicamente el historial disponible hasta la fecha del evento:
+
+- volumen promedio en dinero;
+- máximo nocional negociable bajo un porcentaje de participación máximo;
+- peso máximo soportable para un capital dado;
+- estado de elegibilidad.
+
+El runner permite activar el filtro:
+
+```powershell
+.\venv\Scripts\python.exe scripts\run_portfolio_backtest.py --universe USA_STOCKS --capital 100000 --max-positions 10 --max-participation-pct 1 --apply-liquidity-filter
+```
+
+La capacidad es una aproximación conservadora. No sustituye un modelo de spread, market impact, latencia o ejecución real.
+
+## Sensibilidad de parámetros VFI
+
+`app/research/parameter_sensitivity.py` permite evaluar configuraciones alternativas de:
+
+- `length`;
+- `coef`;
+- `vcoef`;
+- `signal_length`.
+
+La selección se realiza dentro de cada ventana de entrenamiento y la configuración seleccionada se evalúa después en la ventana de prueba intacta. El cálculo del VFI sigue viviendo exclusivamente en `VFIIndicator`; esta capa no modifica la fórmula original.
+
+Ejemplo:
+
+```powershell
+.\venv\Scripts\python.exe scripts\run_parameter_sensitivity.py --universe USA_STOCKS
+```
+
+Los reportes se guardan en `reports/parameter_sensitivity/<universe>/`.
+
+## Dashboard de investigación
+
+El dashboard ahora incluye:
+
+- estado actual del VFI;
+- ciclos y eventos causales;
+- descubrimiento walk-forward;
+- ranking OOS;
+- backtest de cartera;
+- comparación equal-weight / inverse-vol / risk-parity;
+- costes;
+- filtro de liquidez;
+- benchmarks pasivos;
+- curva de equity.
+
+Ejecutar:
+
+```powershell
+.\venv\Scripts\python.exe -m streamlit run dashboard/app.py
+```
+
+## Automatización
+
+Además del workflow histórico multi-mercado, se recomienda ejecutar de forma independiente la investigación de cartera y la sensibilidad de parámetros. Esto evita mezclar un proceso de investigación intensivo con el cálculo normal del VFI y permite revisar los artefactos generados por cada etapa.
+
+## Criterio de finalización
+
+El proyecto se considera operacionalmente completo cuando:
+
+1. la fórmula original del VFI permanece aislada y sin modificaciones por las capas de investigación;
+2. las señales principales son causales;
+3. los eventos tienen validación forward y walk-forward;
+4. existen controles de robustez estadística y múltiples hipótesis;
+5. los costes se modelan explícitamente;
+6. la cartera tiene restricciones de posiciones y capacidad;
+7. existe comparación contra benchmarks;
+8. los parámetros pueden validarse fuera de muestra;
+9. el dashboard y los runners reproducen el mismo motor cuantitativo;
+10. las pruebas automatizadas cubren las capas críticas.
+
+Esto no significa que el sistema pueda garantizar rentabilidad. Significa que existe una infraestructura reproducible para investigar si una hipótesis de VFI tiene evidencia histórica suficientemente robusta.
