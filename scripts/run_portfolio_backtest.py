@@ -9,6 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.backtest.portfolio_backtest import PortfolioBacktester
+from app.backtest.portfolio_benchmark import PortfolioBenchmark
+from app.backtest.liquidity import LiquidityAnalyzer
 from app.data.market_data import MarketDataService
 from app.analysis.vfi_analyzer import VFIAnalyzer
 from app.analysis.vfi_cycle import VFICycleAnalyzer
@@ -32,6 +34,10 @@ def parse_args(argv=None):
     parser.add_argument("--max-position-weight", type=float, default=None)
     parser.add_argument("--fee-bps", type=float, default=0.0)
     parser.add_argument("--slippage-bps", type=float, default=0.0)
+    parser.add_argument("--capital", type=float, default=100000.0)
+    parser.add_argument("--max-participation-pct", type=float, default=1.0)
+    parser.add_argument("--min-dollar-volume", type=float, default=0.0)
+    parser.add_argument("--apply-liquidity-filter", action="store_true")
     return parser.parse_args(argv)
 
 
@@ -113,6 +119,22 @@ def main(argv=None):
 
     signals = pd.concat(signal_frames).sort_index()
 
+    liquidity = LiquidityAnalyzer(lookback_weeks=13)
+    annotated_signals = liquidity.annotate_signals(
+        signals,
+        asset_data,
+        capital=args.capital,
+        max_participation_pct=args.max_participation_pct,
+        min_dollar_volume=args.min_dollar_volume,
+        target_position_weight=1.0 / args.max_positions,
+    )
+    annotated_signals.to_csv(output_dir / "signal_liquidity.csv", index=False)
+
+    if args.apply_liquidity_filter:
+        signals = annotated_signals[annotated_signals["Liquidity_Eligible"]].copy()
+        signals = signals.set_index("Date")
+        print(f"Liquidity filter retained {len(signals)} of {len(annotated_signals)} signals.")
+
     all_summaries = []
     for weighting in ("equal", "inverse_vol", "risk_parity"):
         backtester = PortfolioBacktester(
@@ -144,6 +166,39 @@ def main(argv=None):
 
     signals.reset_index(names="Date").to_csv(
         output_dir / "portfolio_signals.csv", index=False
+    )
+
+    benchmark = PortfolioBenchmark()
+    benchmark_curves = {}
+    benchmark_start = signals.index.min()
+    benchmark_curves["UNIVERSE_EQUAL_WEIGHT"] = benchmark.equal_weight_rebalanced(
+        prices, start_date=benchmark_start
+    )
+
+    for benchmark_symbol in ("SPY", "QQQ", "BTC-USD"):
+        try:
+            if benchmark_symbol in prices:
+                benchmark_prices = prices[benchmark_symbol]
+            else:
+                daily = market_data.get_daily_data(benchmark_symbol, period="max")
+                weekly = market_data.convert_to_weekly(daily)
+                benchmark_prices = weekly[["Close"]]
+            benchmark_curves[benchmark_symbol] = benchmark.single_asset_buy_hold(
+                benchmark_prices,
+                start_date=benchmark_start,
+            )
+        except Exception as exc:
+            print(f"BENCHMARK ERROR {benchmark_symbol}: {exc}")
+
+    benchmark_rows = []
+    for name, curve in benchmark_curves.items():
+        curve.to_csv(output_dir / f"benchmark_{name.replace('-', '_')}.csv", index=False)
+        row = benchmark.summarize(curve)
+        row["Benchmark"] = name
+        benchmark_rows.append(row)
+
+    pd.DataFrame(benchmark_rows).to_csv(
+        output_dir / "benchmark_summary.csv", index=False
     )
 
     print("=" * 80)
