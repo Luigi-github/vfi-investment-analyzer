@@ -114,14 +114,16 @@ class MultiAssetCycleAnalyzer:
             summary = self.statistics.summarize(returns)
             bootstrap = self.statistics.bootstrap_mean(returns)
             valid_group = group.loc[valid_mask]
-            clusters = (
-                valid_group["Symbol"]
-                if "Symbol" in valid_group.columns
-                else pd.Series(
-                    range(len(valid_group)),
-                    index=valid_group.index,
+            if {"Symbol", "Cycle_ID_Causal"}.issubset(valid_group.columns):
+                clusters = (
+                    valid_group["Symbol"].astype(str)
+                    + "::"
+                    + valid_group["Cycle_ID_Causal"].astype(str)
                 )
-            )
+            elif "Symbol" in valid_group.columns:
+                clusters = valid_group["Symbol"]
+            else:
+                clusters = pd.Series(range(len(valid_group)), index=valid_group.index)
             cluster_bootstrap = self.robustness.bootstrap_clustered_mean(
                 returns,
                 clusters,
