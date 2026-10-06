@@ -292,7 +292,7 @@ def main(argv=None):
                 {
                     "Symbol": symbol,
                     "Status": "ERROR",
-                    "Instrument_Type": "ADR" if symbol == "CIB" else "EQUITY",
+                    "Instrument_Type": ("ADR" if symbol == "CIB" else "PREFERRED" if symbol.startswith("PF") else "EQUITY"),
                     "Error": str(exc),
                 }
             )
