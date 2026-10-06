@@ -3,6 +3,7 @@ import pandas as pd
 from app.backtest.cycle_analysis import VFICycleBacktestAnalyzer
 from app.backtest.statistical_validation import StatisticalValidationAnalyzer
 from app.backtest.statistical_robustness import StatisticalRobustnessAnalyzer
+from app.backtest.block_bootstrap import block_bootstrap_mean
 
 
 class MultiAssetCycleAnalyzer:
@@ -125,6 +126,12 @@ class MultiAssetCycleAnalyzer:
                 returns,
                 clusters,
             )
+            block_bootstrap = block_bootstrap_mean(
+                returns,
+                block_size=8,
+                iterations=5000,
+                random_state=42,
+            )
             excess = self.robustness.bootstrap_excess_independent(
                 returns, benchmark
             )
@@ -146,6 +153,9 @@ class MultiAssetCycleAnalyzer:
                 "Cluster_Bootstrap_CI_Lower": cluster_bootstrap["CI_Lower"],
                 "Cluster_Bootstrap_CI_Upper": cluster_bootstrap["CI_Upper"],
                 "Cluster_Count": cluster_bootstrap["Cluster_Count"],
+                "Block_Bootstrap_CI_Lower": block_bootstrap["Lower_95"],
+                "Block_Bootstrap_CI_Upper": block_bootstrap["Upper_95"],
+                "Block_Bootstrap_Size": block_bootstrap["Block_Size"],
             })
 
         significance = self.robustness.test_conditions(condition_returns)
