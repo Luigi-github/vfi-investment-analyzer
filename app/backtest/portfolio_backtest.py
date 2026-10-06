@@ -238,6 +238,18 @@ class PortfolioBacktester:
                 else pd.Series(dtype=float)
             )
 
+            available = [
+                symbol
+                for symbol in target_weights.index
+                if date in prices[symbol].index
+                and next_date in prices[symbol].index
+            ]
+            target_weights = target_weights.reindex(available).dropna()
+            if not target_weights.empty:
+                total_target = float(target_weights.sum())
+                if total_target > 0:
+                    target_weights = target_weights / total_target
+
             turnover = float(
                 previous_weights.sub(target_weights, fill_value=0.0).abs().sum()
             )
@@ -246,8 +258,6 @@ class PortfolioBacktester:
 
             for symbol, weight in target_weights.items():
                 series = prices[symbol]
-                if date not in series.index or next_date not in series.index:
-                    continue
                 asset_return = float(series.loc[next_date] / series.loc[date] - 1.0)
                 gross_return += float(weight) * asset_return
                 realized_positions.append(
