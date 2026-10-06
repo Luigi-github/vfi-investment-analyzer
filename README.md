@@ -492,3 +492,24 @@ El proyecto se considera operacionalmente completo cuando:
 10. las pruebas automatizadas cubren las capas críticas.
 
 Esto no significa que el sistema pueda garantizar rentabilidad. Significa que existe una infraestructura reproducible para investigar si una hipótesis de VFI tiene evidencia histórica suficientemente robusta.
+
+
+## ML supervisado OOS
+
+La capa `app/research/ml_event_analyzer.py` es experimental. Utiliza un Random Forest únicamente sobre features disponibles en la fecha del evento y predice si el retorno forward del horizonte elegido será positivo.
+
+La validación es walk-forward:
+
+1. se construye el conjunto de entrenamiento con eventos anteriores al cutoff;
+2. se entrena el modelo únicamente con ese conjunto;
+3. se predicen los eventos posteriores;
+4. se registran accuracy, balanced accuracy, precision, ROC-AUC y retorno medio de las predicciones positivas;
+5. nunca se utiliza el retorno futuro de un evento como feature.
+
+Ejemplo:
+
+```powershell
+.\venv\Scripts\python.exe scripts\run_ml_research.py --universe USA_STOCKS
+```
+
+Esta capa no reemplaza el VFI, no se considera una señal automática y debe superar validaciones OOS adicionales antes de utilizarse en una estrategia.
