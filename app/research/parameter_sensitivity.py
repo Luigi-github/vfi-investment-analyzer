@@ -115,7 +115,10 @@ class VFIParameterSensitivityAnalyzer:
 
             candidates = []
             for key, events in evaluated.items():
-                train = events.loc[events.index <= cutoff]
+                label_end = events.index + pd.Timedelta(
+                    weeks=self.primary_horizon
+                )
+                train = events.loc[label_end < cutoff]
                 valid = train[f"Return_{self.primary_horizon}W"].dropna()
                 if len(valid) < minimum_events:
                     continue
@@ -140,9 +143,12 @@ class VFIParameterSensitivityAnalyzer:
                 )[0]
 
                 selected_events = evaluated[selected["key"]]
+                selected_label_end = selected_events.index + pd.Timedelta(
+                    weeks=self.primary_horizon
+                )
                 test = selected_events.loc[
-                    (selected_events.index > cutoff)
-                    & (selected_events.index <= test_end)
+                    (selected_events.index >= cutoff)
+                    & (selected_label_end < test_end)
                 ]
                 test_valid = test[f"Return_{self.primary_horizon}W"].dropna()
 
