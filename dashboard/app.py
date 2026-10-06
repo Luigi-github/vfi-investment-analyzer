@@ -204,6 +204,9 @@ if portfolio_events:
         portfolio_signals = liquidity_view[
             liquidity_view["Liquidity_Eligible"]
         ].set_index("Date")
+        if portfolio_signals.empty:
+            st.warning("El filtro de liquidez eliminó todas las señales.")
+            st.stop()
 
     weighting_results = {}
     summary_rows = []
@@ -247,11 +250,15 @@ if portfolio_events:
         )
     }
     for benchmark_symbol in ("SPY", "QQQ", "BTC-USD"):
-        if benchmark_symbol in portfolio_prices:
-            benchmark_curves[benchmark_symbol] = benchmark.single_asset_buy_hold(
-                portfolio_prices[benchmark_symbol],
-                start_date=portfolio_signals.index.min(),
-            )
+        if benchmark_symbol not in portfolio_prices:
+            try:
+                portfolio_prices[benchmark_symbol] = build_asset(benchmark_symbol)[["Close"]]
+            except Exception:
+                continue
+        benchmark_curves[benchmark_symbol] = benchmark.single_asset_buy_hold(
+            portfolio_prices[benchmark_symbol],
+            start_date=portfolio_signals.index.min(),
+        )
 
     benchmark_rows = []
     for name, curve in benchmark_curves.items():
