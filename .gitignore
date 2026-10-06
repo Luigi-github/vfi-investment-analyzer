@@ -45,3 +45,5 @@ data/database/*
 Thumbs.db
 # Generated research reports
 reports/cycle_analysis/
+reports/portfolio_backtest/
+reports/parameter_sensitivity/
