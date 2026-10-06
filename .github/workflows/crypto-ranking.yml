@@ -1,0 +1,32 @@
+name: Crypto VFI Ranking
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  crypto-ranking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run crypto VFI research
+        run: python scripts/run_cycle_analysis.py --universe CRYPTO --output-dir reports/crypto_ranking
+
+      - name: Upload crypto ranking
+        uses: actions/upload-artifact@v4
+        with:
+          name: vfi-crypto-ranking
+          path: reports/crypto_ranking/
