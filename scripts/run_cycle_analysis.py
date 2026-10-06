@@ -24,6 +24,39 @@ from app.research.reproducibility import build_run_metadata, write_run_metadata,
 DEFAULT_UNIVERSE = "ALL"
 OUTPUT_ROOT = ROOT / "reports" / "cycle_analysis"
 
+# Colombian eligibility policy: recent history + actual recent trading.
+COLOMBIA_MIN_HISTORY_DAYS = 180
+COLOMBIA_MIN_RECENT_ROWS = 30
+COLOMBIA_MIN_NONZERO_VOLUME_DAYS = 5
+COLOMBIA_MIN_MEDIAN_DAILY_VALUE_COP = 1_000_000.0
+
+
+def check_colombia_eligibility(data):
+    """Exclude only stale or effectively untraded Colombian candidates."""
+    frame = data[["Close", "Volume"]].dropna().copy()
+    if frame.empty:
+        return False, {"Eligibility_Reason": "NO_HISTORY"}
+    frame.index = pd.to_datetime(frame.index)
+    cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=COLOMBIA_MIN_HISTORY_DAYS)
+    recent = frame[frame.index.normalize() >= cutoff]
+    nonzero = recent[(recent["Close"] > 0) & (recent["Volume"] > 0)]
+    daily_value = nonzero["Close"] * nonzero["Volume"]
+    median_daily_value = float(daily_value.median()) if not daily_value.empty else 0.0
+    has_recent_history = frame.index.max().normalize() >= cutoff and len(recent) >= COLOMBIA_MIN_RECENT_ROWS
+    has_liquidity = len(nonzero) >= COLOMBIA_MIN_NONZERO_VOLUME_DAYS and median_daily_value >= COLOMBIA_MIN_MEDIAN_DAILY_VALUE_COP
+    eligible = has_recent_history and has_liquidity
+    reasons = []
+    if not has_recent_history: reasons.append("NO_RECENT_HISTORY")
+    if not has_liquidity: reasons.append("NO_RECENT_LIQUIDITY")
+    return eligible, {
+        "Eligibility_Reason": "OK" if eligible else "|".join(reasons),
+        "Last_Date": frame.index.max(),
+        "Recent_Rows": len(recent),
+        "Recent_Nonzero_Volume_Days": len(nonzero),
+        "Median_Daily_Value_COP": median_daily_value,
+    }
+
+
 
 def parse_args(argv=None):
     parser = ArgumentParser(description="Run causal VFI cycle research.")
@@ -234,14 +267,25 @@ def main(argv=None):
         print(f"ANALYZING {symbol}")
         print("=" * 80)
         try:
-            data, daily_rows = prepare_asset(
-                symbol,
-                market_data_service,
-                vfi_indicator,
-                vfi_analyzer,
-                scorer,
-                cycle_stage_analyzer,
-            )
+            daily = market_data_service.get_daily_data(symbol, period="max")
+            if args.universe == "COLOMBIA":
+                eligible, eligibility = check_colombia_eligibility(daily)
+                if not eligible:
+                    print(f"EXCLUDED {symbol}: {eligibility}")
+                    metadata.append({
+                        "Symbol": symbol,
+                        "Status": "EXCLUDED",
+                        "Instrument_Type": "PREFERRED" if symbol.startswith("PF") else "EQUITY",
+                        **eligibility,
+                    })
+                    continue
+            weekly = market_data_service.convert_to_weekly(daily)
+            vfi = vfi_indicator.calculate(weekly)
+            analyzed = vfi_analyzer.analyze(vfi)
+            scored = scorer.calculate(analyzed)
+            normalized = add_vfi_normalized_features(scored)
+            data = cycle_stage_analyzer.analyze(normalized)
+            daily_rows = len(daily)
         except Exception as exc:
             print(f"ERROR {symbol}: {exc}")
             metadata.append(
