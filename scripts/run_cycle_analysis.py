@@ -17,6 +17,8 @@ from app.backtest.multi_asset_recovery_analysis import MultiAssetRecoveryAnalyze
 from app.backtest.regime_analysis import RegimeAnalyzer
 from app.scoring.research_ranking import ResearchRankingAnalyzer
 from app.research.universes import MARKET_UNIVERSES, all_symbols, get_universe
+from app.features.vfi_normalization import add_vfi_normalized_features
+from app.research.reproducibility import build_run_metadata, write_run_metadata, RESEARCH_VERSION, VFI_FORMULA_VERSION, CYCLE_DEFINITION_VERSION, STAGE_DEFINITION_VERSION
 
 
 DEFAULT_UNIVERSE = "ALL"
@@ -76,7 +78,8 @@ def prepare_asset(
     vfi = vfi_indicator.calculate(weekly)
     analyzed = vfi_analyzer.analyze(vfi)
     scored = scorer.calculate(analyzed)
-    return cycle_analyzer.analyze(scored), len(daily)
+    normalized = add_vfi_normalized_features(scored)
+    return cycle_analyzer.analyze(normalized), len(daily)
 
 
 def build_asset_event_summary(events, primary_horizon):
@@ -253,6 +256,34 @@ def main(argv=None):
 
         asset_data[symbol] = data
         valid = data[data["VFI"].notna()]
+        run_metadata = build_run_metadata(
+            symbol=symbol,
+            provider=market_data_service.PROVIDER,
+            retrieved_at=market_data_service.get_last_metadata().get("Retrieved_At_UTC"),
+            data=data,
+            vfi_parameters={
+                "length": vfi_indicator.length,
+                "coef": vfi_indicator.coef,
+                "vcoef": vfi_indicator.vcoef,
+                "signal_length": vfi_indicator.signal_length,
+                "smooth_vfi": vfi_indicator.smooth_vfi,
+                "context_window": vfi_indicator.context_window,
+            },
+            extra={
+                "Research_Version": RESEARCH_VERSION,
+                "VFI_Formula_Version": VFI_FORMULA_VERSION,
+                "Cycle_Definition_Version": CYCLE_DEFINITION_VERSION,
+                "Stage_Definition_Version": STAGE_DEFINITION_VERSION,
+                "Daily_Rows": daily_rows,
+                "Weekly_Rows": len(data),
+            },
+        )
+        metadata_path = output_dir / "metadata"
+        metadata_path.mkdir(parents=True, exist_ok=True)
+        write_run_metadata(
+            metadata_path / f"{symbol.replace('-', '_')}.json",
+            run_metadata,
+        )
         metadata.append(
             {
                 "Symbol": symbol,
