@@ -16,9 +16,15 @@ MARKET_UNIVERSES = {
     "USA_ETFS": [
         "SPY", "QQQ", "IWM", "EEM", "TLT", "GLD", "SLV", "XLE",
     ],
+    # Liquid/researchable crypto candidates. Stablecoins are intentionally
+    # excluded because VFI is being used to study directional accumulation
+    # and distribution, not stable-value assets.
     "CRYPTO": [
-        "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD",
-        "XRP-USD", "ADA-USD", "DOGE-USD", "AVAX-USD",
+        "BTC-USD", "ETH-USD", "BNB-USD", "XRP-USD", "SOL-USD",
+        "TRX-USD", "ZEC-USD", "HYPE-USD", "DOGE-USD", "LINK-USD",
+        "XMR-USD", "ADA-USD", "WBT-USD", "NEAR-USD", "BCH-USD",
+        "UNI-USD", "LTC-USD", "AVAX-USD", "XLM-USD", "ETC-USD",
+        "FIL-USD", "DOT-USD", "ATOM-USD", "AAVE-USD", "SUI-USD",
     ],
     # Colombia candidates. Eligibility is decided by the Colombian
     # recency/liquidity policy before VFI calculation.
