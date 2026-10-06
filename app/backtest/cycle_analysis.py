@@ -2,12 +2,7 @@ import pandas as pd
 
 
 class VFICycleBacktestAnalyzer:
-    """Cycle-level historical analysis built on existing VFI cycle stages.
-
-    This module does not calculate VFI. It only consumes the columns already
-    produced by the indicator/scoring pipeline and evaluates complete cycles
-    and their subsequent price behavior.
-    """
+    """Cycle-level historical analysis built on existing VFI cycle stages."""
 
     DEFAULT_HORIZONS = (4, 8, 12, 26, 52)
 
@@ -21,27 +16,31 @@ class VFICycleBacktestAnalyzer:
 
     def validate_data(self, data):
         required = [
-            "Close",
-            "VFI",
-            "VFI_Slope",
-            "VFI_Slope_4W",
-            "VFI_Slope_8W",
-            "VFI_Cycle_Stage",
+            "Close", "VFI", "VFI_Slope", "VFI_Slope_4W",
+            "VFI_Slope_8W", "VFI_Cycle_Stage",
         ]
         missing = [column for column in required if column not in data.columns]
         if missing:
             raise ValueError(f"Missing required columns: {missing}")
-
         if not isinstance(data.index, pd.DatetimeIndex):
             raise ValueError("Cycle analysis requires a DatetimeIndex.")
 
     def add_forward_returns(self, data):
-        """Add point-in-time forward price returns for stage-entry analysis."""
+        """Add causal forward price and total-return observations.
+
+        These are descriptive labels, not executable entry prices. Executable
+        trades are handled by the portfolio backtester using the next
+        available observation after a signal.
+        """
         df = data.copy()
         for horizon in self.horizons:
             df[f"Return_{horizon}W"] = (
                 (df["Close"].shift(-horizon) / df["Close"]) - 1.0
             ) * 100.0
+            if "Adj Close" in df.columns:
+                df[f"Total_Return_{horizon}W"] = (
+                    (df["Adj Close"].shift(-horizon) / df["Adj Close"]) - 1.0
+                ) * 100.0
         return df
 
     def _zero_cross_events(self, data):
@@ -51,41 +50,25 @@ class VFICycleBacktestAnalyzer:
         return up, down
 
     def extract_cycles(self, data):
-        """Extract full VFI cycles from one zero-cross-down to the next.
-
-        A full cycle contains the negative-flow phase, recovery, zero-cross-up,
-        bullish-flow phase, weakening and the next zero-cross-down. This keeps
-        recovery statistics inside the same causal cycle instead of starting
-        the cycle after recovery has already happened.
-        """
         self.validate_data(data)
         df = data.sort_index().copy()
         _, zero_down = self._zero_cross_events(df)
         boundary_dates = list(df.index[zero_down])
-
         if not boundary_dates:
             return pd.DataFrame()
 
         rows = []
         for number, start_date in enumerate(boundary_dates, start=1):
-            end_date = (
-                boundary_dates[number]
-                if number < len(boundary_dates)
-                else df.index[-1]
-            )
+            end_date = boundary_dates[number] if number < len(boundary_dates) else df.index[-1]
             complete = number < len(boundary_dates)
-
             segment = df.loc[start_date:end_date]
             if complete:
                 segment = segment.iloc[:-1]
-
             if segment.empty:
                 continue
 
-            start = segment.iloc[0]
-            end = segment.iloc[-1]
+            start, end = segment.iloc[0], segment.iloc[-1]
             stage_counts = segment["VFI_Cycle_Stage"].value_counts()
-
             row = {
                 "Cycle_ID": number,
                 "Cycle_Type": "FULL_VFI_CYCLE",
@@ -105,35 +88,25 @@ class VFICycleBacktestAnalyzer:
                 "Max_8W_Slope": segment["VFI_Slope_8W"].max(),
                 "Min_4W_Slope": segment["VFI_Slope_4W"].min(),
                 "Min_8W_Slope": segment["VFI_Slope_8W"].min(),
-                "Price_Return_Pct": (
-                    (end["Close"] / start["Close"]) - 1.0
-                ) * 100.0,
+                "Price_Return_Pct": ((end["Close"] / start["Close"]) - 1.0) * 100.0,
                 "Peak_Price": segment["Close"].max(),
                 "Trough_Price": segment["Close"].min(),
-                "Peak_Return_From_Start_Pct": (
-                    (segment["Close"].max() / start["Close"]) - 1.0
-                ) * 100.0,
-                "Worst_Return_From_Start_Pct": (
-                    (segment["Close"].min() / start["Close"]) - 1.0
-                ) * 100.0,
+                "Peak_Return_From_Start_Pct": ((segment["Close"].max() / start["Close"]) - 1.0) * 100.0,
+                "Worst_Return_From_Start_Pct": ((segment["Close"].min() / start["Close"]) - 1.0) * 100.0,
                 "Stage_Count": len(stage_counts),
             }
+            if "Adj Close" in segment.columns:
+                row["Total_Return_Pct"] = ((end["Adj Close"] / start["Adj Close"]) - 1.0) * 100.0
+                row["Peak_Total_Return_From_Start_Pct"] = ((segment["Adj Close"].max() / start["Adj Close"]) - 1.0) * 100.0
+                row["Worst_Total_Return_From_Start_Pct"] = ((segment["Adj Close"].min() / start["Adj Close"]) - 1.0) * 100.0
 
             for stage in (
-                "BEARISH_FLOW",
-                "EARLY_RECOVERY",
-                "SUSTAINED_RECOVERY",
-                "APPROACHING_ZERO",
-                "ZERO_CROSS_UP",
-                "ACCUMULATION",
-                "BULLISH_FLOW",
-                "WEAKENING",
-                "SUSTAINED_WEAKENING",
-                "DISTRIBUTION",
-                "ZERO_CROSS_DOWN",
+                "BEARISH_FLOW", "EARLY_RECOVERY", "SUSTAINED_RECOVERY",
+                "APPROACHING_ZERO", "ZERO_CROSS_UP", "ACCUMULATION",
+                "BULLISH_FLOW", "WEAKENING", "SUSTAINED_WEAKENING",
+                "DISTRIBUTION", "ZERO_CROSS_DOWN",
             ):
                 row[f"Weeks_{stage}"] = int(stage_counts.get(stage, 0))
-
             rows.append(row)
 
         result = pd.DataFrame(rows)
@@ -150,39 +123,28 @@ class VFICycleBacktestAnalyzer:
             )
             result["Weeks_To_Zero_Cross_Up"] = result.apply(
                 lambda row: self._weeks_to_stage(
-                    df,
-                    row["Start_Date"],
-                    row["Boundary_End_Date"],
-                    "ZERO_CROSS_UP",
-                ),
-                axis=1,
+                    df, row["Start_Date"], row["Boundary_End_Date"], "ZERO_CROSS_UP"
+                ), axis=1,
             )
-            result["Cycle_Quality"] = result.apply(
-                self._classify_cycle_quality, axis=1
-            )
+            result["Cycle_Quality"] = result.apply(self._classify_cycle_quality, axis=1)
         return result
 
     @staticmethod
     def _weeks_to_stage(data, start_date, end_date, stage):
         segment = data.loc[start_date:end_date]
         matches = segment.index[segment["VFI_Cycle_Stage"].eq(stage)]
-        if len(matches) == 0:
-            return None
-        return int(segment.index.get_loc(matches[0]))
+        return int(segment.index.get_loc(matches[0])) if len(matches) else None
 
     @staticmethod
     def _classify_cycle_quality(row):
         if row["Cycle_Type"] != "FULL_VFI_CYCLE":
             return "NOT_BULLISH"
-
         if not row["Complete"]:
             return "INCOMPLETE"
-
         recovery = row["Recovery_Weeks"]
         sustained = row["Weeks_SUSTAINED_RECOVERY"]
         peak_return = row["Peak_Return_From_Start_Pct"]
         final_return = row["Price_Return_Pct"]
-
         if sustained > 0 and peak_return >= 30 and final_return > 0:
             return "EXCEPTIONAL"
         if sustained > 0 and peak_return >= 10 and final_return > 0:
@@ -194,45 +156,27 @@ class VFICycleBacktestAnalyzer:
         return "FAILED"
 
     def stage_entry_analysis(self, data, stages=None):
-        """Evaluate the first causal week of each requested stage."""
         self.validate_data(data)
         df = self.add_forward_returns(data.sort_index())
-
-        stages = tuple(
-            stages
-            or (
-                "EARLY_RECOVERY",
-                "SUSTAINED_RECOVERY",
-                "APPROACHING_ZERO",
-                "ZERO_CROSS_UP",
-                "ACCUMULATION",
-            )
-        )
-
+        stages = tuple(stages or (
+            "EARLY_RECOVERY", "SUSTAINED_RECOVERY",
+            "APPROACHING_ZERO", "ZERO_CROSS_UP", "ACCUMULATION",
+        ))
         previous = df["VFI_Cycle_Stage"].shift(1)
         entry = (
             df["VFI_Cycle_Stage"].isin(stages)
             & (previous.isna() | previous.ne(df["VFI_Cycle_Stage"]))
         )
-
         events = df.loc[entry].copy()
         if events.empty:
             return events
-
         events["Cycle_Stage_Event"] = events["VFI_Cycle_Stage"]
         events["Causal_Event"] = True
         return events
 
     def summarize(self, cycles, complete_only=False):
-        """Summarize cycle outcomes, optionally restricting to complete cycles.
-
-        Cycle quality and full-cycle returns are retrospective descriptors:
-        they use information known only after the cycle ends and must not be
-        treated as point-in-time signals.
-        """
         if cycles.empty:
             return pd.DataFrame()
-
         bullish = cycles[cycles["Cycle_Type"] == "FULL_VFI_CYCLE"].copy()
         if complete_only:
             bullish = bullish[bullish["Complete"]].copy()
@@ -241,27 +185,20 @@ class VFICycleBacktestAnalyzer:
 
         rows = []
         for quality, group in bullish.groupby("Cycle_Quality"):
-            rows.append(
-                {
-                    "Cycle_Quality": quality,
-                    "Cycles": len(group),
-                    "Average_Weeks": group["Weeks"].mean(),
-                    "Average_Recovery_Weeks": group["Recovery_Weeks"].mean(),
-                    "Average_Peak_Return_Pct": group[
-                        "Peak_Return_From_Start_Pct"
-                    ].mean(),
-                    "Average_Cycle_Return_Pct": group[
-                        "Price_Return_Pct"
-                    ].mean(),
-                    "Median_Cycle_Return_Pct": group[
-                        "Price_Return_Pct"
-                    ].median(),
-                    "Positive_Cycle_Rate_Pct": (
-                        (group["Price_Return_Pct"] > 0).mean() * 100
-                    ),
-                }
-            )
-
+            row = {
+                "Cycle_Quality": quality,
+                "Cycles": len(group),
+                "Average_Weeks": group["Weeks"].mean(),
+                "Average_Recovery_Weeks": group["Recovery_Weeks"].mean(),
+                "Average_Peak_Return_Pct": group["Peak_Return_From_Start_Pct"].mean(),
+                "Average_Cycle_Return_Pct": group["Price_Return_Pct"].mean(),
+                "Median_Cycle_Return_Pct": group["Price_Return_Pct"].median(),
+                "Positive_Cycle_Rate_Pct": (group["Price_Return_Pct"] > 0).mean() * 100,
+            }
+            if "Total_Return_Pct" in group:
+                row["Average_Total_Return_Pct"] = group["Total_Return_Pct"].mean()
+                row["Median_Total_Return_Pct"] = group["Total_Return_Pct"].median()
+            rows.append(row)
         return pd.DataFrame(rows).sort_values(
             "Average_Cycle_Return_Pct", ascending=False
         ).reset_index(drop=True)

@@ -1,5 +1,6 @@
 from argparse import ArgumentParser
 from pathlib import Path
+import json
 import sys
 
 import numpy as np
@@ -107,10 +108,25 @@ def main(argv=None):
 
             events = recovery.analyze_asset_causal(symbol, data)
             if not events.empty:
-                signal_frames.append(events[["Symbol"]])
+                signal_frames.append(events.copy())
 
             asset_data[symbol] = data
-            prices[symbol] = data[["Close"]].copy()
+            prices[symbol] = data[["Close", "Adj Close"]].copy() if "Adj Close" in data.columns else data[["Close"]].copy()
+            metadata = market_data.get_last_metadata()
+            metadata["Weekly_Rows"] = int(len(weekly))
+            metadata["VFI_Parameters"] = {
+                "length": vfi_indicator.length,
+                "coef": vfi_indicator.coef,
+                "vcoef": vfi_indicator.vcoef,
+                "signal_length": vfi_indicator.signal_length,
+                "smooth_vfi": vfi_indicator.smooth_vfi,
+                "context_window": vfi_indicator.context_window,
+            }
+            (output_dir / "metadata").mkdir(parents=True, exist_ok=True)
+            (output_dir / "metadata" / f"{symbol.replace('-', '_')}.json").write_text(
+                json.dumps(metadata, indent=2, default=str),
+                encoding="utf-8",
+            )
         except Exception as exc:
             print(f"ERROR {symbol}: {exc}")
 

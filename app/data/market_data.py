@@ -1,92 +1,112 @@
+import hashlib
+import json
+
 import yfinance as yf
 import pandas as pd
 
 
 class MarketDataService:
+    """Download market data and retain reproducibility metadata."""
+
+    PROVIDER = "Yahoo Finance / yfinance"
+
+    def __init__(self):
+        self.last_metadata = {}
+
+    @staticmethod
+    def _hash_frame(data: pd.DataFrame) -> str:
+        payload = data.copy()
+        payload.index = pd.DatetimeIndex(payload.index)
+        payload = payload.sort_index()
+        raw = pd.util.hash_pandas_object(payload, index=True).values.tobytes()
+        return hashlib.sha256(raw).hexdigest()
 
     def get_daily_data(
         self,
         symbol: str,
         period: str = "5y"
     ) -> pd.DataFrame:
-
         data = yf.Ticker(symbol).history(
             period=period,
             interval="1d",
-            auto_adjust=False
+            auto_adjust=False,
+            actions=True,
         )
 
         if data.empty:
-            raise ValueError(
-                f"No data found for symbol: {symbol}"
-            )
+            raise ValueError(f"No data found for symbol: {symbol}")
 
         columns = [
             "Open",
             "High",
             "Low",
             "Close",
-            "Volume"
+            "Adj Close",
+            "Volume",
+            "Dividends",
+            "Stock Splits",
         ]
+        missing = [column for column in columns if column not in data.columns]
+        if missing:
+            raise ValueError(f"Missing Yahoo Finance columns for {symbol}: {missing}")
 
         data = data[columns].copy()
-
-        # Convertir el índice a datetime
         data.index = pd.to_datetime(data.index)
 
-        # Eliminar la información de zona horaria.
-        # Trabajaremos solamente con fechas.
         if data.index.tz is not None:
             data.index = data.index.tz_localize(None)
 
-        # Fecha actual del sistema
+        data = data[~data.index.duplicated(keep="last")].sort_index()
         today = pd.Timestamp.now().normalize()
+        data = data[data.index.normalize() <= today]
 
-        # Eliminar cualquier fecha posterior a hoy
-        data = data[
-            data.index.normalize() <= today
-        ]
-
+        self.last_metadata = {
+            "Symbol": symbol,
+            "Provider": self.PROVIDER,
+            "Retrieved_At_UTC": pd.Timestamp.now(tz="UTC").isoformat(),
+            "Period": period,
+            "Rows": int(len(data)),
+            "First_Date": data.index.min().isoformat() if not data.empty else None,
+            "Last_Date": data.index.max().isoformat() if not data.empty else None,
+            "Currency": None,
+            "Timezone": str(data.index.tz) if data.index.tz is not None else "naive",
+            "Data_SHA256": self._hash_frame(data),
+        }
         return data
 
-    def convert_to_weekly(
-        self,
-        data: pd.DataFrame
-    ) -> pd.DataFrame:
+    def get_last_metadata(self) -> dict:
+        return dict(self.last_metadata)
 
-        weekly = data.resample(
-            "W-FRI"
-        ).agg({
+    def convert_to_weekly(self, data: pd.DataFrame) -> pd.DataFrame:
+        required = ["Open", "High", "Low", "Close", "Volume"]
+        missing = [column for column in required if column not in data.columns]
+        if missing:
+            raise ValueError(f"Missing required columns: {missing}")
+
+        aggregations = {
             "Open": "first",
             "High": "max",
             "Low": "min",
             "Close": "last",
-            "Volume": "sum"
-        })
+            "Volume": "sum",
+        }
+        if "Adj Close" in data.columns:
+            aggregations["Adj Close"] = "last"
+        if "Dividends" in data.columns:
+            aggregations["Dividends"] = "sum"
+        if "Stock Splits" in data.columns:
+            aggregations["Stock Splits"] = "sum"
 
-        weekly = weekly.dropna()
-
-        # Fecha actual
-        today = pd.Timestamp.now().normalize()
-
-        # Encontrar el viernes de la semana actual
-        current_friday = (
-            today
-            + pd.Timedelta(
-                days=(4 - today.weekday()) % 7
-            )
+        weekly = data.resample("W-FRI").agg(aggregations).dropna(
+            subset=["Open", "High", "Low", "Close", "Volume"]
         )
 
-        # Solo semanas cuyo viernes sea anterior
-        # al viernes de la semana actual.
-        weekly = weekly[
-            weekly.index < current_friday
-        ]
-
-        print()
-        print("DEBUG")
-        print(f"Today: {today}")
-        print(f"Current Friday: {current_friday}")
-        print(f"Last weekly date: {weekly.index[-1]}")
+        today = pd.Timestamp.now().normalize()
+        current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
+        weekly = weekly[weekly.index < current_friday]
 
         return weekly
+
+    @staticmethod
+    def metadata_json(metadata: dict) -> str:
+        return json.dumps(metadata, sort_keys=True, indent=2, default=str)
