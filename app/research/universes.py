@@ -20,10 +20,18 @@ MARKET_UNIVERSES = {
         "BTC-USD", "ETH-USD", "SOL-USD", "BNB-USD",
         "XRP-USD", "ADA-USD", "DOGE-USD", "AVAX-USD",
     ],
+    # Colombia candidates. Eligibility is decided by the Colombian
+    # recency/liquidity policy before VFI calculation.
     "COLOMBIA": [
-        "ECOPETROL.CL", "CIBEST.CL", "CIB", "ISA.CL",
-        "MINEROS.CL", "GRUPOARGOS.CL",
-        "CEMARGOS.CL", "NUTRESA.CL",
+        # Common shares
+        "ECOPETROL.CL", "CIBEST.CL", "ISA.CL", "MINEROS.CL",
+        "GRUPOARGOS.CL", "CEMARGOS.CL", "NUTRESA.CL",
+        "BOGOTA.CL", "CELSIA.CL", "CONCONCRET.CL", "CORFICOLCF.CL",
+        "EXITO.CL", "GEB.CL", "GRUPOAVAL.CL", "GRUPOSURA.CL",
+        "GRUBOLIVAR.CL", "PROMIGAS.CL", "TERPEL.CL", "ENKA.CL", "ETB.CL",
+        # Preferred shares
+        "PFCIBEST.CL", "PFAVAL.CL", "PFCEMARGOS.CL", "PFCORFICOL.CL",
+        "PFDAVVNDA.CL", "PFGRUPOARG.CL", "PFGRUPSURA.CL",
     ],
     "CHILE": [
         "SQM", "SQM-B.SN", "COPEC.SN", "ENELAM.SN",
