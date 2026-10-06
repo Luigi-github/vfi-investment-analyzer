@@ -8,7 +8,7 @@ from app.research.ml_event_analyzer import VFIEventMLAnalyzer
 
 class TestVFIEventMLAnalyzer(unittest.TestCase):
     def make_events(self):
-        dates = pd.date_range("2015-01-02", periods=120, freq="W-FRI")
+        dates = pd.date_range("2015-01-02", periods=180, freq="W-FRI")
         rng = np.random.default_rng(42)
         signal = rng.normal(size=len(dates))
         target = np.where(signal > 0, 5.0, -3.0)
@@ -45,8 +45,8 @@ class TestVFIEventMLAnalyzer(unittest.TestCase):
         summary, predictions = analyzer.walk_forward(
             self.make_events(),
             initial_train_weeks=60,
-            test_weeks=20,
-            step_weeks=20,
+            test_weeks=40,
+            step_weeks=40,
         )
 
         self.assertFalse(summary.empty)
