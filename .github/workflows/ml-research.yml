@@ -1,0 +1,53 @@
+name: VFI OOS ML Research
+
+on:
+  workflow_dispatch:
+    inputs:
+      universe:
+        description: "Research universe"
+        required: true
+        default: "USA_STOCKS"
+        type: choice
+        options:
+          - ALL
+          - USA_STOCKS
+          - USA_ETFS
+          - CRYPTO
+          - COLOMBIA
+          - CHILE
+          - LATAM
+          - COMMODITIES_ETFS
+      symbols:
+        description: "Optional comma-separated symbols"
+        required: false
+        default: ""
+        type: string
+  schedule:
+    - cron: "30 4 1 * *"
+
+jobs:
+  ml:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run OOS ML research
+        env:
+          RESEARCH_UNIVERSE: \${{ inputs.universe || 'USA_STOCKS' }}
+          RESEARCH_SYMBOLS: \${{ inputs.symbols || '' }}
+        run: |
+          ARGS="--universe $RESEARCH_UNIVERSE"
+          if [ -n "$RESEARCH_SYMBOLS" ]; then
+            ARGS="$ARGS --symbols $RESEARCH_SYMBOLS"
+          fi
+          python scripts/run_ml_research.py $ARGS
+      - name: Upload ML reports
+        uses: actions/upload-artifact@v4
+        with:
+          name: vfi-ml-research
+          path: reports/ml_research/
