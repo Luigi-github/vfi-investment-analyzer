@@ -513,3 +513,89 @@ Ejemplo:
 ```
 
 Esta capa no reemplaza el VFI, no se considera una señal automática y debe superar validaciones OOS adicionales antes de utilizarse en una estrategia.
+
+
+## Hardening y reproducibilidad
+
+La investigación utiliza dependencias fijadas en `requirements.txt` y cada ejecución puede conservar metadatos de procedencia del dataset:
+
+- proveedor y hora de descarga;
+- rango temporal y número de filas;
+- hash SHA-256 del dataset;
+- parámetros exactos del VFI;
+- versión de investigación;
+- versión de fórmula VFI;
+- definición de ciclo;
+- definición de etapas.
+
+Las funciones de `app/research/reproducibility.py` permiten reproducir y auditar estos metadatos.
+
+## Comparabilidad entre activos
+
+El VFI original nunca se modifica para conseguir comparabilidad. Se añaden features auxiliares mediante `app/features/vfi_normalization.py`:
+
+- `VFI_ZScore`;
+- `VFI_Percentile`;
+- `VFI_Normalized_Range`;
+- distancia respecto a extremos históricos.
+
+Esto evita interpretar un valor absoluto de VFI como si tuviera la misma escala económica en todos los activos.
+
+## Señal, ejecución y outcome
+
+La investigación distingue estrictamente:
+
+`Signal_Date -> Entry_Date -> Exit_Date -> Outcome`
+
+Una señal observada al cierre de una semana no se ejecuta en ese mismo cierre. El backtester y `SignalOutcomeBuilder` utilizan la siguiente observación disponible.
+
+El resultado conserva:
+
+- fecha de señal;
+- fecha y precio de entrada;
+- fecha y precio de salida;
+- retorno de precio;
+- retorno total cuando existe `Adj Close`;
+- VFI y score disponibles en la fecha de señal.
+
+## Retorno total
+
+Cuando el proveedor proporciona `Adj Close`, los análisis de ciclos y outcomes también pueden calcular retorno total ajustado por dividendos y splits. El retorno basado en `Close` se conserva como retorno de precio.
+
+## Robustez estadística
+
+Las estadísticas de etapas incluyen:
+
+- bootstrap reproducible;
+- bootstrap agrupado por activo y ciclo causal;
+- block bootstrap para observaciones temporalmente dependientes;
+- exceso frente a benchmark;
+- corrección Benjamini-Hochberg para múltiples hipótesis.
+
+Los eventos de etapa incorporan `Cycle_ID_Causal` para evitar tratar varias etapas del mismo ciclo como observaciones totalmente independientes.
+
+## Validación de la implementación VFI
+
+`tests/test_vfi_conformance.py` proporciona un arnés para comparar el VFI Python contra una exportación congelada de TradingView. La fixture externa se mantiene opcional porque debe provenir de una ejecución/exportación real de TradingView.
+
+Para completar la conformidad externa, colocar un CSV en:
+
+`tests/fixtures/vfi_conformance.csv`
+
+con las columnas:
+
+`Date, Open, High, Low, Close, Volume, VFI_Reference`
+
+La prueba exige una diferencia absoluta máxima de `1e-6`.
+
+## Machine Learning
+
+El módulo ML permanece experimental. El baseline VFI debe evaluarse primero y el modelo solo puede utilizar features disponibles en la fecha del evento. La validación walk-forward impide usar retornos futuros del test como variables de entrenamiento.
+
+El ML no se considera listo para producir señales automáticas hasta demostrar mejora OOS frente al baseline VFI bajo los mismos costes, benchmarks y ventanas temporales.
+
+## Criterio de listo
+
+El proyecto se considera **research-ready** cuando las pruebas automatizadas pasan, el entorno está fijado, la procedencia de datos queda registrada, las señales son ejecutables sin look-ahead, los resultados se separan de las etiquetas futuras y la evidencia OOS se conserva separada de la selección.
+
+Research-ready no significa rentable ni garantiza resultados futuros.
