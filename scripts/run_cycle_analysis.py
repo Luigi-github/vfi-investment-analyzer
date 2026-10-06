@@ -30,6 +30,46 @@ COLOMBIA_MIN_RECENT_ROWS = 30
 COLOMBIA_MIN_NONZERO_VOLUME_DAYS = 5
 COLOMBIA_MIN_MEDIAN_DAILY_VALUE_COP = 1_000_000.0
 
+CRYPTO_MIN_HISTORY_DAYS = 180
+CRYPTO_MIN_RECENT_ROWS = 150
+CRYPTO_MIN_NONZERO_VOLUME_DAYS = 150
+CRYPTO_MIN_MEDIAN_DAILY_VALUE_USD = 1_000_000.0
+
+
+def check_crypto_eligibility(data):
+    """Exclude only crypto assets with stale history or negligible recent USD volume."""
+    frame = data[["Close", "Volume"]].dropna().copy()
+    if frame.empty:
+        return False, {"Eligibility_Reason": "NO_HISTORY"}
+    frame.index = pd.to_datetime(frame.index)
+    cutoff = pd.Timestamp.now().normalize() - pd.Timedelta(days=CRYPTO_MIN_HISTORY_DAYS)
+    recent = frame[frame.index.normalize() >= cutoff]
+    nonzero = recent[(recent["Close"] > 0) & (recent["Volume"] > 0)]
+    daily_value = nonzero["Close"] * nonzero["Volume"]
+    median_daily_value = float(daily_value.median()) if not daily_value.empty else 0.0
+    has_recent_history = (
+        frame.index.max().normalize() >= cutoff
+        and len(recent) >= CRYPTO_MIN_RECENT_ROWS
+    )
+    has_liquidity = (
+        len(nonzero) >= CRYPTO_MIN_NONZERO_VOLUME_DAYS
+        and median_daily_value >= CRYPTO_MIN_MEDIAN_DAILY_VALUE_USD
+    )
+    eligible = has_recent_history and has_liquidity
+    reasons = []
+    if not has_recent_history:
+        reasons.append("NO_RECENT_HISTORY")
+    if not has_liquidity:
+        reasons.append("NO_RECENT_LIQUIDITY")
+    return eligible, {
+        "Eligibility_Reason": "OK" if eligible else "|".join(reasons),
+        "Last_Date": frame.index.max(),
+        "Recent_Rows": len(recent),
+        "Recent_Nonzero_Volume_Days": len(nonzero),
+        "Median_Daily_Value_USD": median_daily_value,
+    }
+
+
 
 def check_colombia_eligibility(data):
     """Exclude only stale or effectively untraded Colombian candidates."""
@@ -276,6 +316,18 @@ def main(argv=None):
                         "Symbol": symbol,
                         "Status": "EXCLUDED",
                         "Instrument_Type": "PREFERRED" if symbol.startswith("PF") else "EQUITY",
+                        **eligibility,
+                    })
+                    continue
+
+            if args.universe == "CRYPTO":
+                eligible, eligibility = check_crypto_eligibility(daily)
+                if not eligible:
+                    print(f"EXCLUDED {symbol}: {eligibility}")
+                    metadata.append({
+                        "Symbol": symbol,
+                        "Status": "EXCLUDED",
+                        "Instrument_Type": "CRYPTO",
                         **eligibility,
                     })
                     continue
