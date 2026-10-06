@@ -94,7 +94,8 @@ class MultiAssetCycleAnalyzer:
         condition_returns = {}
         base_rows = []
         for stage, group in events.groupby("Cycle_Stage_Event"):
-            returns = group[primary].dropna()
+            valid_mask = group[primary].notna()
+            returns = group.loc[valid_mask, primary]
             if returns.empty:
                 continue
 
@@ -111,7 +112,7 @@ class MultiAssetCycleAnalyzer:
             condition_returns[stage] = returns
             summary = self.statistics.summarize(returns)
             bootstrap = self.statistics.bootstrap_mean(returns)
-            valid_group = group.loc[returns.index]
+            valid_group = group.loc[valid_mask]
             clusters = (
                 valid_group["Symbol"]
                 if "Symbol" in valid_group.columns
