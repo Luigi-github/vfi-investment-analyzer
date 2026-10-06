@@ -151,10 +151,13 @@ class VFIEventMLAnalyzer:
             cutoff = dates[cutoff_position]
             test_end = dates[cutoff_position + test_weeks]
 
-            train = ordered.loc[ordered.index <= cutoff]
+            label_end = ordered.index + pd.Timedelta(
+                weeks=self.primary_horizon
+            )
+            train = ordered.loc[label_end < cutoff]
             test = ordered.loc[
-                (ordered.index > cutoff)
-                & (ordered.index <= test_end)
+                (ordered.index >= cutoff)
+                & (label_end < test_end)
             ]
 
             fitted = self.fit_predict(train, test)
