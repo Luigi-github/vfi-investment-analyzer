@@ -112,7 +112,6 @@ def main(argv=None):
         raise RuntimeError("No causal recovery signals were generated.")
 
     signals = pd.concat(signal_frames).sort_index()
-    signals = signals[~signals.index.duplicated(keep="first")]
 
     all_summaries = []
     for weighting in ("equal", "inverse_vol", "risk_parity"):
