@@ -54,6 +54,13 @@ class TestVFIEventMLAnalyzer(unittest.TestCase):
         self.assertIn("ML_Probability", predictions.columns)
         self.assertIn("ML_Prediction", predictions.columns)
 
+        window_end = summary.set_index("Window")["Test_End"]
+        for _, row in predictions.iterrows():
+            self.assertLess(
+                pd.Timestamp(row.name) + pd.Timedelta(weeks=26),
+                pd.Timestamp(window_end.loc[row["Window"]]),
+            )
+
 
 if __name__ == "__main__":
     unittest.main()
