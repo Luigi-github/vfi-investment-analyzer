@@ -100,9 +100,11 @@ class BinanceMarketDataService:
                    "Trades", "TakerBuyBaseVolume", "TakerBuyQuoteVolume"]
         for col in numeric:
             frame[col] = pd.to_numeric(frame[col], errors="coerce")
-        frame.index = pd.to_datetime(frame["OpenTime"], unit="ms", utc=True)
+        frame["OpenTime"] = pd.to_datetime(frame["OpenTime"], unit="ms", utc=True)
+        frame["CloseTime"] = pd.to_datetime(frame["CloseTime"], unit="ms", utc=True)
+        frame.index = frame["OpenTime"]
         frame.index.name = "Date"
-        frame = frame.drop(columns=["OpenTime", "CloseTime", "Ignore"])
+        frame = frame.drop(columns=["OpenTime", "Ignore"])
         return frame.sort_index()
 
     def get_klines(
@@ -116,43 +118,35 @@ class BinanceMarketDataService:
     ) -> pd.DataFrame:
         base = self.SPOT_BASE if market == "spot" else self.FUTURES_BASE
         path = "/api/v3/klines" if market == "spot" else "/fapi/v1/klines"
-        start_ms = int(pd.Timestamp(start_time, tz="UTC").timestamp() * 1000) if start_time else None
-        end_ms = int(pd.Timestamp(end_time, tz="UTC").timestamp() * 1000) if end_time else None
+        start_ms = int(pd.Timestamp(start_time).tz_convert("UTC").timestamp() * 1000) if start_time else None
+        end_ms = int(pd.Timestamp(end_time).tz_convert("UTC").timestamp() * 1000) if end_time else None
         rows: list = []
-        while True:
-            params = {"symbol": symbol, "interval": interval, "limit": 1000}
-            if start_ms is not None:
-                params["startTime"] = start_ms
-            if end_ms is not None:
-                params["endTime"] = end_ms
+        remaining = max_bars or 1000
+        cursor_end = end_ms
+        while remaining > 0:
+            params = {"symbol": symbol, "interval": interval, "limit": min(1000, remaining)}
+            if start_ms is not None: params["startTime"] = start_ms
+            if cursor_end is not None: params["endTime"] = cursor_end
             batch = self._get(base, path, params)
-            if not batch:
-                break
-            rows.extend(batch)
-            if len(batch) < 1000 or (max_bars and len(rows) >= max_bars):
-                break
-            next_start = int(batch[-1][0]) + 1
-            if start_ms is not None and next_start <= start_ms:
-                break
-            start_ms = next_start
+            if not batch: break
+            rows = batch + rows
+            remaining -= len(batch)
+            if len(batch) < params["limit"]: break
+            cursor_end = int(batch[0][0]) - 1
+            if start_ms is not None and cursor_end < start_ms: break
             time.sleep(self.sleep_seconds)
         frame = self._frame(rows)
-        if max_bars:
-            frame = frame.iloc[-max_bars:]
+        if "CloseTime" in frame.columns: frame = frame[frame["CloseTime"] < pd.Timestamp.now(tz="UTC")]
+        if max_bars: frame = frame.iloc[-max_bars:]
         frame = frame[~frame.index.duplicated(keep="last")]
         self.last_metadata = {
-            "Symbol": symbol,
-            "Market": market,
-            "Interval": interval,
-            "Provider": self.PROVIDER,
-            "Retrieved_At_UTC": pd.Timestamp.now(tz="UTC").isoformat(),
-            "Rows": int(len(frame)),
+            "Symbol": symbol, "Market": market, "Interval": interval, "Provider": self.PROVIDER,
+            "Retrieved_At_UTC": pd.Timestamp.now(tz="UTC").isoformat(), "Rows": int(len(frame)),
             "First_Date": frame.index.min().isoformat() if not frame.empty else None,
             "Last_Date": frame.index.max().isoformat() if not frame.empty else None,
             "Data_SHA256": self._hash_frame(frame),
         }
         return frame
-
     def get_open_interest_history(
         self,
         symbol: str,
