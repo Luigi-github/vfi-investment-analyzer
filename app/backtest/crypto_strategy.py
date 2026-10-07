@@ -106,9 +106,9 @@ def backtest_signals(
         gross = exit_price / entry - 1.0 if direction == "long" else entry / exit_price - 1.0
         costs = _cost_rate(fee, slippage)
         funding_pnl = 0.0
-        if direction == "long" and len(funding):
+        if len(funding):
             f = funding.loc[(funding.index > entry_ts) & (funding.index <= idx[exit_i])]
-            funding_pnl = -float(f.sum())
+            funding_pnl = -float(f.sum()) if direction == "long" else float(f.sum())
         net = gross - costs + funding_pnl
         holding_hours = max((idx[exit_i] - entry_ts).total_seconds() / 3600.0, 0.0)
         trades.append({
