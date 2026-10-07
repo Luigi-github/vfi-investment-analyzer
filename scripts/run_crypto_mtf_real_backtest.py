@@ -43,8 +43,8 @@ def merge_symbol(service, analyzer, symbol):
         ph.reset_index().sort_values("Timestamp"),
         on="Timestamp", suffixes=("_Spot", "_Perp"), direction="backward"
     ).set_index("Timestamp")
-    raw_s = spot_frames["1H"][["Open","High","Low","Close"]].add_suffix("_Spot")
-    raw_p = perp_frames["1H"][["Open","High","Low","Close"]].add_suffix("_Perp")
+    raw_s = spot_frames["1H"][["Open","High","Low"]].add_suffix("_Spot")
+    raw_p = perp_frames["1H"][["Open","High","Low"]].add_suffix("_Perp")
     m = m.join(raw_s, how="left").join(raw_p, how="left")
     m["Both_Bullish"] = (m["MTF_Score_Spot"] >= 70) & (m["MTF_Score_Perp"] >= 70)
     m["Combined_MTF_Score"] = .60*m["MTF_Score_Spot"] + .40*m["MTF_Score_Perp"]
