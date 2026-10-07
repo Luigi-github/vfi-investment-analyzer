@@ -35,11 +35,17 @@ class MultiTimeframeCryptoAnalyzer:
         eligible = frame.loc[frame.index <= timestamp]
         return None if eligible.empty else eligible.iloc[-1]
 
+    @staticmethod
+    def _numeric(row: pd.Series, column: str, default=np.nan) -> float:
+        value = row.get(column, default)
+        return float(value) if pd.notna(value) else float(default)
+
     def confluence_at(self, calculated: dict[str, pd.DataFrame], timestamp=None) -> dict:
+        available = [frame for frame in calculated.values() if not frame.empty]
+        if not available:
+            return {"Timestamp": timestamp, "Score": 50.0, "Direction": "MIXED", "Alignment": []}
         if timestamp is None:
-            timestamp = min(
-                frame.index[-1] for frame in calculated.values() if not frame.empty
-            )
+            timestamp = min(frame.index[-1] for frame in available)
         timestamp = pd.Timestamp(timestamp)
         weights = {"1W": 30, "1D": 30, "4H": 25, "1H": 15}
         positive = {"SUSTAINED_RECOVERY", "APPROACHING_ZERO", "ZERO_CROSS_UP",
@@ -60,10 +66,11 @@ class MultiTimeframeCryptoAnalyzer:
             available_weight += weight
             rows.append({
                 "Timeframe": tf, "Timestamp": row.name, "Stage": stage,
-                "VFI": float(row["VFI"]), "Slope_1B": float(row["VFI_Slope"]),
-                "Slope_4B": float(row["VFI_Slope_4B"]),
-                "Slope_8B": float(row["VFI_Slope_8B"]),
-                "Recovery_Score": float(row.get("VFI_Recovery_Score", np.nan)),
+                "VFI": self._numeric(row, "VFI"),
+                "Slope_1B": self._numeric(row, "VFI_Slope"),
+                "Slope_4B": self._numeric(row, "VFI_Slope_4B"),
+                "Slope_8B": self._numeric(row, "VFI_Slope_8B"),
+                "Recovery_Score": self._numeric(row, "VFI_Recovery_Score"),
             })
         normalized = 50.0 if available_weight == 0 else 50.0 + 50.0 * score / available_weight
         return {
@@ -88,16 +95,13 @@ class MultiTimeframeCryptoAnalyzer:
                 "VFI_Slope": f"Slope_1B_{tf}", "VFI_Slope_4B": f"Slope_4B_{tf}",
                 "VFI_Slope_8B": f"Slope_8B_{tf}",
             }).reset_index().rename(columns={"Date": "Timestamp"})
-            out = pd.merge_asof(
-                out.reset_index().rename(columns={"Date": "Timestamp"}).sort_values("Timestamp"),
-                right.sort_values("Timestamp"), on="Timestamp", direction="backward",
-            ).set_index("Timestamp")
+            left = out.reset_index().rename(columns={"Date": "Timestamp"}).sort_values("Timestamp")
+            out = pd.merge_asof(left, right.sort_values("Timestamp"), on="Timestamp", direction="backward").set_index("Timestamp")
         def stage_score(row):
             weights = {"1W": 30, "1D": 30, "4H": 25, "1H": 15}
             positive = {"SUSTAINED_RECOVERY","APPROACHING_ZERO","ZERO_CROSS_UP","ACCUMULATION","BULLISH_FLOW"}
             negative = {"SUSTAINED_WEAKENING","DISTRIBUTION","ZERO_CROSS_DOWN","BEARISH_FLOW"}
-            total = 0.0
-            available = 0.0
+            total = available = 0.0
             for tf,w in weights.items():
                 stage = row.get(f"Stage_{tf}")
                 if pd.isna(stage): continue
@@ -105,10 +109,7 @@ class MultiTimeframeCryptoAnalyzer:
                 available += w
             return 50.0 if not available else 50.0 + 50.0 * total / available
         out["MTF_Score"] = out.apply(stage_score, axis=1)
-        out["MTF_Direction"] = np.select(
-            [out["MTF_Score"] >= 70, out["MTF_Score"] <= 30],
-            ["BULLISH", "BEARISH"], default="MIXED"
-        )
+        out["MTF_Direction"] = np.select([out["MTF_Score"] >= 70, out["MTF_Score"] <= 30], ["BULLISH", "BEARISH"], default="MIXED")
         return out
 
     @staticmethod
@@ -129,12 +130,6 @@ class MultiTimeframeCryptoAnalyzer:
         sharpe = float(r.mean() / r.std(ddof=1) * np.sqrt(periods_per_year)) if len(r) > 1 and r.std(ddof=1) else np.nan
         downside = r[r < 0].std(ddof=1)
         sortino = float(r.mean() / downside * np.sqrt(periods_per_year)) if pd.notna(downside) and downside else np.nan
-        return {
-            "Observations": int(len(r)),
-            "Cumulative_Return": float(equity.iloc[-1] - 1),
-            "Max_Drawdown": float(drawdown.min()),
-            "Annualized_Volatility": ann_vol,
-            "Sharpe": sharpe,
-            "Sortino": sortino,
-            "Positive_Rate": float((r > 0).mean()),
-        }
+        return {"Observations": int(len(r)), "Cumulative_Return": float(equity.iloc[-1] - 1),
+                "Max_Drawdown": float(drawdown.min()), "Annualized_Volatility": ann_vol,
+                "Sharpe": sharpe, "Sortino": sortino, "Positive_Rate": float((r > 0).mean())}
