@@ -2,6 +2,8 @@ name: Crypto Binance MTF Backtest
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 jobs:
   backtest:
