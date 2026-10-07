@@ -16,10 +16,12 @@ from app.backtest.block_bootstrap import block_bootstrap_mean
 THRESHOLDS = (60, 65, 70, 75, 80, 85, 90)
 STRATEGIES = {
     "SPOT_MTF": ("MTF_Score_Spot", "Spot"),
-    "PERP_MTF": ("MTF_Score_Perp", "Perp"),\n    "PERP_SHORT": ("Short_Score_Perp", "Perp"),
+    "PERP_MTF": ("MTF_Score_Perp", "Perp"),
+    "PERP_SHORT": ("Short_Score_Perp", "Perp"),
     "BOTH_MTF": ("Both_Bullish", "Spot"),
     "COMBINED_70": ("Combined_MTF_Score", "Spot"),
-    "COMBINED_80": ("Combined_MTF_Score", "Spot"),\n    "PERP_COMBINED_SHORT": ("Short_Combined_Score", "Perp"),
+    "COMBINED_80": ("Combined_MTF_Score", "Spot"),
+    "PERP_COMBINED_SHORT": ("Short_Combined_Score", "Perp"),
 }
 FEE = 0.0004
 SLIPPAGE = 0.0003
@@ -45,7 +47,9 @@ def merge_symbol(service, analyzer, symbol):
     raw_p = perp_frames["1H"][["Open","High","Low","Close"]].add_suffix("_Perp")
     m = m.join(raw_s, how="left").join(raw_p, how="left")
     m["Both_Bullish"] = (m["MTF_Score_Spot"] >= 70) & (m["MTF_Score_Perp"] >= 70)
-    m["Combined_MTF_Score"] = .60*m["MTF_Score_Spot"] + .40*m["MTF_Score_Perp"]\n    m["Short_Score_Perp"] = 100.0 - m["MTF_Score_Perp"]\n    m["Short_Combined_Score"] = 100.0 - m["Combined_MTF_Score"]
+    m["Combined_MTF_Score"] = .60*m["MTF_Score_Spot"] + .40*m["MTF_Score_Perp"]
+    m["Short_Score_Perp"] = 100.0 - m["MTF_Score_Perp"]
+    m["Short_Combined_Score"] = 100.0 - m["Combined_MTF_Score"]
     funding = service.get_funding_history(symbol)
     fs = funding["fundingRate"] if not funding.empty else pd.Series(dtype=float)
     return m.dropna(subset=["Open_Spot","Close_Spot","Open_Perp","Close_Perp"]), fs
@@ -59,7 +63,8 @@ def run_one(hist, funding, strategy, threshold, start=0, end=None, costs=True):
     else:
         h["Signal"] = h[col]
     if strategy == "COMBINED_70": threshold = 70
-    if strategy == "COMBINED_80": threshold = 80\n    direction = "short" if "SHORT" in strategy else "long"
+    if strategy == "COMBINED_80": threshold = 80
+    direction = "short" if "SHORT" in strategy else "long"
     trades, equity = backtest_signals(
         h, "Signal", threshold=threshold, horizon_hours=HORIZON,
         fee=FEE if costs else 0, slippage=SLIPPAGE if costs else 0,
