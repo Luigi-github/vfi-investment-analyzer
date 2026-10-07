@@ -58,7 +58,7 @@ def backtest_signals(
     stop_loss: float | None = None,
     take_profit: float | None = None,
     direction: str = "long",
-    funding: pd.Series | None = None,
+    funding: pd.Series | None = None,\n    price_prefix: str = "Spot",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Non-overlapping causal trade backtest on confirmed 1H signals.
 
@@ -80,14 +80,14 @@ def backtest_signals(
             continue
         entry_i = i + 1
         entry_ts = idx[entry_i]
-        entry = float(df.iloc[entry_i]["Open_Spot"])
+        entry = float(df.iloc[entry_i][f"Open_{price_prefix}"])
         end_i = min(len(df) - 1, entry_i + int(horizon_hours))
         exit_i = end_i
-        exit_price = float(df.iloc[end_i]["Close_Spot"])
+        exit_price = float(df.iloc[end_i][f"Close_{price_prefix}"])
         reason = "HORIZON"
         for j in range(entry_i, end_i + 1):
-            hi = float(df.iloc[j]["High_Spot"])
-            lo = float(df.iloc[j]["Low_Spot"])
+            hi = float(df.iloc[j][f"High_{price_prefix}"])
+            lo = float(df.iloc[j][f"Low_{price_prefix}"])
             if direction == "long":
                 if stop_loss is not None and lo <= entry * (1 - stop_loss):
                     exit_i, exit_price, reason = j, entry * (1 - stop_loss), "STOP"
