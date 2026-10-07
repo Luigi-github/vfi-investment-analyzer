@@ -2,6 +2,8 @@ name: Crypto Binance Multi-Timeframe Research
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
 
 jobs:
   crypto-mtf:
@@ -9,7 +11,7 @@ jobs:
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.12.10"
       - name: Install dependencies
