@@ -58,7 +58,8 @@ def backtest_signals(
     stop_loss: float | None = None,
     take_profit: float | None = None,
     direction: str = "long",
-    funding: pd.Series | None = None,\n    price_prefix: str = "Spot",
+    funding: pd.Series | None = None,
+    price_prefix: str = "Spot",
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Non-overlapping causal trade backtest on confirmed 1H signals.
 
