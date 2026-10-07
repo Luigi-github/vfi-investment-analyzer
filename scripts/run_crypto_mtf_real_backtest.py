@@ -136,11 +136,25 @@ def main():
     oos=pd.DataFrame(oos_rows); oos.to_csv(out/"walk_forward_oos.csv",index=False)
     if trade_rows: pd.concat(trade_rows,ignore_index=True).to_csv(out/"oos_trades.csv",index=False)
     if not oos.empty:
-        agg=(oos.groupby("Strategy").agg(Folds=("Fold","count"),OOS_Trades=("Trades","sum"),
-              OOS_Win_Rate_Pct=("Win_Rate_Pct","mean"),OOS_Total_Return_Pct=("Total_Return_Pct","mean"),
-              OOS_Avg_Trade_Pct=("Average_Trade_Pct","mean"),OOS_Max_DD_Pct=("Max_Drawdown_Pct","mean"),
-              CI_Lower_Pct=("OOS_Mean_95_Lower_Pct","mean"),CI_Upper_Pct=("OOS_Mean_95_Upper_Pct","mean"))
-              .reset_index().sort_values("OOS_Avg_Trade_Pct",ascending=False))
+        fold_agg=(oos.groupby("Strategy").agg(Folds=("Fold","count"),OOS_Trades=("Trades","sum"),
+              OOS_Win_Rate_Pct=("Win_Rate_Pct","mean"),Mean_Fold_Return_Pct=("Total_Return_Pct","mean"),
+              OOS_Avg_Trade_Pct=("Average_Trade_Pct","mean"),OOS_Max_DD_Pct=("Max_Drawdown_Pct","mean"))
+              .reset_index())
+        if trade_rows:
+            all_oos_trades=pd.concat(trade_rows,ignore_index=True)
+            rows=[]
+            for strategy,g in all_oos_trades.groupby("Strategy"):
+                ci=block_bootstrap_mean(g["Net_Return"],block_size=4,iterations=5000,random_state=123)
+                rows.append({"Strategy":strategy,"Aggregate_OOS_Trades":len(g),
+                    "Aggregate_OOS_Win_Rate_Pct":float((g["Net_Return"]>0).mean()*100),
+                    "Aggregate_OOS_Mean_Trade_Pct":float(g["Net_Return"].mean()*100),
+                    "Aggregate_OOS_Median_Trade_Pct":float(g["Net_Return"].median()*100),
+                    "Bootstrap_Lower_95_Pct":ci["Lower_95"]*100,
+                    "Bootstrap_Upper_95_Pct":ci["Upper_95"]*100})
+            agg=fold_agg.merge(pd.DataFrame(rows),on="Strategy",how="left")
+        else:
+            agg=fold_agg
+        agg=agg.sort_values("Aggregate_OOS_Mean_Trade_Pct",ascending=False)
         agg.to_csv(out/"walk_forward_summary.csv",index=False)
         print(agg.to_string(index=False))
 
