@@ -122,8 +122,14 @@ class BinanceMarketDataService:
     ) -> pd.DataFrame:
         base = self.SPOT_BASE if market == "spot" else self.FUTURES_BASE
         path = "/api/v3/klines" if market == "spot" else "/fapi/v1/klines"
-        start_ms = int(pd.Timestamp(start_time).tz_convert("UTC").timestamp() * 1000) if start_time else None
-        end_ms = int(pd.Timestamp(end_time).tz_convert("UTC").timestamp() * 1000) if end_time else None
+        start_ts = pd.Timestamp(start_time) if start_time else None
+        end_ts = pd.Timestamp(end_time) if end_time else None
+        if start_ts is not None and start_ts.tzinfo is None: start_ts = start_ts.tz_localize("UTC")
+        elif start_ts is not None: start_ts = start_ts.tz_convert("UTC")
+        if end_ts is not None and end_ts.tzinfo is None: end_ts = end_ts.tz_localize("UTC")
+        elif end_ts is not None: end_ts = end_ts.tz_convert("UTC")
+        start_ms = int(start_ts.timestamp() * 1000) if start_ts is not None else None
+        end_ms = int(end_ts.timestamp() * 1000) if end_ts is not None else None
         rows: list = []
         remaining = max_bars or 1000
         cursor_end = end_ms
