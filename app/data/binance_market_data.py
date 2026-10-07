@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import time
 from typing import Iterable
 
@@ -12,7 +13,8 @@ import requests
 
 class BinanceMarketDataService:
     SPOT_BASE = "https://data-api.binance.vision"
-    FUTURES_BASE = "https://fapi.binance.com"
+    FUTURES_BASE = os.getenv("BINANCE_FUTURES_BASE", "https://fapi.binance.com")
+    FUTURES_FALLBACK_BASE = "https://www.binance.com"
     PROVIDER = "Binance Spot + USDⓈ-M Futures"
     KLINE_COLUMNS = ["OpenTime", "Open", "High", "Low", "Close", "Volume",
                      "CloseTime", "QuoteVolume", "Trades", "TakerBuyBaseVolume",
@@ -29,6 +31,8 @@ class BinanceMarketDataService:
         if response.status_code == 429:
             time.sleep(1.0)
             response = self.session.get(base + path, params=params, timeout=self.timeout)
+        if response.status_code == 451 and base == self.FUTURES_BASE and self.FUTURES_BASE != self.FUTURES_FALLBACK_BASE:
+            response = self.session.get(self.FUTURES_FALLBACK_BASE + path, params=params, timeout=self.timeout)
         response.raise_for_status()
         return response.json()
 
