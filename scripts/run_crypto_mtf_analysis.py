@@ -11,9 +11,9 @@ from app.research.multi_timeframe_crypto import MultiTimeframeCryptoAnalyzer
 
 def main():
     parser = ArgumentParser(description="Binance Spot + USDⓈ-M perpetual multi-timeframe VFI research.")
-    parser.add_argument("--symbols", default="BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT")
+    parser.add_argument("--symbols", default="AUTO")
     parser.add_argument("--min-volume", type=float, default=10_000_000)
-    parser.add_argument("--top", type=int, default=20)
+    parser.add_argument("--top", type=int, default=200)
     parser.add_argument("--output-dir", default="reports/crypto_mtf")
     args = parser.parse_args()
 
@@ -64,6 +64,7 @@ def main():
             print(f"ERROR {symbol}: {exc}")
 
     ranking = pd.DataFrame(rows)
+    ranking["Universe"] = "CURRENT_BINANCE_LIQUIDITY_UNIVERSE" if not ranking.empty else pd.Series(dtype=str)
     if not ranking.empty:
         ranking["Derivatives_Adjustment"] = 0.0
         # Funding extremes reduce confidence; moderate/neutral funding does not.
