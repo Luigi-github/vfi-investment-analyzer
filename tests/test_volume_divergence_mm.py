@@ -33,7 +33,6 @@ def test_pivot_confirmation_is_not_backdated():
 
     assert not pivots[2]
     assert not pivots[3]
-    assert not pivots[4]
     assert pivots[4]
 
 
