@@ -86,14 +86,20 @@ def run_one(hist, funding, strategy, threshold, start=0, end=None, costs=True):
 
 def main():
     p=ArgumentParser()
-    p.add_argument("--symbols", default="BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT")
+    p.add_argument("--symbols", default="AUTO")
     p.add_argument("--output-dir", default="reports/crypto_mtf_real_backtest")
     args=p.parse_args()
     out=ROOT/args.output_dir; out.mkdir(parents=True,exist_ok=True)
     service=BinanceMarketDataService(); analyzer=MultiTimeframeCryptoAnalyzer()
+    if args.symbols.strip().upper() == "AUTO":
+        spot = set(service.discover_spot_usdt(10_000_000))
+        perp = set(service.discover_usdt_perpetuals(10_000_000))
+        symbols = sorted(spot & perp, key=lambda x: x)
+    else:
+        symbols = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
     oos_rows=[]; trade_rows=[]; all_summaries=[]
 
-    for symbol in [x.strip().upper() for x in args.symbols.split(",") if x.strip()]:
+    for symbol in symbols:
         print("REAL BACKTEST",symbol)
         try:
             hist,funding=merge_symbol(service,analyzer,symbol)
@@ -107,9 +113,26 @@ def main():
                        (0,int(n*.80),int(n*.80),n)]
                 for fold,(train0,train1,test0,test1) in enumerate(folds,1):
                     scores=[]
+                    train_cutoff_ts = hist.index[train1]
+                    # Purged walk-forward selection: allow enough future bars to
+                    # resolve the 72h label, but only keep trades whose signal
+                    # AND exit are fully known before the train/test boundary.
+                    train_end_with_labels = min(n, train1 + HORIZON + 1)
                     for threshold in THRESHOLDS:
-                        s,_=run_one(hist,funding,strategy,threshold,train0,train1)
-                        scores.append((s.get("Average_Trade_Pct",-np.inf),threshold,s))
+                        s, tr = run_one(
+                            hist, funding, strategy, threshold,
+                            train0, train_end_with_labels
+                        )
+                        if not tr.empty:
+                            tr = tr.loc[
+                                (tr["Signal_Date"] < train_cutoff_ts)
+                                & (tr["Exit_Date"] < train_cutoff_ts)
+                            ]
+                        avg = float(tr["Net_Return"].mean() * 100) if not tr.empty else -np.inf
+                        s = dict(s)
+                        s["Trades"] = len(tr)
+                        s["Average_Trade_Pct"] = avg
+                        scores.append((avg, threshold, s))
                     best=max(scores,key=lambda x:x[0])
                     test_stats,trades=run_one(hist,funding,strategy,best[1],test0,test1)
                     if trades.empty: continue
