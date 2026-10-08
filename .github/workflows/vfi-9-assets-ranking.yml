@@ -1,0 +1,30 @@
+name: VFI 9-Asset Current Ranking
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  ranking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Calculate VFI ranking
+        run: python scripts/vfi_current_ranking.py | tee vfi_9_assets_console.txt
+      - name: Upload ranking
+        uses: actions/upload-artifact@v4
+        with:
+          name: vfi-9-assets-ranking
+          path: |
+            vfi_9_assets_ranking.csv
+            vfi_9_assets_ranking.json
+            vfi_9_assets_errors.csv
+            vfi_9_assets_console.txt
+          if-no-files-found: warn
