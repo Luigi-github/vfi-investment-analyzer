@@ -9,6 +9,7 @@ sys.path.insert(0, str(ROOT))
 
 from app.data.market_data import MarketDataService
 from app.indicators.vfi import VFIIndicator
+from app.indicators.volume_divergence_mm import VolumeDivergenceMM
 from app.analysis.vfi_analyzer import VFIAnalyzer
 from app.scoring.vfi_score import VFIScore
 from app.analysis.vfi_cycle import VFICycleAnalyzer
@@ -32,10 +33,11 @@ def slope(series: pd.Series, periods: int) -> float:
     x = pd.Series(range(len(s)), index=s.index, dtype=float)
     return float(s.cov(x) / x.var()) if x.var() else 0.0
 
-def current_row(symbol: str, ticker: str, service, indicator, analyzer, scorer, cycle):
+def current_row(symbol: str, ticker: str, service, indicator, divergence_indicator, analyzer, scorer, cycle):
     daily = service.get_daily_data(ticker, period="max")
     weekly = service.convert_to_weekly(daily)
     vfi = indicator.calculate(weekly)
+    divergence = divergence_indicator.calculate(weekly)
     analyzed = analyzer.analyze(vfi)
     scored = scorer.calculate(analyzed)
     data = cycle.analyze(scored)
@@ -50,7 +52,21 @@ def current_row(symbol: str, ticker: str, service, indicator, analyzer, scorer, 
         )
 
     latest = valid.iloc[-1]
+    divergence_latest = divergence.loc[valid.index[-1]]
     recent = valid["VFI"].dropna()
+
+    bull_age = divergence_latest["Volume_Div_Bullish_Age_Bars"]
+    bear_age = divergence_latest["Volume_Div_Bearish_Age_Bars"]
+    bull_recent = pd.notna(bull_age) and float(bull_age) <= 8
+    bear_recent = pd.notna(bear_age) and float(bear_age) <= 8
+    if bull_recent and bear_recent:
+        divergence_state = "MIXED_RECENT"
+    elif bull_recent:
+        divergence_state = str(divergence_latest["Volume_Div_Signal"])
+    elif bear_recent:
+        divergence_state = str(divergence_latest["Volume_Div_Signal"])
+    else:
+        divergence_state = "NONE_RECENT"
 
     # Existing project score (0-100) is deliberately retained as-is.
     recovery_events = int(
@@ -117,11 +133,17 @@ def current_row(symbol: str, ticker: str, service, indicator, analyzer, scorer, 
         "Accumulation_Events_Historical": accumulation_events,
         "Weeks_Data": int(len(valid)),
         "Current_Opportunity_Score": current_score,
+        "Volume_Divergence_MM": float(divergence_latest["Volume_Divergence_MM"]),
+        "Volume_Div_Signal": str(divergence_latest["Volume_Div_Signal"]),
+        "Volume_Div_Bullish_Age_W": float(bull_age) if pd.notna(bull_age) else float("nan"),
+        "Volume_Div_Bearish_Age_W": float(bear_age) if pd.notna(bear_age) else float("nan"),
+        "Volume_Divergence_State": divergence_state,
     }
 
 def main():
     service = MarketDataService()
     indicator = VFIIndicator()
+    divergence_indicator = VolumeDivergenceMM()
     analyzer = VFIAnalyzer()
     scorer = VFIScore()
     cycle = VFICycleAnalyzer()
@@ -132,7 +154,7 @@ def main():
     for asset, ticker in ASSETS.items():
         print(f"Calculating {asset} ({ticker})...")
         try:
-            rows.append(current_row(asset, ticker, service, indicator, analyzer, scorer, cycle))
+            rows.append(current_row(asset, ticker, service, indicator, divergence_indicator, analyzer, scorer, cycle))
         except Exception as exc:
             errors.append({"Asset": asset, "Ticker": ticker, "Error": str(exc)})
             print(f"ERROR {asset}: {exc}")
@@ -164,7 +186,9 @@ def main():
         "Range_Position", "Recovery_From_Min_Pct", "VFI_State", "Cycle_Stage",
         "Recovery_Quality", "Recovery_Score", "Accumulation_Score",
         "Accumulation_Confirmed", "Recovery_Events_Historical",
-        "Weeks_Data", "Current_Opportunity_Score", "Final_Score"
+        "Weeks_Data", "Current_Opportunity_Score", "Volume_Divergence_MM",
+        "Volume_Div_Signal", "Volume_Div_Bullish_Age_W", "Volume_Div_Bearish_Age_W",
+        "Volume_Divergence_State", "Final_Score"
     ]
 
     print("\n" + "=" * 220)
@@ -175,6 +199,7 @@ def main():
     print("\nSCORING FORMULA")
     print("Current Opportunity = Direction(10) + Trend(20) + Location(10) + State(20) + Setup(20)")
     print("Final Score = 70% Current Opportunity + 30% existing VFI Recovery Score")
+    print("Volume Divergence by MM is reported separately as causal confluence; it is not yet weighted into Final Score.")
 
     df.to_csv("vfi_9_assets_ranking.csv", index=False)
     df.to_json("vfi_9_assets_ranking.json", orient="records", indent=2)
