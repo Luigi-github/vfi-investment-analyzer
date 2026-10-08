@@ -16,6 +16,10 @@ class BinanceMarketDataService:
     FUTURES_BASE = os.getenv("BINANCE_FUTURES_BASE", "https://fapi.binance.com")
     FUTURES_FALLBACK_BASE = "https://www.binance.com"
     PROVIDER = "Binance Spot + USDⓈ-M Futures"
+    STABLECOIN_ASSETS = {
+        "USDT", "USDC", "BUSD", "FDUSD", "TUSD", "DAI",
+        "USDE", "USD1", "USDS", "RLUSD", "EURC",
+    }
     KLINE_COLUMNS = ["OpenTime", "Open", "High", "Low", "Close", "Volume",
                      "CloseTime", "QuoteVolume", "Trades", "TakerBuyBaseVolume",
                      "TakerBuyQuoteVolume", "Ignore"]
@@ -55,6 +59,7 @@ class BinanceMarketDataService:
             if item.get("status") == "TRADING"
             and item.get("contractType") == "PERPETUAL"
             and item.get("quoteAsset") == "USDT"
+            and item.get("baseAsset") not in self.STABLECOIN_ASSETS
         }
         tickers = self._get(self.FUTURES_BASE, "/fapi/v1/ticker/24hr", {})
         ranked = sorted(
@@ -81,6 +86,7 @@ class BinanceMarketDataService:
             if item.get("status") == "TRADING"
             and item.get("quoteAsset") == "USDT"
             and item.get("isSpotTradingAllowed", True)
+            and item.get("baseAsset") not in self.STABLECOIN_ASSETS
         }
         tickers = self._get(self.SPOT_BASE, "/api/v3/ticker/24hr", {})
         ranked = sorted(
