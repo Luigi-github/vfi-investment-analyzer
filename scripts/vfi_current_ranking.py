@@ -42,7 +42,12 @@ def current_row(symbol: str, ticker: str, service, indicator, analyzer, scorer, 
 
     valid = data[data["VFI"].notna()].copy()
     if valid.empty:
-        raise ValueError("No valid VFI rows")
+        raise ValueError(
+            f"No valid VFI rows; daily={len(daily)}, weekly={len(weekly)}, "
+            f"volume_nonzero={int((weekly["Volume"] > 0).sum())}, "
+            f"volume_nan={int(weekly["Volume"].isna().sum())}, "
+            f"vfi_nonnull={int(vfi["VFI"].notna().sum())}"
+        )
 
     latest = valid.iloc[-1]
     recent = valid["VFI"].dropna()
