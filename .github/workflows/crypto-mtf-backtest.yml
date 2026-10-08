@@ -17,7 +17,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Run multi-timeframe ranking
-        run: python scripts/run_crypto_mtf_analysis.py --symbols AUTO --min-volume 10000000 --top 20 --output-dir reports/crypto_mtf
+        run: python scripts/run_crypto_mtf_analysis.py --symbols AUTO --min-volume 10000000 --top 200 --output-dir reports/crypto_mtf
       - name: Run historical confluence backtest
         run: python scripts/run_crypto_mtf_backtest.py --symbols BTCUSDT,ETHUSDT,BNBUSDT,SOLUSDT,XRPUSDT --output-dir reports/crypto_mtf_backtest
       - name: Upload MTF research
