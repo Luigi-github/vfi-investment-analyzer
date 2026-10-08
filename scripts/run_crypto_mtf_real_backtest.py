@@ -38,13 +38,29 @@ def merge_symbol(service, analyzer, symbol):
     ph = analyzer.build_1h_confluence_history(perp)
     if sh.empty or ph.empty:
         return pd.DataFrame(), pd.Series(dtype=float)
+    # Pandas 3.x can preserve different datetime resolutions (ms/us).
+    # Normalize all 1H merge/join indexes to UTC nanoseconds so the Spot/Perp
+    # confluence merge and OHLC joins use identical datetime dtypes.
+    sh = sh.copy()
+    ph = ph.copy()
+    sh.index = pd.to_datetime(sh.index, utc=True).astype("datetime64[ns, UTC]")
+    ph.index = pd.to_datetime(ph.index, utc=True).astype("datetime64[ns, UTC]")
+
+    left = sh.reset_index().rename(columns={"index": "Timestamp"})
+    right = ph.reset_index().rename(columns={"index": "Timestamp"})
+    left["Timestamp"] = pd.to_datetime(left["Timestamp"], utc=True).astype("datetime64[ns, UTC]")
+    right["Timestamp"] = pd.to_datetime(right["Timestamp"], utc=True).astype("datetime64[ns, UTC]")
+
     m = pd.merge_asof(
-        sh.reset_index().sort_values("Timestamp"),
-        ph.reset_index().sort_values("Timestamp"),
+        left.sort_values("Timestamp"),
+        right.sort_values("Timestamp"),
         on="Timestamp", suffixes=("_Spot", "_Perp"), direction="backward"
     ).set_index("Timestamp")
-    raw_s = spot_frames["1H"][["Open","High","Low"]].add_suffix("_Spot")
-    raw_p = perp_frames["1H"][["Open","High","Low"]].add_suffix("_Perp")
+
+    raw_s = spot_frames["1H"][["Open","High","Low"]].copy().add_suffix("_Spot")
+    raw_p = perp_frames["1H"][["Open","High","Low"]].copy().add_suffix("_Perp")
+    raw_s.index = pd.to_datetime(raw_s.index, utc=True).astype("datetime64[ns, UTC]")
+    raw_p.index = pd.to_datetime(raw_p.index, utc=True).astype("datetime64[ns, UTC]")
     m = m.join(raw_s, how="left").join(raw_p, how="left")
     m["Both_Bullish"] = (m["MTF_Score_Spot"] >= 70) & (m["MTF_Score_Perp"] >= 70)
     m["Combined_MTF_Score"] = .60*m["MTF_Score_Spot"] + .40*m["MTF_Score_Perp"]
