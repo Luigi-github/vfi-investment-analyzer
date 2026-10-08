@@ -103,10 +103,21 @@ class MultiTimeframeCryptoAnalyzer:
                 "1D": pd.Timedelta(days=1),
                 "1W": pd.Timedelta(days=7),
             }[tf]
-            right["Timestamp"] = pd.to_datetime(right["Timestamp"]) + close_delta
+            # Pandas 3.x preserves datetime resolution (ms/us) and
+            # merge_asof requires both keys to have exactly the same dtype.
+            # Normalize all timestamps to UTC nanoseconds before merging.
+            right["Timestamp"] = (
+                pd.to_datetime(right["Timestamp"], utc=True)
+                + close_delta
+            ).astype("datetime64[ns, UTC]")
             right["Signal_Available_At"] = right["Timestamp"]
 
-            left = out.reset_index().rename(columns={"Date": "Timestamp"}).sort_values("Timestamp")
+            left = out.reset_index().rename(columns={"Date": "Timestamp"})
+            left["Timestamp"] = pd.to_datetime(
+                left["Timestamp"], utc=True
+            ).astype("datetime64[ns, UTC]")
+            left = left.sort_values("Timestamp")
+
             out = pd.merge_asof(
                 left,
                 right.sort_values("Timestamp"),
