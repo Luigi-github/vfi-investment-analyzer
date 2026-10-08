@@ -95,8 +95,24 @@ class MultiTimeframeCryptoAnalyzer:
                 "VFI_Slope": f"Slope_1B_{tf}", "VFI_Slope_4B": f"Slope_4B_{tf}",
                 "VFI_Slope_8B": f"Slope_8B_{tf}",
             }).reset_index().rename(columns={"Date": "Timestamp"})
+
+            # Binance kline indexes represent candle OPEN time. A higher
+            # timeframe VFI is observable only after that candle closes.
+            close_delta = {
+                "4H": pd.Timedelta(hours=4),
+                "1D": pd.Timedelta(days=1),
+                "1W": pd.Timedelta(days=7),
+            }[tf]
+            right["Timestamp"] = pd.to_datetime(right["Timestamp"]) + close_delta
+            right["Signal_Available_At"] = right["Timestamp"]
+
             left = out.reset_index().rename(columns={"Date": "Timestamp"}).sort_values("Timestamp")
-            out = pd.merge_asof(left, right.sort_values("Timestamp"), on="Timestamp", direction="backward").set_index("Timestamp")
+            out = pd.merge_asof(
+                left,
+                right.sort_values("Timestamp"),
+                on="Timestamp",
+                direction="backward",
+            ).set_index("Timestamp")
         def stage_score(row):
             weights = {"1W": 30, "1D": 30, "4H": 25, "1H": 15}
             positive = {"SUSTAINED_RECOVERY","APPROACHING_ZERO","ZERO_CROSS_UP","ACCUMULATION","BULLISH_FLOW"}
