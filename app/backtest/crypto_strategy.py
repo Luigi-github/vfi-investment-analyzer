@@ -44,7 +44,7 @@ def _stats(trades: pd.DataFrame, equity: pd.Series) -> dict:
         "Profit_Factor": float(gains / losses) if losses > 0 else np.inf,
         "Expectancy_Pct": float(r.mean() * 100),
         "Average_Trade_Pct": float(r.mean() * 100),
-        "Time_In_Market_Pct": float(trades["Holding_Hours"].sum() / max(trades["Calendar_Hours"].sum(), 1.0) * 100),
+        "Time_In_Market_Pct": float(trades["Holding_Hours"].sum() / max((trades["Exit_Date"].max() - trades["Entry_Date"].min()).total_seconds() / 3600.0, 1.0) * 100),
     }
 
 
@@ -115,7 +115,7 @@ def backtest_signals(
             "Signal_Date": idx[i], "Entry_Date": entry_ts, "Exit_Date": idx[exit_i],
             "Entry_Price": entry, "Exit_Price": exit_price, "Gross_Return": gross,
             "Costs": costs, "Funding_PnL": funding_pnl, "Net_Return": net,
-            "Holding_Hours": holding_hours, "Calendar_Hours": holding_hours,
+            "Holding_Hours": holding_hours,
             "Exit_Reason": reason, "Direction": direction,
         })
         i = exit_i + 1
