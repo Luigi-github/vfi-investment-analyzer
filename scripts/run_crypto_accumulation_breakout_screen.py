@@ -56,8 +56,12 @@ def analyze_symbol(
     vfi_indicator = vfi_indicator or VFIIndicator()
     divergence_indicator = divergence_indicator or VolumeDivergenceMM()
 
-    vfi_setup = score_zero_approach(pd.Series(dtype=float), "VFI_1D")
-    divergence_setup = score_zero_approach(pd.Series(dtype=float), "Divergence_1W")
+    vfi_setup = score_zero_approach(
+        pd.Series(dtype=float), "VFI_1D", lookback=365, min_history=260
+    )
+    divergence_setup = score_zero_approach(
+        pd.Series(dtype=float), "Divergence_1W", lookback=52, min_history=20
+    )
     vfi_latest = None
     div_latest = None
     vfi_reason = ""
