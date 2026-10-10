@@ -156,31 +156,54 @@ def main():
                     # resolve the 72h label, but only keep trades whose signal
                     # AND exit are fully known before the train/test boundary.
                     train_end_with_labels = min(n, train1 + HORIZON + 1)
-                    for threshold in THRESHOLDS:
-                        s, tr = run_one(
-                            hist, funding, strategy, threshold,
+                    fixed_thresholds = {"BOTH_MTF": 80, "COMBINED_70": 70, "COMBINED_80": 80}
+                    if strategy in fixed_thresholds:
+                        fixed = fixed_thresholds[strategy]
+                        train_stats, train_trades = run_one(
+                            hist, funding, strategy, fixed,
                             train0, train_end_with_labels
                         )
-                        if not tr.empty:
-                            tr = tr.loc[
-                                (tr["Signal_Date"] < train_cutoff_ts)
-                                & (tr["Exit_Date"] < train_cutoff_ts)
+                        if not train_trades.empty:
+                            train_trades = train_trades.loc[
+                                (train_trades["Signal_Date"] < train_cutoff_ts)
+                                & (train_trades["Exit_Date"] < train_cutoff_ts)
                             ]
-                        avg = float(tr["Net_Return"].mean() * 100) if not tr.empty else -np.inf
-                        s = dict(s)
-                        s["Trades"] = len(tr)
-                        s["Average_Trade_Pct"] = avg
-                        scores.append((avg, threshold, s))
-                    valid_scores = [candidate for candidate in scores if np.isfinite(candidate[0])]
-                    if valid_scores:
-                        best = max(valid_scores, key=lambda x: x[0])
-                        selection_status = "TRAINED"
+                        train_avg = (
+                            float(train_trades["Net_Return"].mean() * 100)
+                            if not train_trades.empty else np.nan
+                        )
+                        best = (train_avg, fixed, {"Trades": len(train_trades)})
+                        selection_status = "FIXED_THRESHOLD"
                     else:
-                        # Never pick the first threshold arbitrarily when the training
-                        # window has no completed trades; use a declared fallback and
-                        # mark that this fold had no evidence for threshold selection.
-                        best = (np.nan, 80, {})
-                        selection_status = "FALLBACK_NO_TRAIN_TRADES"
+                        for threshold in THRESHOLDS:
+                            _, tr = run_one(
+                                hist, funding, strategy, threshold,
+                                train0, train_end_with_labels
+                            )
+                            if not tr.empty:
+                                tr = tr.loc[
+                                    (tr["Signal_Date"] < train_cutoff_ts)
+                                    & (tr["Exit_Date"] < train_cutoff_ts)
+                                ]
+                            # Avoid choosing a threshold on a tiny, noisy training sample.
+                            avg = (
+                                float(tr["Net_Return"].mean() * 100)
+                                if len(tr) >= 10 else -np.inf
+                            )
+                            scores.append((avg, threshold, {"Trades": len(tr)}))
+                        valid_scores = [candidate for candidate in scores if np.isfinite(candidate[0])]
+                        if valid_scores:
+                            best = max(valid_scores, key=lambda x: x[0])
+                            selection_status = "TRAINED_MIN_10_TRADES"
+                        else:
+                            # Use a declared fallback when no threshold has enough
+                            # fully completed training trades; never pick arbitrarily.
+                            any_train_trades = any(candidate[2]["Trades"] > 0 for candidate in scores)
+                            best = (np.nan, 80, {"Trades": 0})
+                            selection_status = (
+                                "FALLBACK_INSUFFICIENT_TRAIN_TRADES"
+                                if any_train_trades else "FALLBACK_NO_TRAIN_TRADES"
+                            )
                     test_stats,trades=run_one(hist,funding,strategy,best[1],test0,test1)
                     if len(trades) < 20:
                         # A bootstrap interval from a handful of trades is degenerate
@@ -192,7 +215,9 @@ def main():
                          "Train_End":hist.index[train1-1],"Test_Start":hist.index[test0],
                          "Test_End":hist.index[test1-1],"Selected_Threshold":best[1],
                          "Threshold_Selection_Status":selection_status,
-                         "Train_Avg_Trade_Pct":best[0],**test_stats,
+                         "Train_Avg_Trade_Pct":best[0],
+                         "Train_Trades_At_Selected_Threshold":int(best[2].get("Trades", 0)),
+                         **test_stats,
                          "OOS_Mean_95_Lower_Pct":ci["Lower_95"]*100 if pd.notna(ci["Lower_95"]) else np.nan,
                          "OOS_Mean_95_Upper_Pct":ci["Upper_95"]*100 if pd.notna(ci["Upper_95"]) else np.nan}
                     oos_rows.append(row)
