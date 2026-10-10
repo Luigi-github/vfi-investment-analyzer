@@ -206,6 +206,8 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         weekly_div["Div_Osc_Early_Setup_W"] = False
         weekly_div["Div_Osc_Zero_Cross_Up_W"] = False
         weekly_div["Div_Osc_Negative_Near_Zero_W"] = False
+        weekly_div["Div_Osc_Positive_Slopes_W"] = False
+        weekly_div["Div_Osc_Strong_Rising_Slope_W"] = False
     weekly_signal = pd.DataFrame({
         "Weekly_Bullish_Div_Confirmed": wbull,
         "Weekly_Bearish_Div_Confirmed": wbear,
@@ -220,6 +222,8 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Div_Osc_Slope_2W_Normalized": weekly_div["Div_Osc_Slope_2W_Normalized"],
         "Weekly_Div_Osc_Slope_4W_Normalized": weekly_div["Div_Osc_Slope_4W_Normalized"],
         "Weekly_Div_Osc_Negative_Near_Zero": weekly_div["Div_Osc_Negative_Near_Zero_W"],
+        "Weekly_Div_Osc_Positive_Slopes": weekly_div["Div_Osc_Positive_Slopes_W"],
+        "Weekly_Div_Osc_Strong_Rising_Slope": weekly_div["Div_Osc_Strong_Rising_Slope_W"],
         "Weekly_Div_Osc_Early_Setup": weekly_div["Div_Osc_Early_Setup_W"],
         "Weekly_Div_Osc_Zero_Cross_Up": weekly_div["Div_Osc_Zero_Cross_Up_W"],
     }).reset_index().rename(columns={weekly_div.index.name or "index": "Weekly_Date"})
@@ -329,10 +333,16 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
                 "Weekly_Div_Osc_Slope_1W": float(row["Weekly_Div_Osc_Slope_1W"]) if pd.notna(row["Weekly_Div_Osc_Slope_1W"]) else np.nan,
                 "Weekly_Div_Osc_Slope_2W_Normalized": float(row["Weekly_Div_Osc_Slope_2W_Normalized"]) if pd.notna(row["Weekly_Div_Osc_Slope_2W_Normalized"]) else np.nan,
                 "Weekly_Div_Osc_Slope_4W_Normalized": float(row["Weekly_Div_Osc_Slope_4W_Normalized"]) if pd.notna(row["Weekly_Div_Osc_Slope_4W_Normalized"]) else np.nan,
+                "Weekly_Div_Osc_Negative_Near_Zero": bool(row["Weekly_Div_Osc_Negative_Near_Zero"]),
+                "Weekly_Div_Osc_Positive_Slopes": bool(row["Weekly_Div_Osc_Positive_Slopes"]),
+                "Weekly_Div_Osc_Strong_Rising_Slope": bool(row["Weekly_Div_Osc_Strong_Rising_Slope"]),
                 "Weekly_Div_Osc_Early_Setup": bool(row["Weekly_Div_Osc_Early_Setup"]),
                 "Weekly_Div_Osc_Zero_Cross_Up": bool(row["Weekly_Div_Osc_Zero_Cross_Up"]),
                 "Daily_Div_Signal": str(row.get("Daily_Div_Signal", "")),
                 "Daily_Div_Age_Bars": float(row["Daily_Div_Age_Bars"]) if pd.notna(row["Daily_Div_Age_Bars"]) else np.nan,
+                "VFI_Negative_Near_Zero": bool(row["VFI_Negative_Near_Zero"]),
+                "VFI_Positive_Slopes": bool(row["VFI_Positive_Slopes"]),
+                "VFI_Strong_Rising_Slope": bool(row["VFI_Strong_Rising_Slope"]),
                 "VFI_Early_Setup": bool(row["VFI_Early_Setup"]),
                 "VFI_Zero_Cross_Up": bool(row["VFI_Zero_Cross_Up"]),
                 "Weekly_Bullish_Div_Recent": bool(row["Weekly_Bullish_Div_Recent"]),
@@ -391,6 +401,9 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Div_Osc_Slope_1W": float(latest["Weekly_Div_Osc_Slope_1W"]) if pd.notna(latest["Weekly_Div_Osc_Slope_1W"]) else np.nan,
         "Weekly_Div_Osc_Slope_2W_Normalized": float(latest["Weekly_Div_Osc_Slope_2W_Normalized"]) if pd.notna(latest["Weekly_Div_Osc_Slope_2W_Normalized"]) else np.nan,
         "Weekly_Div_Osc_Slope_4W_Normalized": float(latest["Weekly_Div_Osc_Slope_4W_Normalized"]) if pd.notna(latest["Weekly_Div_Osc_Slope_4W_Normalized"]) else np.nan,
+        "Weekly_Div_Osc_Negative_Near_Zero": bool(latest["Weekly_Div_Osc_Negative_Near_Zero"]),
+        "Weekly_Div_Osc_Positive_Slopes": bool(latest["Weekly_Div_Osc_Positive_Slopes"]),
+        "Weekly_Div_Osc_Strong_Rising_Slope": bool(latest["Weekly_Div_Osc_Strong_Rising_Slope"]),
         "Weekly_Div_Osc_Early_Setup": bool(latest["Weekly_Div_Osc_Early_Setup"]),
         "Weekly_Div_Osc_Zero_Cross_Up": bool(latest["Weekly_Div_Osc_Zero_Cross_Up"]),
         "Weekly_Div_Age_Days": float(weekly_age) if pd.notna(weekly_age) else np.nan,
@@ -513,6 +526,8 @@ def main():
     if not current.empty:
         cols = [c for c in ["Rank", "Asset", "Date", "Price", "VFI_Daily", "VFI_Z_252",
                             "VFI_Slope_10D_Normalized", "VFI_Early_Setup",
+                            "Weekly_Div_Oscillator", "Weekly_Div_Osc_Z_52",
+                            "Weekly_Div_Osc_Early_Setup", "Weekly_Div_Osc_Zero_Cross_Up",
                             "Weekly_Bullish_Div_Recent", "Weekly_Div_Signal", "Weekly_Div_Age_Days",
                             "Signal_Type"] if c in current.columns]
         print(current[cols].head(30).to_string(index=False))
