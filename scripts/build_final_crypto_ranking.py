@@ -359,7 +359,18 @@ def build_final_ranking(root: Path) -> None:
         "symbols_with_positive_oos_mean_ci_lower": int((
             eligible & (ranking["OOS_Mean_95_Lower_Pct"] > 0)
         ).sum()),
-        "symbols_with_no_oos_trades": int((ranking["OOS_Trades"].fillna(0) == 0).sum()),
+        # OOS_Trades in the final ranking belongs to the primary SPOT_MTF
+        # strategy; the status file counts trades across every strategy.
+        "symbols_with_no_spot_mtf_oos_trades": int(
+            (ranking["OOS_Trades"].fillna(0) == 0).sum()
+        ),
+        "symbols_with_no_trades_any_strategy": int((
+            ranking.get("Status", pd.Series(index=ranking.index, dtype=object)).notna()
+            & (pd.to_numeric(
+                ranking.get("All_Strategy_OOS_Trades", pd.Series(index=ranking.index, dtype=float)),
+                errors="coerce",
+            ).fillna(0) == 0)
+        ).sum()),
         "symbols_missing_status": missing_status,
         "symbols_with_errors": int((ranking["Status"] == "error").sum()) if "Status" in ranking else expected_symbols,
         "symbols_with_insufficient_history": int((ranking["Status"] == "insufficient_history").sum()) if "Status" in ranking else 0,
