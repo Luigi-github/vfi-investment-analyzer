@@ -287,6 +287,12 @@ def build_final_ranking(root: Path) -> None:
                 f"mean {float(mean_trade):+.3f}% per trade, "
                 f"{int(row.get('OOS_Positive_Folds', 0) or 0)}/{int(folds_n or 0)} positive folds"
             )
+            drawdown = row.get("OOS_Max_Drawdown_Pct")
+            ci_lower = row.get("OOS_Mean_95_Lower_Pct")
+            if pd.notna(drawdown):
+                parts.append(f"trade-level OOS drawdown {float(drawdown):.2f}%")
+            if pd.notna(ci_lower):
+                parts.append(f"95% bootstrap lower bound {float(ci_lower):+.3f}% per trade")
         else:
             parts.append("SPOT_MTF has no OOS trades; current signal is not performance-validated")
         benchmark_return = row.get("BuyHold_OOS_Total_Return_Pct")
@@ -362,6 +368,71 @@ The score is 40% current risk-adjusted MTF signal, 25% percentile of SPOT_MTF me
 A complete workflow means data and jobs were processed, not that the strategy is profitable. The recent sample is short, candidate assets are selected using today's liquidity (survivorship bias), and this score is a research prioritization tool. A matched out-of-sample spot buy-and-hold benchmark is included per fold, but the sample is still short. Validate across multiple market regimes and verify fee, slippage, funding, and intrabar stop/target assumptions before any live use.
 """
     (root / "ranking_methodology.md").write_text(methodology, encoding="utf-8")
+    methodology_es = """# Ranking VFI de los 200 criptoactivos
+
+## Selección del universo
+Se toman pares USDT activos que existan tanto en spot como en futuros perpetuos USD-M de Binance. Se ordenan por la suma de sus puestos de volumen cotizado de 24 horas en ambos mercados; luego por el peor puesto de los dos. Es una fotografía de liquidez actual, no un universo histórico libre de sesgo de supervivencia.
+
+## Señal actual
+El puntaje MTF pondera semanal 30%, diario 30%, 4 horas 25% y 1 hora 15%. La confluencia spot/perpetuo se combina 60%/40%. Funding extremo y cambios grandes de interés abierto en 24 horas pueden restar puntos. El CSV contiene VFI, etapa, pendientes y marcas temporales por marco temporal.
+
+## Validación fuera de muestra
+Se usan tres periodos cronológicos walk-forward. Los umbrales ajustables solo se eligen con datos de entrenamiento y cada candidato debe tener al menos 10 operaciones de entrenamiento completamente cerradas. Si ninguno cumple, se registra un umbral de respaldo de 80. BOTH_MTF, COMBINED_70 y COMBINED_80 son estrategias de umbral fijo. Las señales se ejecutan en la apertura de la siguiente vela horaria. Se modelan comisión 0,04% y deslizamiento 0,03% por lado, stop 8%, objetivo 16% y salida máxima a 72 horas.
+
+## Puntaje final de investigación
+40% puntaje MTF actual ajustado por riesgo; 25% percentil del rendimiento medio por operación OOS de SPOT_MTF; 20% proporción de periodos OOS positivos; 10% puntaje de drawdown; 5% tamaño de muestra. Se marca muestra insuficiente si hay menos de 20 operaciones SPOT_MTF OOS o menos de dos periodos. La etiqueta de evidencia positiva exige además límite inferior del intervalo bootstrap del 95% mayor que cero y al menos dos periodos positivos.
+
+## Límites
+La clasificación sirve para priorizar investigación, no garantiza rentabilidad. El periodo reciente es corto, el universo usa la liquidez de hoy y puede sufrir sesgo de supervivencia. El benchmark comprar-y-mantener se alinea por periodo OOS, pero deben probarse más ciclos de mercado y validar costos, funding y ejecuciones intravela antes de usar dinero real.
+"""
+    (root / "ranking_methodology_es.md").write_text(methodology_es, encoding="utf-8")
+    def reason_es(row) -> str:
+        parts = []
+        if pd.notna(row.get("Spot_Volume_Rank")) and pd.notna(row.get("Perp_Volume_Rank")):
+            parts.append(
+                f"Liquidez: puesto {int(row['Spot_Volume_Rank'])} en spot y "
+                f"{int(row['Perp_Volume_Rank'])} en perpetuos por volumen cotizado de 24 h"
+            )
+        score = row.get("Final_Risk_Adjusted_Score")
+        if pd.notna(score):
+            parts.append(
+                f"Señal MTF actual {float(score):.1f}/100; "
+                f"spot {row.get('Spot_Direction', 'n/d')}, perpetuo {row.get('Perp_Direction', 'n/d')}"
+            )
+        trades_n = row.get("OOS_Trades")
+        folds_n = row.get("OOS_Folds")
+        mean_trade = row.get("OOS_Mean_Trade_Pct")
+        if pd.notna(trades_n) and trades_n > 0:
+            parts.append(
+                f"SPOT_MTF fuera de muestra: {int(trades_n)} operaciones, "
+                f"media por operación {float(mean_trade):+.3f}%, "
+                f"{int(row.get('OOS_Positive_Folds', 0) or 0)}/{int(folds_n or 0)} periodos positivos"
+            )
+            drawdown = row.get("OOS_Max_Drawdown_Pct")
+            ci_lower = row.get("OOS_Mean_95_Lower_Pct")
+            if pd.notna(drawdown):
+                parts.append(f"drawdown OOS a nivel de operaciones {float(drawdown):.2f}%")
+            if pd.notna(ci_lower):
+                parts.append(f"límite inferior bootstrap 95% {float(ci_lower):+.3f}% por operación")
+        else:
+            parts.append("SPOT_MTF no generó operaciones fuera de muestra; la señal no está validada por el backtest")
+        benchmark_return = row.get("BuyHold_OOS_Total_Return_Pct")
+        strategy_return = row.get("OOS_Total_Return_Pct")
+        if pd.notna(benchmark_return) and pd.notna(strategy_return):
+            parts.append(
+                f"Rendimiento OOS SPOT_MTF {float(strategy_return):+.2f}% frente a "
+                f"comprar y mantener {float(benchmark_return):+.2f}%"
+            )
+        tier_es = {
+            "POSITIVE_OOS_EVIDENCE": "evidencia OOS positiva, aún provisional",
+            "MIXED_OOS_EVIDENCE": "evidencia OOS mixta",
+            "INSUFFICIENT_OOS_SAMPLE": "muestra OOS insuficiente",
+        }
+        parts.append(tier_es.get(str(row.get("Evidence_Tier")), "evidencia no clasificada"))
+        return "; ".join(parts)
+
+    ranking["Motivo_Ranking_ES"] = ranking.apply(reason_es, axis=1)
+
     ranking["Ranking_Method"] = (
         "40% current risk-adjusted MTF signal + 25% SPOT_MTF OOS mean-trade-return percentile "
         "+ 20% positive-fold consistency + 10% OOS drawdown score + 5% sample-size score; "
