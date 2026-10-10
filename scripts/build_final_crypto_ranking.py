@@ -349,6 +349,30 @@ def build_final_ranking(root: Path) -> None:
     unique_symbols = int(ranking["Symbol"].astype(str).nunique())
     missing_status = int(ranking["Status"].isna().sum()) if "Status" in ranking else expected_symbols
     duplicate_symbols = int(ranking["Symbol"].astype(str).duplicated().sum())
+    history_bars = pd.to_numeric(
+        ranking.get("History_Bars", pd.Series(index=ranking.index, dtype=float)),
+        errors="coerce",
+    )
+    def missing_tf_count(column: str, timeframe: str) -> int:
+        values = ranking.get(column, pd.Series("", index=ranking.index)).fillna("").astype(str)
+        return int(values.str.split(",").apply(lambda items: timeframe in [x.strip() for x in items]).sum())
+
+    global_mean = pd.to_numeric(
+        global_summary.get("Global_OOS_Mean_Trade_Pct", pd.Series(dtype=float)),
+        errors="coerce",
+    ) if not global_summary.empty else pd.Series(dtype=float)
+    global_pf = pd.to_numeric(
+        global_summary.get("Global_OOS_Profit_Factor", pd.Series(dtype=float)),
+        errors="coerce",
+    ) if not global_summary.empty else pd.Series(dtype=float)
+    best_global = global_summary.iloc[0] if not global_summary.empty else None
+    aggregate_warning = (
+        "All evaluated strategies have negative aggregate mean net OOS trade return; "
+        "positive per-asset evidence is not proof of a profitable global strategy."
+        if not global_mean.empty and (global_mean.dropna() < 0).all()
+        else "Aggregate strategy metrics are available in strategy_comparison_oos_global.csv."
+    )
+
     report = {
         "expected_universe_size": expected_symbols,
         "mtf_ranking_rows": int(len(mtf)),
@@ -375,8 +399,20 @@ def build_final_ranking(root: Path) -> None:
         "symbols_missing_status": missing_status,
         "symbols_with_errors": int((ranking["Status"] == "error").sum()) if "Status" in ranking else expected_symbols,
         "symbols_with_insufficient_history": int((ranking["Status"] == "insufficient_history").sum()) if "Status" in ranking else 0,
+        "symbols_with_lt_3000_hourly_bars": int((history_bars < 3000).sum()),
+        "symbols_with_lt_8760_hourly_bars": int((history_bars < 8760).sum()),
+        "symbols_missing_weekly_spot": missing_tf_count("Spot_Missing_Timeframes", "1W"),
+        "symbols_missing_weekly_perp": missing_tf_count("Perp_Missing_Timeframes", "1W"),
+        "symbols_missing_daily_spot": missing_tf_count("Spot_Missing_Timeframes", "1D"),
+        "symbols_missing_daily_perp": missing_tf_count("Perp_Missing_Timeframes", "1D"),
+        "global_strategies_with_negative_mean_trade": int((global_mean.dropna() < 0).sum()),
+        "global_strategies_with_profit_factor_below_one": int((global_pf.dropna() < 1).sum()),
+        "best_global_strategy_by_mean_trade": str(best_global["Strategy"]) if best_global is not None else None,
+        "best_global_strategy_mean_trade_pct": float(best_global["Global_OOS_Mean_Trade_Pct"]) if best_global is not None and pd.notna(best_global.get("Global_OOS_Mean_Trade_Pct")) else None,
+        "best_global_strategy_profit_factor": float(best_global["Global_OOS_Profit_Factor"]) if best_global is not None and pd.notna(best_global.get("Global_OOS_Profit_Factor")) else None,
+        "aggregate_strategy_warning": aggregate_warning,
         "ranking_complete_for_200": unique_symbols == expected_symbols and duplicate_symbols == 0 and missing_status == 0,
-        "important_caveat": "OOS sample spans only the available recent hourly history; rankings are research signals, not return guarantees."
+        "important_caveat": "OOS sample spans only the available recent hourly history. Some listed assets lack weekly/daily history, and aggregate strategy results must be checked separately; rankings are research signals, not return guarantees."
     }
     if not (
         report["ranking_complete_for_200"]
