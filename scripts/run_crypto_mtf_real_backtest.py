@@ -239,10 +239,11 @@ def main():
                 (int(n*.80), n),
             ]
             for fold, (test0, test1) in enumerate(benchmark_folds, 1):
-                if test1 <= test0 or test0 >= n:
+                benchmark_entry_i = test0 + 1  # same next-bar execution convention as strategy signals
+                if test1 <= benchmark_entry_i or benchmark_entry_i >= n:
                     continue
-                window = hist.iloc[test0:test1]
-                entry = float(hist.iloc[test0]["Open_Spot"])
+                window = hist.iloc[benchmark_entry_i:test1]
+                entry = float(hist.iloc[benchmark_entry_i]["Open_Spot"])
                 exit_price = float(hist.iloc[test1 - 1]["Close_Spot"])
                 gross = exit_price / entry - 1.0
                 costs = 2.0 * (FEE + SLIPPAGE)
@@ -255,7 +256,7 @@ def main():
                 benchmark_dd = float(
                     (equity_path / equity_path.cummax() - 1.0).min() * 100.0
                 )
-                entry_ts = hist.index[test0]
+                entry_ts = hist.index[benchmark_entry_i]
                 exit_ts = hist.index[test1 - 1]
                 holding_hours = max((exit_ts - entry_ts).total_seconds() / 3600.0, 0.0)
                 oos_rows.append({
