@@ -121,6 +121,8 @@ class FinalCryptoRankingTests(unittest.TestCase):
             audit = json.loads((root / "data_quality_report.json").read_text(encoding="utf-8"))
             self.assertEqual(audit["unique_symbols_in_final_ranking"], 4)
             self.assertEqual(audit["symbols_missing_status"], 1)
+            self.assertEqual(audit["symbols_with_no_spot_mtf_oos_trades"], 1)
+            self.assertEqual(audit["symbols_with_no_trades_any_strategy"], 1)
 
 
 if __name__ == "__main__":
