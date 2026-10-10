@@ -328,6 +328,13 @@ def build_final_ranking(root: Path) -> None:
         parts.append(str(tier).replace("_", " ").lower())
         return "; ".join(parts)
 
+    for col in (
+        "Final_Risk_Adjusted_Score", "Confluence_Score", "Spot_MTF_Score",
+        "Perp_MTF_Score", "Spot_Direction", "Perp_Direction",
+    ):
+        if col not in ranking:
+            ranking[col] = np.nan
+
     ranking["Research_Reason"] = ranking.apply(reason, axis=1)
 
     # Machine-readable audit summary: distinguish successful processing from
