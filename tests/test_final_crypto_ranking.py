@@ -90,11 +90,11 @@ class FinalCryptoRankingTests(unittest.TestCase):
                 "symbols": ["AAAUSDT", "BBBUSDT", "CCCUSDT"],
                 "records": [
                     {"Symbol": "AAAUSDT", "Spot_Volume_Rank": 1, "Perp_Volume_Rank": 2,
-                     "Spot_24h_Quote_Volume_USD": 1000000, "Perp_24h_Quote_Volume_USD": 900000},
+                     "Spot_24h_Quote_Volume_USDT": 1000000, "Perp_24h_Quote_Volume_USDT": 900000},
                     {"Symbol": "BBBUSDT", "Spot_Volume_Rank": 2, "Perp_Volume_Rank": 1,
-                     "Spot_24h_Quote_Volume_USD": 900000, "Perp_24h_Quote_Volume_USD": 1000000},
+                     "Spot_24h_Quote_Volume_USDT": 900000, "Perp_24h_Quote_Volume_USDT": 1000000},
                     {"Symbol": "CCCUSDT", "Spot_Volume_Rank": 3, "Perp_Volume_Rank": 3,
-                     "Spot_24h_Quote_Volume_USD": 500000, "Perp_24h_Quote_Volume_USD": 450000},
+                     "Spot_24h_Quote_Volume_USDT": 500000, "Perp_24h_Quote_Volume_USDT": 450000},
                 ],
             }), encoding="utf-8")
 
