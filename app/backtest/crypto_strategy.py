@@ -79,7 +79,10 @@ def backtest_signals(
     i = 0
     idx = df.index
     while i < len(df) - 2:
-        if float(df.iloc[i][signal_column]) < threshold:
+        signal_value = pd.to_numeric(df.iloc[i][signal_column], errors="coerce")
+        # Missing/invalid MTF values mean "no signal", not a passing signal.
+        # This matters when a higher timeframe has less history than 1H.
+        if pd.isna(signal_value) or not np.isfinite(float(signal_value)) or float(signal_value) < threshold:
             i += 1
             continue
         entry_i = i + 1
