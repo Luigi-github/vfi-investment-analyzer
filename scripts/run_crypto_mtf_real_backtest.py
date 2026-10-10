@@ -89,7 +89,14 @@ def run_one(hist, funding, strategy, threshold, start=0, end=None, costs=True):
         price_prefix=market,
     )
     if trades.empty:
-        return {"Trades":0, "Total_Return_Pct":0.0, "Win_Rate_Pct":np.nan}, trades
+        return {
+            "Trades": 0,
+            "Total_Return_Pct": 0.0,
+            "Win_Rate_Pct": np.nan,
+            "Average_Trade_Pct": np.nan,
+            "Profit_Factor": np.nan,
+            "Max_Drawdown_Pct": 0.0,
+        }, trades
     return {**{
         "Trades": len(trades), "Win_Rate_Pct": (trades["Net_Return"]>0).mean()*100,
         "Total_Return_Pct": (equity["Equity"].iloc[-1]-1)*100,
@@ -114,12 +121,23 @@ def main():
     else:
         symbols = [x.strip().upper() for x in args.symbols.split(",") if x.strip()]
     oos_rows=[]; trade_rows=[]; all_summaries=[]
+    status_rows=[]; errors=[]
 
     for symbol in symbols:
         print("REAL BACKTEST",symbol)
+        status = {
+            "Symbol": symbol, "Status": "running", "History_Bars": 0,
+            "OOS_Folds": 0, "OOS_Trades": 0, "Reason": "", "Error": "",
+        }
         try:
             hist,funding=merge_symbol(service,analyzer,symbol)
-            if len(hist)<300: continue
+            status["History_Bars"] = int(len(hist))
+            if len(hist)<300:
+                status["Status"] = "insufficient_history"
+                status["Reason"] = f"Only {len(hist)} aligned 1H bars; at least 300 required"
+                status_rows.append(status)
+                print("SKIP", symbol, status["Reason"])
+                continue
             hist.to_csv(out/f"{symbol}_history.csv")
             n=len(hist)
             for strategy in STRATEGIES:
@@ -151,14 +169,16 @@ def main():
                         scores.append((avg, threshold, s))
                     best=max(scores,key=lambda x:x[0])
                     test_stats,trades=run_one(hist,funding,strategy,best[1],test0,test1)
-                    if trades.empty: continue
-                    ci=block_bootstrap_mean(trades["Net_Return"],block_size=8,iterations=2000,random_state=42+fold)
+                    if trades.empty:
+                        ci = {"Lower_95": np.nan, "Upper_95": np.nan}
+                    else:
+                        ci=block_bootstrap_mean(trades["Net_Return"],block_size=8,iterations=2000,random_state=42+fold)
                     row={"Symbol":symbol,"Strategy":strategy,"Fold":fold,
                          "Train_End":hist.index[train1-1],"Test_Start":hist.index[test0],
                          "Test_End":hist.index[test1-1],"Selected_Threshold":best[1],
                          "Train_Avg_Trade_Pct":best[0],**test_stats,
-                         "OOS_Mean_95_Lower_Pct":ci["Lower_95"]*100,
-                         "OOS_Mean_95_Upper_Pct":ci["Upper_95"]*100}
+                         "OOS_Mean_95_Lower_Pct":ci["Lower_95"]*100 if pd.notna(ci["Lower_95"]) else np.nan,
+                         "OOS_Mean_95_Upper_Pct":ci["Upper_95"]*100 if pd.notna(ci["Upper_95"]) else np.nan}
                     oos_rows.append(row)
                     if not trades.empty:
                         trades=trades.copy(); trades["Symbol"]=symbol; trades["Strategy"]=strategy; trades["Fold"]=fold
@@ -168,9 +188,20 @@ def main():
                     all_summaries.append({"Symbol":symbol,"Strategy":strategy,"Threshold":threshold,**s})
             bh=buy_and_hold(hist,fee=FEE,slippage=SLIPPAGE)
             all_summaries.append({"Symbol":symbol,"Strategy":"BUY_AND_HOLD","Threshold":0,**bh})
+            status["OOS_Folds"] = sum(1 for row in oos_rows if row["Symbol"] == symbol)
+            status["OOS_Trades"] = int(sum(row["Trades"] for row in oos_rows if row["Symbol"] == symbol))
+            status["Status"] = "completed" if status["OOS_Trades"] > 0 else "no_oos_trades"
+            if status["Status"] == "no_oos_trades":
+                status["Reason"] = "The walk-forward windows completed but produced no OOS trades"
+            status_rows.append(status)
         except Exception as exc:
+            status["Status"] = "error"
+            status["Error"] = repr(exc)
+            status_rows.append(status)
+            errors.append((symbol, repr(exc)))
             print("ERROR",symbol,exc)
 
+    pd.DataFrame(status_rows).to_csv(out/"backtest_status.csv",index=False)
     pd.DataFrame(all_summaries).to_csv(out/"strategy_pnl_comparison.csv",index=False)
     oos=pd.DataFrame(oos_rows); oos.to_csv(out/"walk_forward_oos.csv",index=False)
     if trade_rows: pd.concat(trade_rows,ignore_index=True).to_csv(out/"oos_trades.csv",index=False)
@@ -196,5 +227,8 @@ def main():
         agg=agg.sort_values("Aggregate_OOS_Mean_Trade_Pct",ascending=False)
         agg.to_csv(out/"walk_forward_summary.csv",index=False)
         print(agg.to_string(index=False))
+    if errors:
+        print(f"BACKTEST FAILED: {len(errors)} symbol(s) had exceptions: {errors}")
+        raise SystemExit(1)
 
 if __name__=="__main__": main()
