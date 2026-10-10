@@ -203,25 +203,41 @@ def main() -> None:
 
     for number, symbol in enumerate(symbols, start=1):
         print(f"[{number}/{len(symbols)}] {symbol}", flush=True)
+        daily = pd.DataFrame()
+        weekly = pd.DataFrame()
+        fetch_errors = []
         try:
             daily = service.get_klines(symbol, "1d", market="spot", max_bars=args.daily_bars)
+        except Exception as exc:
+            fetch_errors.append(f"daily fetch: {exc!r}")
+        try:
             weekly = service.get_klines(symbol, "1w", market="spot", max_bars=args.weekly_bars)
+        except Exception as exc:
+            fetch_errors.append(f"weekly fetch: {exc!r}")
+
+        try:
             row = analyze_symbol(symbol, daily, weekly)
             row["Universe_Liquidity_Rank"] = number
+            if fetch_errors:
+                row["Exclusion_Reason"] = "; ".join(
+                    x for x in [str(row.get("Exclusion_Reason", "")), *fetch_errors] if x
+                )
+                row["Analysis_Status"] = "ERROR" if len(fetch_errors) == 2 else "PARTIAL_ERROR"
+                if not len(daily):
+                    row["VFI_Analysis_Status"] = "ERROR"
+                if not len(weekly):
+                    row["Divergence_Analysis_Status"] = "ERROR"
             rows.append(row)
+            if row["Analysis_Status"] in {"ERROR", "PARTIAL_ERROR"}:
+                errors.append({"Symbol": symbol, "Error": row.get("Exclusion_Reason", row["Analysis_Status"])})
+                print(f"{row['Analysis_Status']} {symbol}: {row.get('Exclusion_Reason', '')}", flush=True)
+            elif row["Analysis_Status"] == "PARTIAL_ANALYSIS":
+                print(f"PARTIAL HISTORY {symbol}: {row.get('Exclusion_Reason', '')}", flush=True)
         except Exception as exc:
             reason = repr(exc)
-            is_insufficient = isinstance(exc, ValueError) and (
-                "Insufficient daily history" in str(exc)
-                or "Insufficient weekly history" in str(exc)
-            )
-            status = "INSUFFICIENT_HISTORY" if is_insufficient else "ERROR"
-            rows.append(unavailable_asset_row(symbol, number, status, reason))
-            if not is_insufficient:
-                errors.append({"Symbol": symbol, "Error": reason})
-                print(f"ERROR {symbol}: {exc}", flush=True)
-            else:
-                print(f"INSUFFICIENT HISTORY {symbol}: {exc}", flush=True)
+            rows.append(unavailable_asset_row(symbol, number, "ERROR", reason))
+            errors.append({"Symbol": symbol, "Error": reason})
+            print(f"ERROR {symbol}: {exc}", flush=True)
 
     result = rank_accumulation_candidates(pd.DataFrame(rows))
     if not result.empty:
@@ -247,6 +263,8 @@ def main() -> None:
         "universe_requested": len(symbols),
         "assets_reported": int(len(result)),
         "assets_analyzed": int(status_counts.get("ANALYZED", 0)),
+        "partial_analysis": int(status_counts.get("PARTIAL_ANALYSIS", 0)),
+        "partial_errors": int(status_counts.get("PARTIAL_ERROR", 0)),
         "insufficient_history": int(status_counts.get("INSUFFICIENT_HISTORY", 0)),
         "errors": int(status_counts.get("ERROR", 0)),
         "vfi_daily_candidates": int(len(vfi_candidates)),
