@@ -64,6 +64,25 @@ class TestCryptoStrategy(unittest.TestCase):
         self.assertAlmostEqual(short_trades.iloc[0]["Funding_PnL"], 0.01)
 
 
+    def test_funding_window_excludes_entry_and_includes_exit(self):
+        idx = pd.date_range("2026-01-01", periods=6, freq="h", tz="UTC")
+        h = pd.DataFrame({
+            "Open_Perp": [100.0] * 6,
+            "High_Perp": [101.0] * 6,
+            "Low_Perp": [99.0] * 6,
+            "Close_Perp": [100.0] * 6,
+            "Score": [80.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        }, index=idx)
+        funding = pd.Series([0.10, 0.02], index=[idx[1], idx[4]])
+        trades, _ = backtest_signals(
+            h, "Score", threshold=70, horizon_hours=3, fee=0, slippage=0,
+            direction="long", funding=funding, price_prefix="Perp",
+        )
+        # Entry is idx[1], exit is idx[4]: funding at entry is excluded.
+        self.assertEqual(trades.iloc[0]["Entry_Date"], idx[1])
+        self.assertEqual(trades.iloc[0]["Exit_Date"], idx[4])
+        self.assertAlmostEqual(trades.iloc[0]["Funding_PnL"], -0.02)
+
     def test_short_stop_and_target_returns_match_configured_percentages(self):
         idx = pd.date_range("2026-01-01", periods=6, freq="h", tz="UTC")
         base = {
