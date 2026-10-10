@@ -94,6 +94,9 @@ def analyze_symbol(
             "PRE_ZERO_BREAK", "ZERO_CROSS_RECENT",
         }:
             vfi_setup["VFI_1D_Setup_Type"] = "NONE"
+            vfi_setup["VFI_1D_Setup_Reason"] = (
+                f"Rejected by VFI cycle-stage gate: current stage is {vfi_stage}"
+            )
             vfi_setup["VFI_1D_Setup_Score"] = min(
                 float(vfi_setup["VFI_1D_Setup_Score"]), 59.9
             )
