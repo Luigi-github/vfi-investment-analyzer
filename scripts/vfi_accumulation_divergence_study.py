@@ -53,6 +53,7 @@ YAHOO_ASSETS = {
 
 HORIZONS_DAYS = (10, 20, 40, 60)
 MIN_DAILY_BARS = 260
+MIN_WEEKLY_BARS_FOR_DIVERGENCE = 100
 WEEKLY_DIVERGENCE_FRESH_DAYS = 35
 DAILY_DIVERGENCE_FRESH_DAYS = 20
 COOLDOWN_DAILY_BARS = 20
@@ -152,19 +153,28 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
     daily_vfi = add_vfi_features(daily, vfi_indicator)
     daily_div = divergence.calculate(daily)
     weekly = to_weekly(daily, crypto)
-    if len(weekly) < 40:
-        raise ValueError(f"Only {len(weekly)} completed weekly bars; need at least 40")
+    weekly_history_sufficient = len(weekly) >= MIN_WEEKLY_BARS_FOR_DIVERGENCE
     weekly_div = divergence.calculate(weekly)
 
-    # Map confirmed weekly signals to daily rows only after the week closes.
+    # A chained WMA warm-up plus confirmed pivots needs a long weekly sample.
+    # Keep VFI-only daily results for younger assets, but do not treat missing
+    # weekly-divergence history as a negative or valid divergence reading.
     wbull = weekly_div["Volume_Div_Bullish"].fillna(False).astype(bool)
     wbear = weekly_div["Volume_Div_Bearish"].fillna(False).astype(bool)
     weekly_signal_names = weekly_div["Volume_Div_Signal"].astype(str)
+    weekly_bull_age = weekly_div["Volume_Div_Bullish_Age_Bars"].copy()
+    weekly_bear_age = weekly_div["Volume_Div_Bearish_Age_Bars"].copy()
+    if not weekly_history_sufficient:
+        wbull = pd.Series(False, index=weekly.index)
+        wbear = pd.Series(False, index=weekly.index)
+        weekly_signal_names = pd.Series("", index=weekly.index, dtype=object)
+        weekly_bull_age = pd.Series(np.nan, index=weekly.index)
+        weekly_bear_age = pd.Series(np.nan, index=weekly.index)
     weekly_signal = pd.DataFrame({
         "Weekly_Bullish_Div_Confirmed": wbull,
         "Weekly_Bearish_Div_Confirmed": wbear,
-        "Weekly_Bullish_Div_Age_Bars": weekly_div["Volume_Div_Bullish_Age_Bars"],
-        "Weekly_Bearish_Div_Age_Bars": weekly_div["Volume_Div_Bearish_Age_Bars"],
+        "Weekly_Bullish_Div_Age_Bars": weekly_bull_age,
+        "Weekly_Bearish_Div_Age_Bars": weekly_bear_age,
         "Weekly_Last_Bullish_Signal": weekly_signal_names.where(wbull, np.nan).ffill(),
         "Weekly_Last_Bearish_Signal": weekly_signal_names.where(wbear, np.nan).ffill(),
         "Weekly_Div_Signal": weekly_signal_names,
@@ -206,21 +216,35 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         daily_div["Volume_Div_Bearish"].reindex(joined.index, fill_value=False),
         DAILY_DIVERGENCE_FRESH_DAYS,
     )
-    joined["Daily_Div_Signal"] = daily_div["Volume_Div_Signal"].reindex(joined.index).fillna("")
-    joined["Weekly_Div_Age_Days"] = np.where(
-        joined["Weekly_Bullish_Div_Age_Bars"].le(joined["Weekly_Bearish_Div_Age_Bars"]),
-        joined["Weekly_Bullish_Div_Age_Bars"] * 7.0,
-        joined["Weekly_Bearish_Div_Age_Bars"] * 7.0,
+    daily_signal_names = daily_div["Volume_Div_Signal"].astype(str)
+    daily_bull_age = daily_div["Volume_Div_Bullish_Age_Bars"].reindex(joined.index)
+    daily_bear_age = daily_div["Volume_Div_Bearish_Age_Bars"].reindex(joined.index)
+    daily_age = pd.concat([daily_bull_age, daily_bear_age], axis=1).min(axis=1, skipna=True)
+    daily_bull_signal = daily_signal_names.where(daily_div["Volume_Div_Bullish"].fillna(False)).ffill().reindex(joined.index)
+    daily_bear_signal = daily_signal_names.where(daily_div["Volume_Div_Bearish"].fillna(False)).ffill().reindex(joined.index)
+    daily_bull_is_newer = daily_bull_age.fillna(np.inf).le(daily_bear_age.fillna(np.inf))
+    joined["Daily_Last_Confirmed_Div_Signal"] = np.where(daily_bull_is_newer, daily_bull_signal, daily_bear_signal)
+    joined["Daily_Last_Confirmed_Div_Signal"] = joined["Daily_Last_Confirmed_Div_Signal"].fillna("")
+    joined["Daily_Div_Age_Bars"] = daily_age
+    joined["Daily_Div_Signal"] = np.where(
+        daily_age.le(DAILY_DIVERGENCE_FRESH_DAYS), joined["Daily_Last_Confirmed_Div_Signal"], "NONE_RECENT"
+    )
+    bull_week_age = joined["Weekly_Bullish_Div_Age_Bars"]
+    bear_week_age = joined["Weekly_Bearish_Div_Age_Bars"]
+    bull_is_newer = bull_week_age.fillna(np.inf).le(bear_week_age.fillna(np.inf))
+    most_recent_week_age = pd.concat([bull_week_age, bear_week_age], axis=1).min(axis=1, skipna=True)
+    joined["Weekly_Div_Age_Days"] = most_recent_week_age * 7.0
+    joined["Weekly_Last_Confirmed_Div_Signal"] = np.where(
+        bull_is_newer, joined["Weekly_Last_Bullish_Signal"], joined["Weekly_Last_Bearish_Signal"]
+    )
+    joined["Weekly_Last_Confirmed_Div_Signal"] = joined["Weekly_Last_Confirmed_Div_Signal"].fillna("")
+    joined["Weekly_Div_Signal"] = np.where(
+        most_recent_week_age.le(max_weekly_age), joined["Weekly_Last_Confirmed_Div_Signal"], "NONE_RECENT"
     )
     joined["Weekly_Div_Signal"] = np.where(
-        joined["Weekly_Bullish_Div_Age_Bars"].fillna(np.inf).le(
-            joined["Weekly_Bearish_Div_Age_Bars"].fillna(np.inf)
-        ),
-        joined["Weekly_Last_Bullish_Signal"],
-        joined["Weekly_Last_Bearish_Signal"],
+        weekly_history_sufficient, joined["Weekly_Div_Signal"], "INSUFFICIENT_WEEKLY_HISTORY"
     )
-    joined["Weekly_Div_Signal"] = joined["Weekly_Div_Signal"].fillna("")
-    joined["Daily_Div_Age_Days"] = daily_div["Volume_Div_Bullish_Age_Bars"].reindex(joined.index)
+    joined["Weekly_Divergence_History_Sufficient"] = weekly_history_sufficient
 
     conditions = {
         "VFI_EARLY_SETUP": joined["VFI_Early_Setup"],
@@ -249,8 +273,11 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
                 "VFI_Slope_10D_Normalized": float(row["VFI_Slope_10D_Normalized"]) if pd.notna(row["VFI_Slope_10D_Normalized"]) else np.nan,
                 "VFI_Slope_20D_Normalized": float(row["VFI_Slope_20D_Normalized"]) if pd.notna(row["VFI_Slope_20D_Normalized"]) else np.nan,
                 "Weekly_Div_Signal": str(row.get("Weekly_Div_Signal", "")),
+                "Weekly_Last_Confirmed_Div_Signal": str(row.get("Weekly_Last_Confirmed_Div_Signal", "")),
                 "Weekly_Div_Age_Days": float(row["Weekly_Div_Age_Days"]) if pd.notna(row["Weekly_Div_Age_Days"]) else np.nan,
+                "Weekly_Divergence_History_Sufficient": bool(row["Weekly_Divergence_History_Sufficient"]),
                 "Daily_Div_Signal": str(row.get("Daily_Div_Signal", "")),
+                "Daily_Div_Age_Bars": float(row["Daily_Div_Age_Bars"]) if pd.notna(row["Daily_Div_Age_Bars"]) else np.nan,
                 "VFI_Early_Setup": bool(row["VFI_Early_Setup"]),
                 "VFI_Zero_Cross_Up": bool(row["VFI_Zero_Cross_Up"]),
                 "Weekly_Bullish_Div_Recent": bool(row["Weekly_Bullish_Div_Recent"]),
@@ -272,12 +299,16 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         signal_type = "VFI_EARLY_SETUP + WEEKLY_BULLISH_DIVERGENCE"
     elif bool(latest["VFI_Early_Setup"]):
         signal_type = "VFI_EARLY_SETUP; WAIT_FOR_DIVERGENCE"
-    elif bool(latest["VFI_Zero_Cross_Up"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
-        signal_type = "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE"
+    elif bool(latest["VFI_Recovery_From_Negative"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
+        signal_type = "VFI_RECOVERY_FROM_NEGATIVE + WEEKLY_BULLISH_DIVERGENCE"
     elif bool(latest["VFI_Recovery_From_Negative"]):
         signal_type = "VFI_RECOVERY_FROM_NEGATIVE"
+    elif bool(latest["VFI_Zero_Cross_Up"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
+        signal_type = "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE"
     elif bool(latest["VFI_Zero_Cross_Up"]):
         signal_type = "VFI_ZERO_CROSS_UP"
+    elif bool(latest["Weekly_Bullish_Div_Recent"]):
+        signal_type = "WEEKLY_BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP"
     current = {
         "Asset": asset,
         "Source": "BINANCE_SPOT" if crypto else "YAHOO_FINANCE",
@@ -293,7 +324,12 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Bullish_Div_Recent": bool(latest["Weekly_Bullish_Div_Recent"]),
         "Weekly_Bearish_Div_Recent": bool(latest["Weekly_Bearish_Div_Recent"]),
         "Weekly_Div_Signal": str(latest.get("Weekly_Div_Signal", "")),
+        "Weekly_Last_Confirmed_Div_Signal": str(latest.get("Weekly_Last_Confirmed_Div_Signal", "")),
         "Weekly_Div_Age_Days": float(weekly_age) if pd.notna(weekly_age) else np.nan,
+        "Weekly_Bars": int(len(weekly)),
+        "Weekly_Divergence_History_Sufficient": bool(weekly_history_sufficient),
+        "Daily_Div_Signal": str(latest.get("Daily_Div_Signal", "")),
+        "Daily_Div_Age_Bars": float(latest["Daily_Div_Age_Bars"]) if pd.notna(latest["Daily_Div_Age_Bars"]) else np.nan,
         "Daily_Bullish_Div_Recent": bool(latest["Daily_Bullish_Div_Recent"]),
         "Signal_Type": signal_type,
         "Bars_History": len(joined),
@@ -357,10 +393,13 @@ def main():
         priority = {
             "VFI_EARLY_SETUP + WEEKLY_BULLISH_DIVERGENCE": 1,
             "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE": 2,
-            "VFI_EARLY_SETUP; WAIT_FOR_DIVERGENCE": 3,
+            "VFI_EARLY_SETUP; WAIT_FOR_DIVERGENCE": 2,
+            "VFI_RECOVERY_FROM_NEGATIVE + WEEKLY_BULLISH_DIVERGENCE": 3,
             "VFI_RECOVERY_FROM_NEGATIVE": 4,
-            "VFI_ZERO_CROSS_UP": 5,
-            "NO_SETUP": 6,
+            "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE": 5,
+            "VFI_ZERO_CROSS_UP": 6,
+            "WEEKLY_BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP": 7,
+            "NO_SETUP": 8,
         }
         current["Priority"] = current["Signal_Type"].map(priority).fillna(9).astype(int)
         current = current.sort_values(
@@ -390,6 +429,7 @@ def main():
         "intraday_used": False,
         "horizons_trading_days": list(HORIZONS_DAYS),
         "minimum_daily_bars": MIN_DAILY_BARS,
+        "minimum_weekly_bars_for_divergence": MIN_WEEKLY_BARS_FOR_DIVERGENCE,
         "weekly_divergence_fresh_days": WEEKLY_DIVERGENCE_FRESH_DAYS,
         "daily_divergence_fresh_days": DAILY_DIVERGENCE_FRESH_DAYS,
         "vfi_early_setup_rule": "VFI<0; VFI within 0.75 trailing-252-bar standard deviations of zero; 5D/10D/20D slopes positive; 10D change >=0.20 trailing VFI standard deviations.",
