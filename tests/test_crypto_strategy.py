@@ -1,6 +1,6 @@
 import unittest
 import pandas as pd
-from app.backtest.crypto_strategy import backtest_signals
+from app.backtest.crypto_strategy import backtest_signals, _max_drawdown
 
 
 class TestCryptoStrategy(unittest.TestCase):
@@ -79,6 +79,11 @@ class TestCryptoStrategy(unittest.TestCase):
         self.assertEqual(target_trades.iloc[0]["Exit_Reason"], "TARGET")
         self.assertAlmostEqual(target_trades.iloc[0]["Gross_Return"], 0.10)
         self.assertAlmostEqual(target_trades.iloc[0]["Net_Return"], 0.10)
+
+
+    def test_max_drawdown_includes_initial_capital(self):
+        equity_after_trades = pd.Series([0.90, 0.95])
+        self.assertAlmostEqual(_max_drawdown(equity_after_trades), -0.10)
 
 
 if __name__ == "__main__":
