@@ -253,8 +253,8 @@ def build_final_ranking(root: Path) -> None:
     def reason(row) -> str:
         parts = []
         if pd.notna(row.get("Spot_Volume_Rank")) and pd.notna(row.get("Perp_Volume_Rank")):
-            spot_volume = row.get("Spot_24h_Quote_Volume_USD")
-            perp_volume = row.get("Perp_24h_Quote_Volume_USD")
+            spot_volume = row.get("Spot_24h_Quote_Volume_USDT")
+            perp_volume = row.get("Perp_24h_Quote_Volume_USDT")
             liquidity = (
                 f"Universe liquidity: spot rank {int(row['Spot_Volume_Rank'])}, "
                 f"perpetual rank {int(row['Perp_Volume_Rank'])}; "
