@@ -120,6 +120,28 @@ def score_zero_approach(
     }
 
 
+def unavailable_asset_row(
+    symbol: str,
+    universe_rank: int,
+    status: str,
+    reason: str,
+) -> dict:
+    """Preserve symbols that could not be fully analyzed in the 200-row report."""
+    setup_type = "INSUFFICIENT_HISTORY" if status == "INSUFFICIENT_HISTORY" else "ERROR"
+    return {
+        "Symbol": symbol,
+        "Universe_Liquidity_Rank": int(universe_rank),
+        "Analysis_Status": status,
+        "Exclusion_Reason": reason,
+        "VFI_Setup_Type": setup_type,
+        "Divergence_Setup_Type": setup_type,
+        "VFI_Setup_Score": 0.0,
+        "Divergence_Setup_Score": 0.0,
+        "VFI_Stage_Eligible_1D": False,
+        "Bullish_Divergence_Recent": False,
+    }
+
+
 def rank_accumulation_candidates(results: pd.DataFrame) -> pd.DataFrame:
     """Put dual-indicator setups first, then VFI-only setups, then near misses."""
     if results.empty:
