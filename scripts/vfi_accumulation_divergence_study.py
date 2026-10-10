@@ -378,6 +378,10 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         signal_type = "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE"
     elif bool(latest["VFI_Zero_Cross_Up"]):
         signal_type = "VFI_ZERO_CROSS_UP"
+    elif bool(latest["Weekly_Div_Osc_Early_Setup"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
+        signal_type = "WEEKLY_DIV_OSC_SETUP + BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP"
+    elif bool(latest["Weekly_Div_Osc_Early_Setup"]):
+        signal_type = "WEEKLY_DIV_OSC_SETUP; WAIT_FOR_VFI_SETUP"
     elif bool(latest["Weekly_Bullish_Div_Recent"]):
         signal_type = "WEEKLY_BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP"
     current = {
@@ -481,8 +485,10 @@ def main():
             "VFI_RECOVERY_FROM_NEGATIVE": 7,
             "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE": 8,
             "VFI_ZERO_CROSS_UP": 9,
-            "WEEKLY_BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP": 10,
-            "NO_SETUP": 11,
+            "WEEKLY_DIV_OSC_SETUP + BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP": 10,
+            "WEEKLY_DIV_OSC_SETUP; WAIT_FOR_VFI_SETUP": 11,
+            "WEEKLY_BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP": 12,
+            "NO_SETUP": 13,
         }
         current["Priority"] = current["Signal_Type"].map(priority).fillna(9).astype(int)
         current = current.sort_values(
