@@ -51,6 +51,12 @@ def read_csvs(paths: list[Path], output: Path) -> None:
     if frames:
         pd.concat(frames, ignore_index=True).to_csv(output, index=False)
 
+def csv_has_rows(path: Path) -> bool:
+    try:
+        return not pd.read_csv(path).empty
+    except (OSError, pd.errors.EmptyDataError, pd.errors.ParserError):
+        return False
+
 def aggregate_outputs(root: Path) -> None:
     per_symbol = root / "per_symbol"
     patterns = {
@@ -108,13 +114,15 @@ def main() -> int:
                        "--symbols", symbol, "--min-volume", str(args.min_volume),
                        "--top", "1", "--output-dir", str(mtf_dir.relative_to(ROOT))],
                       symbol_root / "analysis.log")
-            if not (mtf_dir / "crypto_mtf_ranking.csv").exists():
-                raise RuntimeError(f"Ranking output was not created for {symbol}")
+            ranking_file = mtf_dir / "crypto_mtf_ranking.csv"
+            if not csv_has_rows(ranking_file):
+                raise RuntimeError(f"Ranking output is missing or empty for {symbol}")
             run_stage([sys.executable, "-u", "scripts/run_crypto_mtf_real_backtest.py",
                        "--symbols", symbol, "--output-dir", str(backtest_dir.relative_to(ROOT))],
                       symbol_root / "backtest.log")
-            if not (backtest_dir / "strategy_pnl_comparison.csv").exists():
-                raise RuntimeError(f"Backtest output was not created for {symbol}")
+            pnl_file = backtest_dir / "strategy_pnl_comparison.csv"
+            if not csv_has_rows(pnl_file):
+                raise RuntimeError(f"Backtest output is missing or empty for {symbol}")
             completed.add(symbol)
             manifest["completed"] = [s for s in symbols if s in completed]
             manifest["failed_symbol"] = None
