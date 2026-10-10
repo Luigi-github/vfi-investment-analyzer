@@ -183,7 +183,7 @@ def build_final_ranking(root: Path) -> None:
     if universe:
         base_ranking = pd.DataFrame(universe.values()).drop_duplicates("Symbol", keep="last")
     elif universe_symbols:
-        base_ranking = pd.DataFrame({"Symbol": list(dict.fromkeys(universe_symbols)})
+        base_ranking = pd.DataFrame({"Symbol": list(dict.fromkeys(universe_symbols))})
     elif not mtf.empty and "Symbol" in mtf:
         base_ranking = mtf[["Symbol"]].drop_duplicates("Symbol")
     else:
