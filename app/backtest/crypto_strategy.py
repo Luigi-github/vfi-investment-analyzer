@@ -16,7 +16,9 @@ def _cost_rate(fee: float, slippage: float) -> float:
 def _max_drawdown(equity: pd.Series) -> float:
     if equity.empty:
         return np.nan
-    return float((equity / equity.cummax() - 1.0).min())
+    # Include initial capital so a loss on the first trade counts as drawdown.
+    path = pd.concat([pd.Series([1.0]), equity.reset_index(drop=True)], ignore_index=True)
+    return float((path / path.cummax() - 1.0).min())
 
 
 def _stats(trades: pd.DataFrame, equity: pd.Series) -> dict:
@@ -41,7 +43,7 @@ def _stats(trades: pd.DataFrame, equity: pd.Series) -> dict:
         "Max_Drawdown_Pct": _max_drawdown(equity) * 100,
         "Sharpe": sharpe,
         "Sortino": sortino,
-        "Profit_Factor": float(gains / losses) if losses > 0 else np.inf,
+        "Profit_Factor": float(gains / losses) if losses > 0 else np.nan,
         "Expectancy_Pct": float(r.mean() * 100),
         "Average_Trade_Pct": float(r.mean() * 100),
         "Time_In_Market_Pct": float(trades["Holding_Hours"].sum() / max((trades["Exit_Date"].max() - trades["Entry_Date"].min()).total_seconds() / 3600.0, 1.0) * 100),
@@ -69,8 +71,9 @@ def backtest_signals(
     if history.empty or signal_column not in history:
         return pd.DataFrame(), pd.DataFrame()
     df = history.sort_index().copy()
-    if not {"Open_Spot", "High_Spot", "Low_Spot", "Close_Spot"}.issubset(df.columns):
-        raise ValueError("history must contain Spot OHLC columns")
+    required_ohlc = {f"{field}_{price_prefix}" for field in ("Open", "High", "Low", "Close")}
+    if not required_ohlc.issubset(df.columns):
+        raise ValueError(f"history must contain {price_prefix} OHLC columns")
     funding = funding.sort_index() if funding is not None else pd.Series(dtype=float)
     trades = []
     i = 0
