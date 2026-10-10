@@ -180,6 +180,23 @@ def build_final_ranking(root: Path) -> None:
     if not primary.empty:
         ranking = ranking.merge(primary, on="Symbol", how="left", suffixes=("", "_SPOT_MTF"))
 
+    benchmark = summary[summary["Strategy"] == "BUY_AND_HOLD_OOS"].copy() if not summary.empty else pd.DataFrame()
+    if not benchmark.empty:
+        benchmark = benchmark[[
+            "Symbol", "OOS_Total_Return_Pct", "OOS_Mean_Trade_Pct",
+            "OOS_Trades", "OOS_Folds", "OOS_Fold_Consistency_Pct",
+        ]].rename(columns={
+            "OOS_Total_Return_Pct": "BuyHold_OOS_Total_Return_Pct",
+            "OOS_Mean_Trade_Pct": "BuyHold_OOS_Mean_Fold_Return_Pct",
+            "OOS_Trades": "BuyHold_OOS_Folds",
+            "OOS_Folds": "BuyHold_Fold_Count",
+            "OOS_Fold_Consistency_Pct": "BuyHold_Positive_Fold_Rate_Pct",
+        })
+        ranking = ranking.merge(benchmark, on="Symbol", how="left")
+        ranking["OOS_Return_Advantage_vs_BuyHold_PctPoints"] = (
+            ranking["OOS_Total_Return_Pct"] - ranking["BuyHold_OOS_Total_Return_Pct"]
+        )
+
     if universe:
         universe_frame = pd.DataFrame(universe.values()).drop_duplicates("Symbol", keep="last")
         ranking = ranking.merge(universe_frame, on="Symbol", how="left")
@@ -254,6 +271,14 @@ def build_final_ranking(root: Path) -> None:
             )
         else:
             parts.append("SPOT_MTF has no OOS trades; current signal is not performance-validated")
+        benchmark_return = row.get("BuyHold_OOS_Total_Return_Pct")
+        strategy_return = row.get("OOS_Total_Return_Pct")
+        if pd.notna(benchmark_return) and pd.notna(strategy_return):
+            parts.append(
+                f"SPOT_MTF net OOS return {float(strategy_return):+.2f}% vs "
+                f"matched spot buy-and-hold {float(benchmark_return):+.2f}% "
+                f"(difference {float(row.get('OOS_Return_Advantage_vs_BuyHold_PctPoints', 0)):+.2f} pp)"
+            )
         tier = row.get("Evidence_Tier")
         parts.append(str(tier).replace("_", " ").lower())
         return "; ".join(parts)
@@ -311,7 +336,7 @@ The primary per-asset performance evidence is the SPOT_MTF strategy in three chr
 The score is 40% current risk-adjusted MTF signal, 25% percentile of SPOT_MTF mean net OOS trade return, 20% percentage of positive OOS folds, 10% drawdown score, and 5% sample-size score. Assets with fewer than 20 SPOT_MTF OOS trades or fewer than two OOS folds are marked INSUFFICIENT_OOS_SAMPLE and placed below eligible assets. The positive-evidence tier additionally requires a positive 95% block-bootstrap lower bound and at least two positive folds.
 
 ## Interpretation limits
-A complete workflow means data and jobs were processed, not that the strategy is profitable. The recent sample is short, candidate assets are selected using today's liquidity (survivorship bias), and this score is a research prioritization tool. Validate across multiple market regimes, compare with a matched buy-and-hold benchmark, and verify fee, slippage, funding, and intrabar stop/target assumptions before any live use.
+A complete workflow means data and jobs were processed, not that the strategy is profitable. The recent sample is short, candidate assets are selected using today's liquidity (survivorship bias), and this score is a research prioritization tool. A matched out-of-sample spot buy-and-hold benchmark is included per fold, but the sample is still short. Validate across multiple market regimes and verify fee, slippage, funding, and intrabar stop/target assumptions before any live use.
 """
     (root / "ranking_methodology.md").write_text(methodology, encoding="utf-8")
     ranking["Ranking_Method"] = (
