@@ -119,6 +119,36 @@ def add_vfi_features(daily: pd.DataFrame, indicator: VFIIndicator) -> pd.DataFra
     return data
 
 
+def add_divergence_cycle_features(
+    frame: pd.DataFrame, periods=(1, 2, 4), suffix="W",
+    scale_window=52, min_periods=20,
+) -> pd.DataFrame:
+    """Measure whether the divergence oscillator itself is rising toward/crossing zero."""
+    data = frame.copy()
+    osc = data["Volume_Divergence_MM"].astype(float)
+    scale = osc.rolling(scale_window, min_periods=min_periods).std().replace(0, np.nan)
+    data[f"Div_Osc_Z_{suffix}"] = osc / scale
+    for bars in periods:
+        data[f"Div_Osc_Slope_{bars}{suffix}"] = (osc - osc.shift(bars)) / bars
+        data[f"Div_Osc_Slope_{bars}{suffix}_Normalized"] = (osc - osc.shift(bars)) / scale
+    slope_cols = [f"Div_Osc_Slope_{bars}{suffix}" for bars in periods]
+    data[f"Div_Osc_Negative_Near_Zero_{suffix}"] = (osc < 0) & data[f"Div_Osc_Z_{suffix}"].ge(-0.75)
+    data[f"Div_Osc_Positive_Slopes_{suffix}"] = data[slope_cols].gt(0).all(axis=1)
+    fast_norm = data[f"Div_Osc_Slope_{periods[1]}{suffix}_Normalized"]
+    slow_norm = data[f"Div_Osc_Slope_{periods[2]}{suffix}_Normalized"]
+    data[f"Div_Osc_Strong_Rising_Slope_{suffix}"] = (
+        fast_norm.ge(0.20) & slow_norm.gt(0) & data[f"Div_Osc_Positive_Slopes_{suffix}"]
+    )
+    data[f"Div_Osc_Early_Setup_{suffix}"] = (
+        data[f"Div_Osc_Negative_Near_Zero_{suffix}"]
+        & data[f"Div_Osc_Strong_Rising_Slope_{suffix}"]
+    )
+    data[f"Div_Osc_Zero_Cross_Up_{suffix}"] = (
+        (osc.shift(1) < 0) & (osc >= 0) & data[slope_cols[0]].gt(0)
+    )
+    return data
+
+
 def fresh_signal(signal: pd.Series, days: int) -> pd.Series:
     """True only while the latest confirmed signal is still recent."""
     signal = signal.fillna(False).astype(bool)
@@ -155,6 +185,9 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
     weekly = to_weekly(daily, crypto)
     weekly_history_sufficient = len(weekly) >= MIN_WEEKLY_BARS_FOR_DIVERGENCE
     weekly_div = divergence.calculate(weekly)
+    weekly_div = add_divergence_cycle_features(
+        weekly_div, periods=(1, 2, 4), suffix="W", scale_window=52, min_periods=20
+    )
 
     # A chained WMA warm-up plus confirmed pivots needs a long weekly sample.
     # Keep VFI-only daily results for younger assets, but do not treat missing
@@ -170,6 +203,9 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         weekly_signal_names = pd.Series("", index=weekly.index, dtype=object)
         weekly_bull_age = pd.Series(np.nan, index=weekly.index)
         weekly_bear_age = pd.Series(np.nan, index=weekly.index)
+        weekly_div["Div_Osc_Early_Setup_W"] = False
+        weekly_div["Div_Osc_Zero_Cross_Up_W"] = False
+        weekly_div["Div_Osc_Negative_Near_Zero_W"] = False
     weekly_signal = pd.DataFrame({
         "Weekly_Bullish_Div_Confirmed": wbull,
         "Weekly_Bearish_Div_Confirmed": wbear,
@@ -179,6 +215,13 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Last_Bearish_Signal": weekly_signal_names.where(wbear, np.nan).ffill(),
         "Weekly_Div_Signal": weekly_signal_names,
         "Weekly_Div_Value": weekly_div["Volume_Divergence_MM"],
+        "Weekly_Div_Osc_Z_52": weekly_div["Div_Osc_Z_W"],
+        "Weekly_Div_Osc_Slope_1W": weekly_div["Div_Osc_Slope_1W"],
+        "Weekly_Div_Osc_Slope_2W_Normalized": weekly_div["Div_Osc_Slope_2W_Normalized"],
+        "Weekly_Div_Osc_Slope_4W_Normalized": weekly_div["Div_Osc_Slope_4W_Normalized"],
+        "Weekly_Div_Osc_Negative_Near_Zero": weekly_div["Div_Osc_Negative_Near_Zero_W"],
+        "Weekly_Div_Osc_Early_Setup": weekly_div["Div_Osc_Early_Setup_W"],
+        "Weekly_Div_Osc_Zero_Cross_Up": weekly_div["Div_Osc_Zero_Cross_Up_W"],
     }).reset_index().rename(columns={weekly_div.index.name or "index": "Weekly_Date"})
     weekly_signal["Weekly_Date"] = pd.to_datetime(weekly_signal["Weekly_Date"])
     left = daily_vfi.reset_index().rename(columns={daily_vfi.index.name or "index": "Date"})
@@ -254,6 +297,11 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "VFI_SETUP_PLUS_DAILY_BULL_DIV": joined["VFI_Early_Setup"] & joined["Daily_Bullish_Div_Recent"],
         "VFI_RECOVERY_PLUS_WEEKLY_BULL_DIV": joined["VFI_Recovery_From_Negative"] & joined["Weekly_Bullish_Div_Recent"],
         "VFI_CROSS_PLUS_WEEKLY_BULL_DIV": joined["VFI_Zero_Cross_Up"] & joined["Weekly_Bullish_Div_Recent"],
+        "WEEKLY_DIV_OSC_EARLY_SETUP": joined["Weekly_Div_Osc_Early_Setup"],
+        "VFI_SETUP_PLUS_WEEKLY_DIV_OSC_SETUP": joined["VFI_Early_Setup"] & joined["Weekly_Div_Osc_Early_Setup"],
+        "VFI_SETUP_PLUS_WEEKLY_DIV_OSC_SETUP_AND_BULL_DIV": joined["VFI_Early_Setup"] & joined["Weekly_Div_Osc_Early_Setup"] & joined["Weekly_Bullish_Div_Recent"],
+        "VFI_SETUP_PLUS_WEEKLY_DIV_OSC_ZERO_CROSS": joined["VFI_Early_Setup"] & joined["Weekly_Div_Osc_Zero_Cross_Up"],
+        "VFI_SETUP_PLUS_WEEKLY_DIV_OSC_CROSS_AND_BULL_DIV": joined["VFI_Early_Setup"] & joined["Weekly_Div_Osc_Zero_Cross_Up"] & joined["Weekly_Bullish_Div_Recent"],
     }
 
     events = []
@@ -276,6 +324,13 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
                 "Weekly_Last_Confirmed_Div_Signal": str(row.get("Weekly_Last_Confirmed_Div_Signal", "")),
                 "Weekly_Div_Age_Days": float(row["Weekly_Div_Age_Days"]) if pd.notna(row["Weekly_Div_Age_Days"]) else np.nan,
                 "Weekly_Divergence_History_Sufficient": bool(row["Weekly_Divergence_History_Sufficient"]),
+                "Weekly_Div_Oscillator": float(row["Weekly_Div_Value"]) if pd.notna(row["Weekly_Div_Value"]) else np.nan,
+                "Weekly_Div_Osc_Z_52": float(row["Weekly_Div_Osc_Z_52"]) if pd.notna(row["Weekly_Div_Osc_Z_52"]) else np.nan,
+                "Weekly_Div_Osc_Slope_1W": float(row["Weekly_Div_Osc_Slope_1W"]) if pd.notna(row["Weekly_Div_Osc_Slope_1W"]) else np.nan,
+                "Weekly_Div_Osc_Slope_2W_Normalized": float(row["Weekly_Div_Osc_Slope_2W_Normalized"]) if pd.notna(row["Weekly_Div_Osc_Slope_2W_Normalized"]) else np.nan,
+                "Weekly_Div_Osc_Slope_4W_Normalized": float(row["Weekly_Div_Osc_Slope_4W_Normalized"]) if pd.notna(row["Weekly_Div_Osc_Slope_4W_Normalized"]) else np.nan,
+                "Weekly_Div_Osc_Early_Setup": bool(row["Weekly_Div_Osc_Early_Setup"]),
+                "Weekly_Div_Osc_Zero_Cross_Up": bool(row["Weekly_Div_Osc_Zero_Cross_Up"]),
                 "Daily_Div_Signal": str(row.get("Daily_Div_Signal", "")),
                 "Daily_Div_Age_Bars": float(row["Daily_Div_Age_Bars"]) if pd.notna(row["Daily_Div_Age_Bars"]) else np.nan,
                 "VFI_Early_Setup": bool(row["VFI_Early_Setup"]),
@@ -295,10 +350,16 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
     latest = joined.iloc[-1]
     weekly_age = latest["Weekly_Div_Age_Days"]
     signal_type = "NO_SETUP"
-    if bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
+    if bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Div_Osc_Early_Setup"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
+        signal_type = "VFI_SETUP + WEEKLY_DIV_OSC_SETUP + BULLISH_DIVERGENCE"
+    elif bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Div_Osc_Early_Setup"]):
+        signal_type = "VFI_SETUP + WEEKLY_DIV_OSC_SETUP"
+    elif bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Div_Osc_Zero_Cross_Up"]):
+        signal_type = "VFI_SETUP + WEEKLY_DIV_OSC_ZERO_CROSS"
+    elif bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
         signal_type = "VFI_EARLY_SETUP + WEEKLY_BULLISH_DIVERGENCE"
     elif bool(latest["VFI_Early_Setup"]):
-        signal_type = "VFI_EARLY_SETUP; WAIT_FOR_DIVERGENCE"
+        signal_type = "VFI_EARLY_SETUP; WAIT_FOR_WEEKLY_DIV_OSC"
     elif bool(latest["VFI_Recovery_From_Negative"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
         signal_type = "VFI_RECOVERY_FROM_NEGATIVE + WEEKLY_BULLISH_DIVERGENCE"
     elif bool(latest["VFI_Recovery_From_Negative"]):
@@ -325,6 +386,13 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Bearish_Div_Recent": bool(latest["Weekly_Bearish_Div_Recent"]),
         "Weekly_Div_Signal": str(latest.get("Weekly_Div_Signal", "")),
         "Weekly_Last_Confirmed_Div_Signal": str(latest.get("Weekly_Last_Confirmed_Div_Signal", "")),
+        "Weekly_Div_Oscillator": float(latest["Weekly_Div_Value"]) if pd.notna(latest["Weekly_Div_Value"]) else np.nan,
+        "Weekly_Div_Osc_Z_52": float(latest["Weekly_Div_Osc_Z_52"]) if pd.notna(latest["Weekly_Div_Osc_Z_52"]) else np.nan,
+        "Weekly_Div_Osc_Slope_1W": float(latest["Weekly_Div_Osc_Slope_1W"]) if pd.notna(latest["Weekly_Div_Osc_Slope_1W"]) else np.nan,
+        "Weekly_Div_Osc_Slope_2W_Normalized": float(latest["Weekly_Div_Osc_Slope_2W_Normalized"]) if pd.notna(latest["Weekly_Div_Osc_Slope_2W_Normalized"]) else np.nan,
+        "Weekly_Div_Osc_Slope_4W_Normalized": float(latest["Weekly_Div_Osc_Slope_4W_Normalized"]) if pd.notna(latest["Weekly_Div_Osc_Slope_4W_Normalized"]) else np.nan,
+        "Weekly_Div_Osc_Early_Setup": bool(latest["Weekly_Div_Osc_Early_Setup"]),
+        "Weekly_Div_Osc_Zero_Cross_Up": bool(latest["Weekly_Div_Osc_Zero_Cross_Up"]),
         "Weekly_Div_Age_Days": float(weekly_age) if pd.notna(weekly_age) else np.nan,
         "Weekly_Bars": int(len(weekly)),
         "Weekly_Divergence_History_Sufficient": bool(weekly_history_sufficient),
@@ -391,15 +459,17 @@ def main():
     errors_df = pd.DataFrame(errors)
     if not current.empty:
         priority = {
-            "VFI_EARLY_SETUP + WEEKLY_BULLISH_DIVERGENCE": 1,
-            "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE": 2,
-            "VFI_EARLY_SETUP; WAIT_FOR_DIVERGENCE": 2,
-            "VFI_RECOVERY_FROM_NEGATIVE + WEEKLY_BULLISH_DIVERGENCE": 3,
-            "VFI_RECOVERY_FROM_NEGATIVE": 4,
-            "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE": 5,
-            "VFI_ZERO_CROSS_UP": 6,
-            "WEEKLY_BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP": 7,
-            "NO_SETUP": 8,
+            "VFI_SETUP + WEEKLY_DIV_OSC_SETUP + BULLISH_DIVERGENCE": 1,
+            "VFI_SETUP + WEEKLY_DIV_OSC_SETUP": 2,
+            "VFI_SETUP + WEEKLY_DIV_OSC_ZERO_CROSS": 3,
+            "VFI_EARLY_SETUP + WEEKLY_BULLISH_DIVERGENCE": 4,
+            "VFI_EARLY_SETUP; WAIT_FOR_WEEKLY_DIV_OSC": 5,
+            "VFI_RECOVERY_FROM_NEGATIVE + WEEKLY_BULLISH_DIVERGENCE": 6,
+            "VFI_RECOVERY_FROM_NEGATIVE": 7,
+            "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE": 8,
+            "VFI_ZERO_CROSS_UP": 9,
+            "WEEKLY_BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP": 10,
+            "NO_SETUP": 11,
         }
         current["Priority"] = current["Signal_Type"].map(priority).fillna(9).astype(int)
         current = current.sort_values(
@@ -431,6 +501,7 @@ def main():
         "minimum_daily_bars": MIN_DAILY_BARS,
         "minimum_weekly_bars_for_divergence": MIN_WEEKLY_BARS_FOR_DIVERGENCE,
         "weekly_divergence_fresh_days": WEEKLY_DIVERGENCE_FRESH_DAYS,
+        "weekly_divergence_oscillator_setup_rule": "Volume Divergence by MM oscillator <0 and within 0.75 trailing-52-week standard deviations of zero; 1W/2W/4W slopes positive; 2W change >=0.20 trailing oscillator standard deviations; separately record upward zero-cross.",
         "daily_divergence_fresh_days": DAILY_DIVERGENCE_FRESH_DAYS,
         "vfi_early_setup_rule": "VFI<0; VFI within 0.75 trailing-252-bar standard deviations of zero; 5D/10D/20D slopes positive; 10D change >=0.20 trailing VFI standard deviations.",
         "divergence": "Causal Volume Divergence by MM implementation; pivot signal recorded on confirmation bar, not backdated.",
