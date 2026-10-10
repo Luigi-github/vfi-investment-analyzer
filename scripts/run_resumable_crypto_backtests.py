@@ -66,9 +66,29 @@ def aggregate_outputs(root: Path) -> None:
         "walk_forward_oos.csv": "*/backtest/walk_forward_oos.csv",
         "oos_trades.csv": "*/backtest/oos_trades.csv",
         "walk_forward_summary_by_symbol.csv": "*/backtest/walk_forward_summary.csv",
+        "backtest_status_by_symbol.csv": "*/backtest/backtest_status.csv",
     }
     for name, pattern in patterns.items():
         read_csvs(sorted(per_symbol.glob(pattern)), root / name)
+
+    # Per-symbol jobs each produce Rank=1; rebuild one valid global ranking.
+    ranking_path = root / "crypto_mtf_ranking.csv"
+    if ranking_path.exists() and ranking_path.stat().st_size:
+        ranking = pd.read_csv(ranking_path)
+        if not ranking.empty and "Final_Risk_Adjusted_Score" in ranking:
+            sort_columns = ["Final_Risk_Adjusted_Score"]
+            ascending = [False]
+            if "Confluence_Score" in ranking:
+                sort_columns.append("Confluence_Score")
+                ascending.append(False)
+            if "Symbol" in ranking:
+                sort_columns.append("Symbol")
+                ascending.append(True)
+            ranking = ranking.sort_values(
+                sort_columns, ascending=ascending, kind="mergesort"
+            ).reset_index(drop=True)
+            ranking["Rank"] = range(1, len(ranking) + 1)
+            ranking.to_csv(ranking_path, index=False)
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Resumable top-liquidity Binance MTF backtests.")
