@@ -24,9 +24,10 @@ Para cada oscilador se calcula:
 
 **PRE_ZERO_BREAK** requiere:
 1. Valor actual negativo.
-2. Valor cerca de cero: como máximo 15% del rango móvil de 52 barras; en VFI diario además se limita a 2 puntos absolutos.
-3. Pendientes de 1, 4 y 8 barras positivas.
-4. Aumento normalizado de 4 barras de al menos 0.10 desviaciones estándar y de 8 barras de al menos 0.25.
+2. En VFI diario, el clasificador de ciclo del proyecto debe estar en recuperación/acercamiento a cero (o cruce alcista reciente).
+3. Valor cerca de cero: como máximo 15% del rango móvil de 52 barras; en VFI diario además se limita a 2 puntos absolutos.
+4. Pendientes de 1, 4 y 8 barras positivas.
+5. Aumento normalizado de 4 barras de al menos 0.10 desviaciones estándar y de 8 barras de al menos 0.25.
 
 **ZERO_CROSS_RECENT** es una categoría aparte: el oscilador acaba de pasar de negativo a cero/positivo, sigue dentro del 10% del rango móvil y las tres pendientes son positivas. No se acepta un oscilador que lleva tiempo muy por encima de cero.
 
