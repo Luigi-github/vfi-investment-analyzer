@@ -22,6 +22,8 @@ class MtfTimeframeLabelTests(unittest.TestCase):
         self.assertIsNone(alignment_stage(confluence, "1W"))
         self.assertEqual(alignment_stage(confluence, "1D"), "SUSTAINED_WEAKENING")
         fields = alignment_fields("Spot", confluence)
+        self.assertIn("1W", fields["Spot_Missing_Timeframes"])
+        self.assertIn("1H", fields["Spot_Missing_Timeframes"])
         self.assertIsNone(fields["Spot_1W_Stage"])
         self.assertEqual(fields["Spot_1D_Stage"], "SUSTAINED_WEAKENING")
         self.assertEqual(fields["Spot_4H_Stage"], "BULLISH_FLOW")
