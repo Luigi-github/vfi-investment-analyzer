@@ -1,9 +1,9 @@
 name: Crypto MTF Real Strategy Backtest
 
+# This workflow is manual-only; free cloud execution is handled by
+# scripts/run_resumable_crypto_backtests.py on a free cloud VM.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   real-backtest:
