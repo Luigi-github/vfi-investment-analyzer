@@ -2,6 +2,12 @@ name: Free Binance Top-200 MTF Backtests
 
 on:
   workflow_dispatch:
+  # Re-run the full suite when this workflow itself changes, but not on every
+  # ordinary application/script push (a 200-symbol run is intentionally manual).
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/crypto-mtf-backtest.yml"
 
 permissions:
   contents: read
