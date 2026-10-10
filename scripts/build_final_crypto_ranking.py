@@ -230,7 +230,7 @@ def build_final_ranking(root: Path) -> None:
         100.0 - ranking["OOS_Max_Drawdown_Pct"].abs()
     ).clip(0, 100).fillna(0.0)
     ranking["Evidence_Score"] = (
-        ranking["OOS_Trades"].fillna(0).clip(upper=20) / 20.0 * 100.0
+        ranking["OOS_Trades"].fillna(0).clip(upper=50) / 50.0 * 100.0
     )
     ranking["Consistency_Score"] = ranking["OOS_Fold_Consistency_Pct"].fillna(0.0)
     signal = pd.to_numeric(ranking.get("Final_Risk_Adjusted_Score", pd.Series(50.0, index=ranking.index)), errors="coerce")
