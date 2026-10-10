@@ -96,6 +96,9 @@ def build_symbol_strategy_summary(oos: pd.DataFrame, trades: pd.DataFrame) -> pd
                 str(x) for x in folds.get("Threshold_Selection_Status", pd.Series(dtype=str)).dropna().unique()
             )),
             "Mean_Fold_Return_Pct": float(fold_returns.mean()) if fold_returns.notna().any() else np.nan,
+            "Mean_Train_Trades_At_Selected_Threshold": float(pd.to_numeric(
+                folds.get("Train_Trades_At_Selected_Threshold", pd.Series(dtype=float)), errors="coerce"
+            ).mean()),
             "Mean_Fold_Max_Drawdown_Pct": float(pd.to_numeric(
                 folds.get("Max_Drawdown_Pct", pd.Series(dtype=float)), errors="coerce"
             ).mean()),
@@ -350,7 +353,7 @@ The universe is the intersection of currently trading Binance USDT spot pairs an
 The MTF signal score weights weekly 30%, daily 30%, 4-hour 25%, and 1-hour 15%. The spot and perpetual confluence scores are combined 60%/40%. Funding extremes and large 24-hour open-interest changes can reduce the score. Per-timeframe VFI, stage, slope, and timestamp fields are included for audit.
 
 ## Out-of-sample test
-The primary per-asset performance evidence is the SPOT_MTF strategy in three chronological walk-forward folds. Thresholds are selected using only the training window; signals execute at the next hourly bar open. Backtest costs assume 0.04% fee and 0.03% slippage per side, with an 8% stop, 16% target, and 72-hour maximum holding period. These are modeling assumptions and may not match actual fills.
+The primary per-asset performance evidence is the SPOT_MTF strategy in three chronological walk-forward folds. For tunable strategies, thresholds are selected using only the training window and require at least 10 fully completed training trades per candidate threshold; if no candidate meets that minimum, the fold uses a declared threshold-80 fallback. BOTH_MTF, COMBINED_70, and COMBINED_80 use fixed thresholds, which are reported as such. Signals execute at the next hourly bar open. Backtest costs assume 0.04% fee and 0.03% slippage per side, with an 8% stop, 16% target, and 72-hour maximum holding period. These are modeling assumptions and may not match actual fills.
 
 ## Final research score
 The score is 40% current risk-adjusted MTF signal, 25% percentile of SPOT_MTF mean net OOS trade return, 20% percentage of positive OOS folds, 10% drawdown score, and 5% sample-size score. Assets with fewer than 20 SPOT_MTF OOS trades or fewer than two OOS folds are marked INSUFFICIENT_OOS_SAMPLE and placed below eligible assets. The positive-evidence tier additionally requires a positive 95% block-bootstrap lower bound and at least two positive folds.
