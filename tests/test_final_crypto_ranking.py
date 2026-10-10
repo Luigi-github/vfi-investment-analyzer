@@ -108,6 +108,7 @@ class FinalCryptoRankingTests(unittest.TestCase):
             self.assertEqual(int(aaa["All_Strategy_OOS_Trades"]), 140)
             self.assertEqual(int(aaa["Spot_Volume_Rank"]), 1)
             self.assertIn("matched spot buy-and-hold", aaa["Research_Reason"])
+            self.assertIn("Liquidez", aaa["Motivo_Ranking_ES"])
             self.assertEqual(aaa["Evidence_Tier"], "POSITIVE_OOS_EVIDENCE")
 
             by_symbol = pd.read_csv(root / "walk_forward_summary_by_symbol.csv")
