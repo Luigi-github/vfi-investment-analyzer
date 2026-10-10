@@ -31,9 +31,9 @@ def score_zero_approach(
     if not isinstance(values, pd.Series):
         values = pd.Series(values)
     series = pd.to_numeric(values, errors="coerce").dropna()
-    if len(series) < max(min_history, 9):
+    if len(series) < 9:
         return {
-            f"{prefix}_Value": float("nan"),
+            f"{prefix}_Value": float(series.iloc[-1]) if len(series) else float("nan"),
             f"{prefix}_Slope_1B": float("nan"),
             f"{prefix}_Slope_4B": float("nan"),
             f"{prefix}_Slope_8B": float("nan"),
@@ -41,7 +41,7 @@ def score_zero_approach(
             f"{prefix}_Near_Zero": False,
             f"{prefix}_Strong_Positive_Slope": False,
             f"{prefix}_Setup_Type": "INSUFFICIENT_HISTORY",
-            f"{prefix}_Setup_Reason": f"Insufficient valid bars: {len(series)}; need at least {max(min_history, 9)}",
+            f"{prefix}_Setup_Reason": f"Insufficient valid bars: {len(series)}; need at least 9 to calculate slopes",
             f"{prefix}_Setup_Score": 0.0,
             f"{prefix}_Normalized_Slope_4B": float("nan"),
             f"{prefix}_Normalized_Slope_8B": float("nan"),
@@ -52,6 +52,25 @@ def score_zero_approach(
     slope_1 = value - float(series.iloc[-2])
     slope_4 = (value - float(series.iloc[-5])) / 4.0
     slope_8 = (value - float(series.iloc[-9])) / 8.0
+
+    if len(series) < min_history:
+        return {
+            f"{prefix}_Value": value,
+            f"{prefix}_Slope_1B": slope_1,
+            f"{prefix}_Slope_4B": slope_4,
+            f"{prefix}_Slope_8B": slope_8,
+            f"{prefix}_Range_{lookback}B": float(series.max() - series.min()),
+            f"{prefix}_Near_Zero": False,
+            f"{prefix}_Strong_Positive_Slope": False,
+            f"{prefix}_Setup_Type": "INSUFFICIENT_HISTORY",
+            f"{prefix}_Setup_Reason": (
+                f"Only {len(series)} valid bars; need {min_history} to evaluate "
+                f"the {lookback}-bar cycle range"
+            ),
+            f"{prefix}_Setup_Score": 0.0,
+            f"{prefix}_Normalized_Slope_4B": float("nan"),
+            f"{prefix}_Normalized_Slope_8B": float("nan"),
+        }
 
     roll_min = series.rolling(lookback, min_periods=min_history).min().iloc[-1]
     roll_max = series.rolling(lookback, min_periods=min_history).max().iloc[-1]
