@@ -50,6 +50,18 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         result = score_zero_approach(pd.Series(values), "VFI_1D")
         self.assertEqual(result["VFI_1D_Setup_Type"], "NONE")
 
+    def test_short_cycle_history_keeps_latest_value_and_slopes_for_audit(self):
+        values = pd.Series(np.linspace(-4.0, -0.5, 40))
+        result = score_zero_approach(
+            values, "VFI_1D", lookback=365, min_history=60
+        )
+        self.assertEqual(result["VFI_1D_Setup_Type"], "INSUFFICIENT_HISTORY")
+        self.assertAlmostEqual(result["VFI_1D_Value"], -0.5)
+        self.assertGreater(result["VFI_1D_Slope_1B"], 0)
+        self.assertGreater(result["VFI_1D_Slope_4B"], 0)
+        self.assertGreater(result["VFI_1D_Slope_8B"], 0)
+        self.assertIn("need 60", result["VFI_1D_Setup_Reason"])
+
     def test_insufficient_history_is_not_ranked_as_setup(self):
         result = score_zero_approach(pd.Series([-3.0, -2.0, -1.0]), "VFI_1D")
         self.assertEqual(result["VFI_1D_Setup_Type"], "INSUFFICIENT_HISTORY")
