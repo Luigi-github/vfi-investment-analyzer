@@ -162,6 +162,8 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
     weekly_signal = pd.DataFrame({
         "Weekly_Bullish_Div_Confirmed": wbull,
         "Weekly_Bearish_Div_Confirmed": wbear,
+        "Weekly_Bullish_Div_Age_Bars": weekly_div["Volume_Div_Bullish_Age_Bars"],
+        "Weekly_Bearish_Div_Age_Bars": weekly_div["Volume_Div_Bearish_Age_Bars"],
         "Weekly_Div_Signal": weekly_div["Volume_Div_Signal"].astype(str),
         "Weekly_Div_Value": weekly_div["Volume_Divergence_MM"],
     }).reset_index().rename(columns={weekly_div.index.name or "index": "Weekly_Date"})
@@ -174,11 +176,21 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         left, weekly_signal, left_on="Date", right_on="Weekly_Date",
         direction="backward", allow_exact_matches=True,
     ).set_index("Date")
-    joined["Weekly_Bullish_Div_Recent"] = fresh_signal(
-        joined["Weekly_Bullish_Div_Confirmed"], WEEKLY_DIVERGENCE_FRESH_DAYS
+    # The as-of join carries the last completed weekly row across daily
+    # candles. Use the indicator's actual age-in-weeks, not the carried
+    # boolean, or a confirmed signal would incorrectly reset its age daily.
+    joined["Weekly_Bullish_Div_Age_Bars"] = pd.to_numeric(
+        joined["Weekly_Bullish_Div_Age_Bars"], errors="coerce"
     )
-    joined["Weekly_Bearish_Div_Recent"] = fresh_signal(
-        joined["Weekly_Bearish_Div_Confirmed"], WEEKLY_DIVERGENCE_FRESH_DAYS
+    joined["Weekly_Bearish_Div_Age_Bars"] = pd.to_numeric(
+        joined["Weekly_Bearish_Div_Age_Bars"], errors="coerce"
+    )
+    max_weekly_age = WEEKLY_DIVERGENCE_FRESH_DAYS / 7.0
+    joined["Weekly_Bullish_Div_Recent"] = (
+        joined["Weekly_Bullish_Div_Age_Bars"].le(max_weekly_age)
+    )
+    joined["Weekly_Bearish_Div_Recent"] = (
+        joined["Weekly_Bearish_Div_Age_Bars"].le(max_weekly_age)
     )
 
     # Daily divergence is included as a comparison, but all signals are daily
@@ -192,9 +204,7 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         DAILY_DIVERGENCE_FRESH_DAYS,
     )
     joined["Daily_Div_Signal"] = daily_div["Volume_Div_Signal"].reindex(joined.index).fillna("")
-    joined["Weekly_Div_Age_Days"] = (
-        joined.index.to_series() - pd.to_datetime(joined["Weekly_Date"])
-    ).dt.days
+    joined["Weekly_Div_Age_Days"] = joined["Weekly_Bullish_Div_Age_Bars"] * 7.0
     joined["Daily_Div_Age_Days"] = daily_div["Volume_Div_Bullish_Age_Bars"].reindex(joined.index)
 
     conditions = {
