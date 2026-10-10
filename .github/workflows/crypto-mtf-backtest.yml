@@ -44,7 +44,7 @@ jobs:
       - name: Upload universe definition
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-mtf-universe
+          name: binance-universe-definition
           path: reports-universe.json
           retention-days: 7
 
@@ -80,7 +80,7 @@ jobs:
           for f in crypto_mtf_ranking.csv derivatives_snapshot.csv; do
             [ ! -f "$base/mtf/$f" ] || cp "$base/mtf/$f" "$dest/mtf/$f"
           done
-          for f in strategy_pnl_comparison.csv walk_forward_oos.csv oos_trades.csv walk_forward_summary.csv; do
+          for f in strategy_pnl_comparison.csv walk_forward_oos.csv oos_trades.csv walk_forward_summary.csv backtest_status.csv; do
             [ ! -f "$base/backtest/$f" ] || cp "$base/backtest/$f" "$dest/backtest/$f"
           done
       - name: Upload per-symbol results and logs
@@ -126,15 +126,46 @@ jobs:
           symbols = json.loads(os.environ["SYMBOLS_JSON"])
           (root / "universe.txt").write_text("\n".join(symbols) + "\n", encoding="utf-8")
           completed = []
+          no_oos_trades = []
+          insufficient_history = []
+          failed_symbols = []
+          missing_status = []
           for symbol in symbols:
-              if (root / "per_symbol" / symbol / "backtest" / "strategy_pnl_comparison.csv").exists():
+              status_file = root / "per_symbol" / symbol / "backtest" / "backtest_status.csv"
+              if not status_file.exists() or not status_file.stat().st_size:
+                  missing_status.append(symbol)
+                  continue
+              import pandas as pd
+              status_frame = pd.read_csv(status_file)
+              if status_frame.empty or not {"Symbol", "Status"}.issubset(status_frame.columns):
+                  missing_status.append(symbol)
+                  continue
+              status = str(status_frame.iloc[0]["Status"])
+              if status == "completed":
                   completed.append(symbol)
+              elif status == "no_oos_trades":
+                  no_oos_trades.append(symbol)
+              elif status == "insufficient_history":
+                  insufficient_history.append(symbol)
+              else:
+                  failed_symbols.append(symbol)
+          failed_or_missing = sorted(set(missing_status + insufficient_history + failed_symbols))
+          if failed_or_missing:
+              run_status = "partial"
+          elif no_oos_trades:
+              run_status = "completed_with_warnings"
+          else:
+              run_status = "completed"
           manifest = {
               "selection_method": "Top 200 intersection of Binance USDT spot and USD-M perpetual markets ranked by combined 24h quote-volume ranks",
               "symbols": symbols,
-              "completed": completed,
-              "failed_or_missing": [s for s in symbols if s not in completed],
-              "status": "completed" if len(completed) == len(symbols) else "partial",
+              "completed": sorted(completed),
+              "no_oos_trades": sorted(no_oos_trades),
+              "insufficient_history": sorted(insufficient_history),
+              "failed_symbols": sorted(failed_symbols),
+              "missing_status": sorted(missing_status),
+              "failed_or_missing": failed_or_missing,
+              "status": run_status,
           }
           (root / "checkpoint.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
           print(f"Completed artifacts: {len(completed)}/{len(symbols)}")
