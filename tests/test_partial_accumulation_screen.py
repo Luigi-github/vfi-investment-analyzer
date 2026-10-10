@@ -31,7 +31,7 @@ def test_short_weekly_history_does_not_erase_daily_vfi_analysis():
     assert result["Divergence_Analysis_Status"] == "INSUFFICIENT_HISTORY"
     assert result["Daily_Bars"] == 300
     assert result["Weekly_Bars"] == 60
-    assert result["VFI_1D_Value"] == result["VFI_1D_Value"]  # not NaN
+    assert pd.notna(result["VFI_1D_Value"])
     assert result["Divergence_1W_Setup_Type"] == "INSUFFICIENT_HISTORY"
     assert not bool(result["Combined_Setup"])
 
