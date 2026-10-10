@@ -14,6 +14,8 @@ from app.backtest.crypto_strategy import backtest_signals, buy_and_hold
 from app.backtest.block_bootstrap import block_bootstrap_mean
 
 THRESHOLDS = (60, 65, 70, 75, 80, 85, 90)
+MIN_TRAIN_TRADES = 10
+FIXED_THRESHOLDS = {"BOTH_MTF": 80, "COMBINED_70": 70, "COMBINED_80": 80}
 STRATEGIES = {
     "SPOT_MTF": ("MTF_Score_Spot", "Spot"),
     "PERP_MTF": ("MTF_Score_Perp", "Perp"),
@@ -156,9 +158,8 @@ def main():
                     # resolve the 72h label, but only keep trades whose signal
                     # AND exit are fully known before the train/test boundary.
                     train_end_with_labels = min(n, train1 + HORIZON + 1)
-                    fixed_thresholds = {"BOTH_MTF": 80, "COMBINED_70": 70, "COMBINED_80": 80}
-                    if strategy in fixed_thresholds:
-                        fixed = fixed_thresholds[strategy]
+                    if strategy in FIXED_THRESHOLDS:
+                        fixed = FIXED_THRESHOLDS[strategy]
                         train_stats, train_trades = run_one(
                             hist, funding, strategy, fixed,
                             train0, train_end_with_labels
@@ -188,7 +189,7 @@ def main():
                             # Avoid choosing a threshold on a tiny, noisy training sample.
                             avg = (
                                 float(tr["Net_Return"].mean() * 100)
-                                if len(tr) >= 10 else -np.inf
+                                if len(tr) >= MIN_TRAIN_TRADES else -np.inf
                             )
                             scores.append((avg, threshold, {"Trades": len(tr)}))
                         valid_scores = [candidate for candidate in scores if np.isfinite(candidate[0])]
@@ -228,7 +229,11 @@ def main():
                     if not trades.empty:
                         trades=trades.copy(); trades["Symbol"]=symbol; trades["Strategy"]=strategy; trades["Fold"]=fold
                         trade_rows.append(trades)
-                for threshold in (70,80):
+                summary_thresholds = (
+                    [FIXED_THRESHOLDS[strategy]]
+                    if strategy in FIXED_THRESHOLDS else [70, 80]
+                )
+                for threshold in summary_thresholds:
                     s,tr=run_one(hist,funding,strategy,threshold)
                     all_summaries.append({"Symbol":symbol,"Strategy":strategy,"Threshold":threshold,**s})
             # Matched out-of-sample spot buy-and-hold benchmark for each
