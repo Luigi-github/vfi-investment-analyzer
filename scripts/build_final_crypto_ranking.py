@@ -1,0 +1,275 @@
+from __future__ import annotations
+
+import argparse
+import json
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+from app.backtest.block_bootstrap import block_bootstrap_mean
+
+
+def read_csv(root: Path, name: str) -> pd.DataFrame:
+    path = root / name
+    if not path.exists() or not path.stat().st_size:
+        return pd.DataFrame()
+    try:
+        return pd.read_csv(path)
+    except (pd.errors.EmptyDataError, pd.errors.ParserError):
+        return pd.DataFrame()
+
+
+def trade_metrics(group: pd.DataFrame) -> dict:
+    if group.empty:
+        return {
+            "OOS_Trades": 0, "OOS_Total_Return_Pct": np.nan,
+            "OOS_Mean_Trade_Pct": np.nan, "OOS_Median_Trade_Pct": np.nan,
+            "OOS_Win_Rate_Pct": np.nan, "OOS_Profit_Factor": np.nan,
+            "OOS_Max_Drawdown_Pct": np.nan,
+            "OOS_Mean_95_Lower_Pct": np.nan, "OOS_Mean_95_Upper_Pct": np.nan,
+        }
+    trades = group.copy()
+    trades["Net_Return"] = pd.to_numeric(trades["Net_Return"], errors="coerce")
+    trades = trades.dropna(subset=["Net_Return"])
+    if "Exit_Date" in trades:
+        trades = trades.sort_values("Exit_Date")
+    returns = trades["Net_Return"].astype(float)
+    equity = np.cumprod(1.0 + returns.to_numpy())
+    path = np.concatenate(([1.0], equity))
+    peaks = np.maximum.accumulate(path)
+    max_dd = float(np.min(path / peaks - 1.0)) * 100.0
+    gains = float(returns[returns > 0].sum())
+    losses = float(-returns[returns < 0].sum())
+    if len(returns) >= 20:
+        ci = block_bootstrap_mean(
+            returns, block_size=4, iterations=5000,
+            random_state=123 + len(returns),
+        )
+        lower = float(ci["Lower_95"]) * 100.0
+        upper = float(ci["Upper_95"]) * 100.0
+    else:
+        lower = upper = np.nan
+    return {
+        "OOS_Trades": int(len(returns)),
+        "OOS_Total_Return_Pct": float((path[-1] - 1.0) * 100.0),
+        "OOS_Mean_Trade_Pct": float(returns.mean() * 100.0),
+        "OOS_Median_Trade_Pct": float(returns.median() * 100.0),
+        "OOS_Win_Rate_Pct": float((returns > 0).mean() * 100.0),
+        "OOS_Profit_Factor": float(gains / losses) if losses > 0 else np.nan,
+        "OOS_Max_Drawdown_Pct": max_dd,
+        "OOS_Mean_95_Lower_Pct": lower,
+        "OOS_Mean_95_Upper_Pct": upper,
+    }
+
+
+def build_symbol_strategy_summary(oos: pd.DataFrame, trades: pd.DataFrame) -> pd.DataFrame:
+    if oos.empty or not {"Symbol", "Strategy", "Fold"}.issubset(oos.columns):
+        return pd.DataFrame()
+    trade_groups = {}
+    if not trades.empty and {"Symbol", "Strategy", "Net_Return"}.issubset(trades.columns):
+        for key, group in trades.groupby(["Symbol", "Strategy"], dropna=False):
+            trade_groups[(str(key[0]), str(key[1]))] = group
+
+    rows = []
+    for (symbol, strategy), folds in oos.groupby(["Symbol", "Strategy"], dropna=False):
+        key = (str(symbol), str(strategy))
+        fold_returns = pd.to_numeric(folds.get("Total_Return_Pct", pd.Series(dtype=float)), errors="coerce")
+        positives = int((fold_returns > 0).sum())
+        group_trades = trade_groups.get(key, pd.DataFrame())
+        metrics = trade_metrics(group_trades)
+        rows.append({
+            "Symbol": symbol,
+            "Strategy": strategy,
+            "OOS_Folds": int(folds["Fold"].nunique()),
+            "OOS_Positive_Folds": positives,
+            "OOS_Fold_Consistency_Pct": (
+                positives / max(int(folds["Fold"].nunique()), 1) * 100.0
+            ),
+            "Selected_Thresholds": ",".join(
+                str(int(x)) for x in sorted(
+                    pd.to_numeric(folds.get("Selected_Threshold", pd.Series(dtype=float)), errors="coerce")
+                    .dropna().unique()
+                )
+            ),
+            "Threshold_Selection_Status": ";".join(sorted(
+                str(x) for x in folds.get("Threshold_Selection_Status", pd.Series(dtype=str)).dropna().unique()
+            )),
+            "Mean_Fold_Return_Pct": float(fold_returns.mean()) if fold_returns.notna().any() else np.nan,
+            "Mean_Fold_Max_Drawdown_Pct": float(pd.to_numeric(
+                folds.get("Max_Drawdown_Pct", pd.Series(dtype=float)), errors="coerce"
+            ).mean()),
+            **metrics,
+        })
+    return pd.DataFrame(rows)
+
+
+def build_global_strategy_comparison(trades: pd.DataFrame, summary: pd.DataFrame) -> pd.DataFrame:
+    if trades.empty or not {"Strategy", "Net_Return"}.issubset(trades.columns):
+        return pd.DataFrame()
+    rows = []
+    for strategy, group in trades.groupby("Strategy"):
+        metrics = trade_metrics(group)
+        per_symbol = group.assign(Net_Return=pd.to_numeric(group["Net_Return"], errors="coerce")).groupby("Symbol")["Net_Return"].mean()
+        rows.append({
+            "Strategy": strategy,
+            **{f"Global_{k}": v for k, v in metrics.items()},
+            "Symbols_With_OOS_Trades": int(group["Symbol"].nunique()) if "Symbol" in group else np.nan,
+            "Symbols_With_Positive_Mean_Trade": int((per_symbol > 0).sum()),
+        })
+    result = pd.DataFrame(rows)
+    if not summary.empty and {"Strategy", "OOS_Folds", "OOS_Positive_Folds"}.issubset(summary.columns):
+        fold = summary.groupby("Strategy").agg(
+            Symbols_With_Fold_Evidence=("Symbol", "nunique"),
+            Mean_Positive_Fold_Rate_Pct=("OOS_Fold_Consistency_Pct", "mean"),
+        ).reset_index()
+        result = result.merge(fold, on="Strategy", how="left")
+    return result.sort_values("Global_OOS_Mean_Trade_Pct", ascending=False, na_position="last")
+
+
+def build_final_ranking(root: Path) -> None:
+    mtf = read_csv(root, "crypto_mtf_ranking.csv")
+    derivatives = read_csv(root, "derivatives_snapshot.csv")
+    oos = read_csv(root, "walk_forward_oos.csv")
+    trades = read_csv(root, "oos_trades.csv")
+    statuses = read_csv(root, "backtest_status_by_symbol.csv")
+
+    universe_path = root / "universe_meta" / "reports-universe.json"
+    universe = {}
+    if universe_path.exists():
+        try:
+            payload = json.loads(universe_path.read_text(encoding="utf-8"))
+            records = payload.get("records", [])
+            if records:
+                pd.DataFrame(records).to_csv(root / "binance_universe_liquidity.csv", index=False)
+                universe = {str(row["Symbol"]): row for row in records}
+            (root / "universe_selection.json").write_text(
+                json.dumps({k: v for k, v in payload.items() if k != "records"}, indent=2),
+                encoding="utf-8",
+            )
+        except (OSError, ValueError, TypeError):
+            universe = {}
+
+    summary = build_symbol_strategy_summary(oos, trades)
+    if not summary.empty:
+        summary.to_csv(root / "walk_forward_summary_by_symbol.csv", index=False)
+    global_summary = build_global_strategy_comparison(trades, summary)
+    if not global_summary.empty:
+        global_summary.to_csv(root / "strategy_comparison_oos_global.csv", index=False)
+
+    if mtf.empty or "Symbol" not in mtf:
+        return
+    ranking = mtf.copy()
+    for table in (derivatives, statuses):
+        if not table.empty and "Symbol" in table:
+            table = table.drop_duplicates("Symbol", keep="last")
+            ranking = ranking.merge(table, on="Symbol", how="left", suffixes=("", "_Status"))
+
+    # Current-signal rank is kept separate from out-of-sample performance.
+    primary = summary[summary["Strategy"] == "SPOT_MTF"].copy() if not summary.empty else pd.DataFrame()
+    if not primary.empty:
+        ranking = ranking.merge(primary, on="Symbol", how="left", suffixes=("", "_SPOT_MTF"))
+
+    for symbol in ranking["Symbol"].astype(str):
+        record = universe.get(symbol, {})
+        for key, value in record.items():
+            if key != "Symbol":
+                ranking.loc[ranking["Symbol"].astype(str) == symbol, key] = value
+
+    numeric_cols = [
+        "OOS_Trades", "OOS_Folds", "OOS_Positive_Folds",
+        "OOS_Mean_Trade_Pct", "OOS_Total_Return_Pct",
+        "OOS_Win_Rate_Pct", "OOS_Profit_Factor",
+        "OOS_Max_Drawdown_Pct", "OOS_Mean_95_Lower_Pct",
+        "OOS_Mean_95_Upper_Pct", "OOS_Fold_Consistency_Pct",
+    ]
+    for col in numeric_cols:
+        if col not in ranking:
+            ranking[col] = np.nan
+        ranking[col] = pd.to_numeric(ranking[col], errors="coerce")
+
+    ranking["OOS_Eligible"] = (
+        (ranking["OOS_Trades"].fillna(0) >= 20)
+        & (ranking["OOS_Folds"].fillna(0) >= 2)
+    )
+    eligible = ranking["OOS_Eligible"]
+    ranking["OOS_Return_Percentile"] = 0.0
+    if eligible.any():
+        ranking.loc[eligible, "OOS_Return_Percentile"] = (
+            ranking.loc[eligible, "OOS_Mean_Trade_Pct"].rank(pct=True) * 100.0
+        )
+    ranking["Drawdown_Score"] = (
+        100.0 - ranking["OOS_Max_Drawdown_Pct"].abs()
+    ).clip(0, 100).fillna(0.0)
+    ranking["Evidence_Score"] = (
+        ranking["OOS_Trades"].fillna(0).clip(upper=20) / 20.0 * 100.0
+    )
+    ranking["Consistency_Score"] = ranking["OOS_Fold_Consistency_Pct"].fillna(0.0)
+    signal = pd.to_numeric(ranking.get("Final_Risk_Adjusted_Score", pd.Series(50.0, index=ranking.index)), errors="coerce")
+    ranking["Signal_Score_Component"] = signal.fillna(50.0).clip(0, 100)
+    ranking["Final_Research_Score"] = (
+        0.40 * ranking["Signal_Score_Component"]
+        + 0.25 * ranking["OOS_Return_Percentile"]
+        + 0.20 * ranking["Consistency_Score"]
+        + 0.10 * ranking["Drawdown_Score"]
+        + 0.05 * ranking["Evidence_Score"]
+    )
+    ranking["Evidence_Tier"] = np.select(
+        [
+            eligible
+            & (ranking["OOS_Mean_95_Lower_Pct"] > 0)
+            & (ranking["OOS_Positive_Folds"].fillna(0) >= 2),
+            eligible,
+        ],
+        ["POSITIVE_OOS_EVIDENCE", "MIXED_OOS_EVIDENCE"],
+        default="INSUFFICIENT_OOS_SAMPLE",
+    )
+
+    def reason(row) -> str:
+        parts = []
+        if pd.notna(row.get("Spot_Volume_Rank")) and pd.notna(row.get("Perp_Volume_Rank")):
+            parts.append(
+                f"Universe liquidity: spot rank {int(row['Spot_Volume_Rank'])}, "
+                f"perpetual rank {int(row['Perp_Volume_Rank'])} by 24h quote volume"
+            )
+        score = row.get("Final_Risk_Adjusted_Score")
+        if pd.notna(score):
+            parts.append(f"current risk-adjusted MTF score {float(score):.1f}/100")
+        trades_n = row.get("OOS_Trades")
+        folds_n = row.get("OOS_Folds")
+        mean_trade = row.get("OOS_Mean_Trade_Pct")
+        if pd.notna(trades_n) and trades_n > 0:
+            parts.append(
+                f"SPOT_MTF walk-forward OOS: {int(trades_n)} trades, "
+                f"mean {float(mean_trade):+.3f}% per trade, "
+                f"{int(row.get('OOS_Positive_Folds', 0) or 0)}/{int(folds_n or 0)} positive folds"
+            )
+        else:
+            parts.append("SPOT_MTF has no OOS trades; current signal is not performance-validated")
+        tier = row.get("Evidence_Tier")
+        parts.append(str(tier).replace("_", " ").lower())
+        return "; ".join(parts)
+
+    ranking["Research_Reason"] = ranking.apply(reason, axis=1)
+    ranking["Ranking_Method"] = (
+        "40% current risk-adjusted MTF signal + 25% SPOT_MTF OOS mean-trade-return percentile "
+        "+ 20% positive-fold consistency + 10% OOS drawdown score + 5% sample-size score; "
+        "assets with <20 OOS trades or <2 folds are marked insufficient and ranked after eligible assets"
+    )
+    ranking = ranking.sort_values(
+        ["OOS_Eligible", "Final_Research_Score", "Final_Risk_Adjusted_Score", "Symbol"],
+        ascending=[False, False, False, True], na_position="last", kind="mergesort"
+    ).reset_index(drop=True)
+    ranking.insert(0, "Research_Rank", range(1, len(ranking) + 1))
+    ranking.to_csv(root / "final_crypto_ranking.csv", index=False)
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Build the audited per-asset ranking from MTF signals and walk-forward OOS evidence.")
+    parser.add_argument("--output-dir", default="reports/free_cloud_backtest")
+    args = parser.parse_args()
+    build_final_ranking(Path(args.output_dir))
+
+
+if __name__ == "__main__":
+    main()
