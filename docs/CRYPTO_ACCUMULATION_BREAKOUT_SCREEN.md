@@ -51,8 +51,8 @@ Las puntuaciones sirven para ordenar candidatos, no son probabilidades de rentab
 
 El script `scripts/run_crypto_accumulation_breakout_screen.py` produce:
 
-- `all_assets.csv`: todos los activos evaluados y sus métricas.
-- `vfi_daily_candidates.csv`: activos que pasan el filtro del VFI diario.
+- `all_assets.csv`: los 200 símbolos del universo, incluyendo filas marcadas `INSUFFICIENT_HISTORY` o `ERROR` para que ningún activo desaparezca silenciosamente.
+- `vfi_daily_candidates.csv`: activos con historia suficiente que pasan el filtro del VFI diario.
 - `combined_vfi_divergence_candidates.csv`: candidatos que pasan ambos filtros.
 - `errors.csv`: símbolos sin datos o con error de cálculo.
 - `run_summary.json`: conteos, marcos temporales y reglas aplicadas.
