@@ -24,11 +24,15 @@ The workflow discovers the intersection of Binance USDT spot and USD-M perpetual
 Open the completed workflow run and download the consolidated artifact. Important files include:
 
 - `checkpoint.json`: selected universe and completion/warning status.
-- `crypto_mtf_ranking.csv`: globally re-ranked MTF results across the 200 assets.
-- `strategy_pnl_comparison.csv`: strategy comparisons; these are not a substitute for out-of-sample validation.
-- `walk_forward_oos.csv`: walk-forward fold results, including folds with no trades.
-- `oos_trades.csv`: out-of-sample trades.
-- `walk_forward_summary_by_symbol.csv`: per-symbol walk-forward summaries.
+- `binance_universe_liquidity.csv`: exact 24-hour spot/perpetual quote volumes and ranks explaining why each symbol entered the universe.
+- `crypto_mtf_ranking.csv`: global current-signal ranking with per-timeframe VFI stage, value, slope, and timestamp.
+- `final_crypto_ranking.csv`: one row per asset, with current MTF score, liquidity evidence, SPOT_MTF walk-forward OOS results, matched buy-and-hold comparison, evidence tier, composite research score, and a human-readable reason.
+- `ranking_methodology.md`: ranking formula, selection criteria, costs, and limitations.
+- `data_quality_report.json`: number of assets processed, errors, missing statuses, sample-size eligibility, and completeness status.
+- `strategy_comparison_oos_global.csv`: pooled per-trade comparison across strategies, including the matched out-of-sample buy-and-hold benchmark.
+- `walk_forward_oos.csv`: walk-forward fold results, including folds with no trades and benchmark folds.
+- `oos_trades.csv`: out-of-sample trades and benchmark windows.
+- `walk_forward_summary_by_symbol.csv`: corrected per-symbol/per-strategy OOS summary.
 - `backtest_status_by_symbol.csv`: whether each symbol completed, had no OOS trades, had insufficient history, or failed.
 
 A workflow marked green only means its jobs exited successfully. Check the checkpoint and status CSVs, row counts, missing values, and OOS trades before interpreting the performance.
