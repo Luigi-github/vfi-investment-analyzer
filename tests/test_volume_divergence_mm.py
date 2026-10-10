@@ -21,8 +21,8 @@ def test_pine_wma_applies_candle_direction_and_weights():
         data["Volume"], data["Open"], data["Close"], 3
     )
 
-    # Pine weights for length 3 are 9, 6, 3.
-    expected = (10 * 9 * 1 + 20 * 6 * -1 + 30 * 3 * 1) / 18
+    # Oldest -> newest observations receive weights 1, 2, 3.
+    expected = (10 * 1 * 1 + 20 * 2 * -1 + 30 * 3 * 1) / 6
     assert np.isclose(result.iloc[-1], expected)
 
 
