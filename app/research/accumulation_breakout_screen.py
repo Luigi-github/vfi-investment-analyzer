@@ -140,9 +140,17 @@ def rank_accumulation_candidates(results: pd.DataFrame) -> pd.DataFrame:
     bullish_div = result.get(
         "Bullish_Divergence_Recent", pd.Series(False, index=result.index)
     ).fillna(False).astype(bool)
+    vfi_score = pd.to_numeric(
+        result["VFI_Setup_Score"] if "VFI_Setup_Score" in result else pd.Series(0.0, index=result.index),
+        errors="coerce",
+    ).fillna(0)
+    divergence_score = pd.to_numeric(
+        result["Divergence_Setup_Score"] if "Divergence_Setup_Score" in result else pd.Series(0.0, index=result.index),
+        errors="coerce",
+    ).fillna(0)
     result["Combined_Opportunity_Score"] = (
-        0.65 * pd.to_numeric(result.get("VFI_Setup_Score", 0), errors="coerce").fillna(0)
-        + 0.35 * pd.to_numeric(result.get("Divergence_Setup_Score", 0), errors="coerce").fillna(0)
+        0.65 * vfi_score
+        + 0.35 * divergence_score
         + bullish_div.astype(float) * 5.0
     ).clip(upper=100.0)
     return result.sort_values(
