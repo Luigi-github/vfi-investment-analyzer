@@ -16,15 +16,14 @@ jobs:
           python-version: "3.12.10"
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
-      - name: Run event study
-        run: python scripts/vfi_divergence_study.py | tee vfi_divergence_console.txt
-      - name: Upload event study
+      - name: Run focused daily VFI + weekly divergence study
+        run: python scripts/vfi_accumulation_divergence_study.py | tee vfi_accumulation_divergence_console.txt
+      - name: Upload study reports
         uses: actions/upload-artifact@v4
         with:
-          name: vfi-volume-divergence-study
+          name: vfi-accumulation-divergence-study
           path: |
-            vfi_divergence_events.csv
-            vfi_divergence_summary.csv
-            vfi_divergence_errors.csv
-            vfi_divergence_console.txt
-          if-no-files-found: warn
+            reports/vfi_accumulation_divergence/
+            vfi_accumulation_divergence_console.txt
+          if-no-files-found: error
+          retention-days: 30
