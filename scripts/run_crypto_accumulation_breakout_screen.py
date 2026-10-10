@@ -281,10 +281,16 @@ def main() -> None:
         "timeframes": {"VFI": "1D", "Volume_Divergence_by_MM": "1W"},
         "intraday_timeframes_used": [],
         "ranking_logic": (
-            "Tier 1: both daily VFI and weekly divergence are negative and near zero "
-            "with positive 1/4/8-bar slopes (or a very recent, small zero cross). "
-            "Tier 2: daily VFI setup only. Remaining assets follow by diagnostic score. "
-            "Recent bullish pivot divergence is a separate confirmation bonus."
+            "VFI uses completed daily candles with a 365-bar context and requires at least "
+            "260 valid VFI values after indicator warm-up; weekly Volume Divergence by MM "
+            "uses completed weekly candles with a 52-bar context. A PRE_ZERO_BREAK requires "
+            "negative oscillator value near zero, positive 1/4/8-bar slopes, normalized "
+            "4-bar rise >= 0.10 and 8-bar rise >= 0.25 standard deviations. A recent zero "
+            "cross is a separate setup only if it remains within 10% of the range and passes "
+            "the same slope tests. Tier 1 requires both setups; Tier 2 requires daily VFI; "
+            "Tier 3 retains near misses for audit. No intraday frames are used. The row-level "
+            "Setup_Reason fields explain each accept/reject decision; recent bullish pivot "
+            "divergence is only an additional confirmation bonus."
         ),
     }
     (output / "run_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
@@ -293,9 +299,11 @@ def main() -> None:
         display_columns = [
             "Rank", "Symbol", "Setup_Tier", "Combined_Setup", "Combined_Opportunity_Score",
             "VFI_1D_Value", "VFI_1D_Slope_1B", "VFI_1D_Slope_4B", "VFI_1D_Slope_8B",
-            "VFI_1D_Setup_Type", "Divergence_1W_Value", "Divergence_1W_Slope_1B",
+            "VFI_1D_Setup_Type", "VFI_1D_Setup_Reason",
+            "Divergence_1W_Value", "Divergence_1W_Slope_1B",
             "Divergence_1W_Slope_4B", "Divergence_1W_Slope_8B",
-            "Divergence_1W_Setup_Type", "Bullish_Divergence_Recent",
+            "Divergence_1W_Setup_Type", "Divergence_1W_Setup_Reason",
+            "Bullish_Divergence_Recent",
         ]
         print(result[[col for col in display_columns if col in result.columns]].head(30).to_string(index=False))
 
