@@ -188,7 +188,9 @@ def main() -> None:
         try:
             daily = service.get_klines(symbol, "1d", market="spot", max_bars=args.daily_bars)
             weekly = service.get_klines(symbol, "1w", market="spot", max_bars=args.weekly_bars)
-            rows.append(analyze_symbol(symbol, daily, weekly))
+            row = analyze_symbol(symbol, daily, weekly)
+            row["Universe_Liquidity_Rank"] = number
+            rows.append(row)
         except Exception as exc:
             errors.append({"Symbol": symbol, "Error": repr(exc)})
             print(f"ERROR {symbol}: {exc}", flush=True)
