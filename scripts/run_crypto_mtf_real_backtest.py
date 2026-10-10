@@ -103,8 +103,12 @@ def run_one(hist, funding, strategy, threshold, start=0, end=None, costs=True):
         "Average_Trade_Pct": trades["Net_Return"].mean()*100,
         "Profit_Factor": (trades.loc[trades.Net_Return>0,"Net_Return"].sum() /
                           -trades.loc[trades.Net_Return<0,"Net_Return"].sum())
-                          if (trades.Net_Return<0).any() else np.inf,
-        "Max_Drawdown_Pct": (equity["Equity"]/equity["Equity"].cummax()-1).min()*100,
+                          if (trades.Net_Return<0).any() else np.nan,
+        "Max_Drawdown_Pct": (
+            pd.concat([pd.Series([1.0]), equity["Equity"].reset_index(drop=True)], ignore_index=True)
+            / pd.concat([pd.Series([1.0]), equity["Equity"].reset_index(drop=True)], ignore_index=True).cummax()
+            - 1.0
+        ).min()*100,
     }}, trades
 
 def main():
@@ -167,15 +171,27 @@ def main():
                         s["Trades"] = len(tr)
                         s["Average_Trade_Pct"] = avg
                         scores.append((avg, threshold, s))
-                    best=max(scores,key=lambda x:x[0])
+                    valid_scores = [candidate for candidate in scores if np.isfinite(candidate[0])]
+                    if valid_scores:
+                        best = max(valid_scores, key=lambda x: x[0])
+                        selection_status = "TRAINED"
+                    else:
+                        # Never pick the first threshold arbitrarily when the training
+                        # window has no completed trades; use a declared fallback and
+                        # mark that this fold had no evidence for threshold selection.
+                        best = (np.nan, 80, {})
+                        selection_status = "FALLBACK_NO_TRAIN_TRADES"
                     test_stats,trades=run_one(hist,funding,strategy,best[1],test0,test1)
-                    if trades.empty:
+                    if len(trades) < 20:
+                        # A bootstrap interval from a handful of trades is degenerate
+                        # and should not be presented as a meaningful 95% confidence interval.
                         ci = {"Lower_95": np.nan, "Upper_95": np.nan}
                     else:
                         ci=block_bootstrap_mean(trades["Net_Return"],block_size=8,iterations=2000,random_state=42+fold)
                     row={"Symbol":symbol,"Strategy":strategy,"Fold":fold,
                          "Train_End":hist.index[train1-1],"Test_Start":hist.index[test0],
                          "Test_End":hist.index[test1-1],"Selected_Threshold":best[1],
+                         "Threshold_Selection_Status":selection_status,
                          "Train_Avg_Trade_Pct":best[0],**test_stats,
                          "OOS_Mean_95_Lower_Pct":ci["Lower_95"]*100 if pd.notna(ci["Lower_95"]) else np.nan,
                          "OOS_Mean_95_Upper_Pct":ci["Upper_95"]*100 if pd.notna(ci["Upper_95"]) else np.nan}
