@@ -31,16 +31,17 @@ def score_zero_approach(
     if not isinstance(values, pd.Series):
         values = pd.Series(values)
     series = pd.to_numeric(values, errors="coerce").dropna()
-    if len(series) < max(min_history, 9):
+    if len(series) < 9:
         return {
-            f"{prefix}_Value": float("nan"),
+            f"{prefix}_Value": float(series.iloc[-1]) if len(series) else float("nan"),
             f"{prefix}_Slope_1B": float("nan"),
             f"{prefix}_Slope_4B": float("nan"),
             f"{prefix}_Slope_8B": float("nan"),
-            f"{prefix}_Range_52B": float("nan"),
+            f"{prefix}_Range_{lookback}B": float("nan"),
             f"{prefix}_Near_Zero": False,
             f"{prefix}_Strong_Positive_Slope": False,
             f"{prefix}_Setup_Type": "INSUFFICIENT_HISTORY",
+            f"{prefix}_Setup_Reason": f"Insufficient valid bars: {len(series)}; need at least 9 to calculate slopes",
             f"{prefix}_Setup_Score": 0.0,
             f"{prefix}_Normalized_Slope_4B": float("nan"),
             f"{prefix}_Normalized_Slope_8B": float("nan"),
@@ -51,6 +52,25 @@ def score_zero_approach(
     slope_1 = value - float(series.iloc[-2])
     slope_4 = (value - float(series.iloc[-5])) / 4.0
     slope_8 = (value - float(series.iloc[-9])) / 8.0
+
+    if len(series) < min_history:
+        return {
+            f"{prefix}_Value": value,
+            f"{prefix}_Slope_1B": slope_1,
+            f"{prefix}_Slope_4B": slope_4,
+            f"{prefix}_Slope_8B": slope_8,
+            f"{prefix}_Range_{lookback}B": float(series.max() - series.min()),
+            f"{prefix}_Near_Zero": False,
+            f"{prefix}_Strong_Positive_Slope": False,
+            f"{prefix}_Setup_Type": "INSUFFICIENT_HISTORY",
+            f"{prefix}_Setup_Reason": (
+                f"Only {len(series)} valid bars; need {min_history} to evaluate "
+                f"the {lookback}-bar cycle range"
+            ),
+            f"{prefix}_Setup_Score": 0.0,
+            f"{prefix}_Normalized_Slope_4B": float("nan"),
+            f"{prefix}_Normalized_Slope_8B": float("nan"),
+        }
 
     roll_min = series.rolling(lookback, min_periods=min_history).min().iloc[-1]
     roll_max = series.rolling(lookback, min_periods=min_history).max().iloc[-1]
@@ -107,17 +127,36 @@ def score_zero_approach(
         # Scores help diagnose near misses, but should not outrank valid setups.
         score = min(score, 59.9)
 
+    if setup_type == "PRE_ZERO_BREAK":
+        reason = "Below zero, near zero, and positive 1/4/8-bar slopes meet normalized strength thresholds"
+    elif setup_type == "ZERO_CROSS_RECENT":
+        reason = "Crossed upward through zero recently; still close to zero with positive 1/4/8-bar slopes"
+    else:
+        reasons = []
+        if value >= 0:
+            reasons.append("already at/above zero")
+        if not near_zero:
+            reasons.append("not close enough to zero")
+        if not positive_slopes:
+            reasons.append("1/4/8-bar slopes are not all positive")
+        elif not strong_slope:
+            reasons.append("normalized slope strength below threshold")
+        if value < 0 and near_zero and strong_slope:
+            reasons.append("VFI cycle-stage gate rejected the setup" if prefix == "VFI_1D" else "did not meet recent zero-cross rules")
+        reason = "; ".join(reasons) or "does not meet early zero-break criteria"
+
     return {
         f"{prefix}_Value": value,
         f"{prefix}_Slope_1B": slope_1,
         f"{prefix}_Slope_4B": slope_4,
         f"{prefix}_Slope_8B": slope_8,
-        f"{prefix}_Range_52B": value_range,
+        f"{prefix}_Range_{lookback}B": value_range,
         f"{prefix}_Near_Zero": bool(near_zero),
         f"{prefix}_Strong_Positive_Slope": bool(strong_slope),
         f"{prefix}_Normalized_Slope_4B": float(norm_4),
         f"{prefix}_Normalized_Slope_8B": float(norm_8),
         f"{prefix}_Setup_Type": setup_type,
+        f"{prefix}_Setup_Reason": reason,
         f"{prefix}_Setup_Score": score,
     }
 
