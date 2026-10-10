@@ -61,7 +61,11 @@ Monitor progress:
     tail -f logs/resumable-backtest.log
     cat reports/free_cloud_backtest/checkpoint.json
 
-For a small smoke test, use --max-symbols 2 on the first run. Do not use that option for the full run. The selected universe is saved on first launch and remains fixed for resume.
+For a small smoke test, use a separate output directory so the two-symbol universe is not reused for the full run:
+
+    .venv/bin/python -u scripts/run_resumable_crypto_backtests.py --limit 200 --min-volume 0 --max-symbols 2 --output-dir reports/free_cloud_backtest_smoke
+
+For the full run, omit --max-symbols and use the default reports/free_cloud_backtest output directory. The selected universe is saved on first launch and remains fixed for resume.
 
 ### 5. Automatically resume after a VM reboot
 
