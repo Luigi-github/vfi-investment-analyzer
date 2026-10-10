@@ -44,6 +44,12 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         result = score_zero_approach(values, "VFI_1D", lookback=52, min_history=20)
         self.assertEqual(result["VFI_1D_Setup_Type"], "ZERO_CROSS_RECENT")
 
+    def test_recent_zero_cross_with_weak_slope_is_rejected(self):
+        values = -7.0 + np.sin(np.arange(60) / 3.0) * 2.0
+        values[-9:] = np.linspace(-0.15, 0.05, 9)
+        result = score_zero_approach(pd.Series(values), "VFI_1D")
+        self.assertEqual(result["VFI_1D_Setup_Type"], "NONE")
+
     def test_insufficient_history_is_not_ranked_as_setup(self):
         result = score_zero_approach(pd.Series([-3.0, -2.0, -1.0]), "VFI_1D")
         self.assertEqual(result["VFI_1D_Setup_Type"], "INSUFFICIENT_HISTORY")
