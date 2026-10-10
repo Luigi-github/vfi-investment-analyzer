@@ -287,6 +287,12 @@ def build_final_ranking(root: Path) -> None:
                 f"mean {float(mean_trade):+.3f}% per trade, "
                 f"{int(row.get('OOS_Positive_Folds', 0) or 0)}/{int(folds_n or 0)} positive folds"
             )
+            drawdown = row.get("OOS_Max_Drawdown_Pct")
+            ci_lower = row.get("OOS_Mean_95_Lower_Pct")
+            if pd.notna(drawdown):
+                parts.append(f"trade-level OOS drawdown {float(drawdown):.2f}%")
+            if pd.notna(ci_lower):
+                parts.append(f"95% bootstrap lower bound {float(ci_lower):+.3f}% per trade")
         else:
             parts.append("SPOT_MTF has no OOS trades; current signal is not performance-validated")
         benchmark_return = row.get("BuyHold_OOS_Total_Return_Pct")
@@ -402,6 +408,12 @@ La clasificación sirve para priorizar investigación, no garantiza rentabilidad
                 f"media por operación {float(mean_trade):+.3f}%, "
                 f"{int(row.get('OOS_Positive_Folds', 0) or 0)}/{int(folds_n or 0)} periodos positivos"
             )
+            drawdown = row.get("OOS_Max_Drawdown_Pct")
+            ci_lower = row.get("OOS_Mean_95_Lower_Pct")
+            if pd.notna(drawdown):
+                parts.append(f"drawdown OOS a nivel de operaciones {float(drawdown):.2f}%")
+            if pd.notna(ci_lower):
+                parts.append(f"límite inferior bootstrap 95% {float(ci_lower):+.3f}% por operación")
         else:
             parts.append("SPOT_MTF no generó operaciones fuera de muestra; la señal no está validada por el backtest")
         benchmark_return = row.get("BuyHold_OOS_Total_Return_Pct")
