@@ -8,6 +8,14 @@ on:
     branches: [main]
     paths:
       - ".github/workflows/crypto-mtf-backtest.yml"
+      - "scripts/build_final_crypto_ranking.py"
+      - "scripts/aggregate_crypto_backtests.py"
+      - "scripts/run_crypto_mtf_analysis.py"
+      - "scripts/run_crypto_mtf_real_backtest.py"
+      - "scripts/discover_top_binance_symbols.py"
+      - "app/research/multi_timeframe_crypto.py"
+      - "app/backtest/crypto_strategy.py"
+      - "app/data/binance_market_data.py"
 
 permissions:
   contents: read
