@@ -23,6 +23,14 @@ def alignment_stage(confluence, timeframe):
 
 def alignment_fields(prefix, confluence):
     fields = {f"{prefix}_Snapshot_Timestamp": confluence.get("Timestamp")}
+    available = [
+        row.get("Timeframe") for row in confluence.get("Alignment", [])
+        if row.get("Timeframe") in TIMEFRAME_LABELS
+    ]
+    fields[f"{prefix}_Available_Timeframes"] = ",".join(available)
+    fields[f"{prefix}_Missing_Timeframes"] = ",".join(
+        timeframe for timeframe in TIMEFRAME_LABELS if timeframe not in available
+    )
     # Keep a stable schema even when a symbol has insufficient history for a
     # timeframe. Missing weekly data must not be mislabeled as a daily stage.
     for timeframe in TIMEFRAME_LABELS:
