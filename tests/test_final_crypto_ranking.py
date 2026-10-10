@@ -87,7 +87,7 @@ class FinalCryptoRankingTests(unittest.TestCase):
             (root / "universe_meta" / "reports-universe.json").write_text(json.dumps({
                 "retrieved_at_utc": "2026-10-10T00:00:00Z",
                 "selection_method": "test liquidity rank",
-                "symbols": ["AAAUSDT", "BBBUSDT", "CCCUSDT"],
+                "symbols": ["AAAUSDT", "BBBUSDT", "CCCUSDT", "DDDUSDT"],
                 "records": [
                     {"Symbol": "AAAUSDT", "Spot_Volume_Rank": 1, "Perp_Volume_Rank": 2,
                      "Spot_24h_Quote_Volume_USDT": 1000000, "Perp_24h_Quote_Volume_USDT": 900000},
@@ -95,6 +95,8 @@ class FinalCryptoRankingTests(unittest.TestCase):
                      "Spot_24h_Quote_Volume_USDT": 900000, "Perp_24h_Quote_Volume_USDT": 1000000},
                     {"Symbol": "CCCUSDT", "Spot_Volume_Rank": 3, "Perp_Volume_Rank": 3,
                      "Spot_24h_Quote_Volume_USDT": 500000, "Perp_24h_Quote_Volume_USDT": 450000},
+                    {"Symbol": "DDDUSDT", "Spot_Volume_Rank": 4, "Perp_Volume_Rank": 4,
+                     "Spot_24h_Quote_Volume_USDT": 300000, "Perp_24h_Quote_Volume_USDT": 250000},
                 ],
             }), encoding="utf-8")
 
@@ -102,7 +104,9 @@ class FinalCryptoRankingTests(unittest.TestCase):
 
             result = pd.read_csv(root / "final_crypto_ranking.csv")
             self.assertEqual(result.iloc[0]["Symbol"], "AAAUSDT")
-            self.assertEqual(result.iloc[-1]["Symbol"], "CCCUSDT")
+            self.assertEqual(result.iloc[-1]["Symbol"], "DDDUSDT")
+            self.assertIn("DDDUSDT", set(result["Symbol"]))
+            self.assertTrue(pd.isna(result.set_index("Symbol").loc["DDDUSDT", "Status"]))
             aaa = result.set_index("Symbol").loc["AAAUSDT"]
             self.assertEqual(int(aaa["OOS_Trades"]), 20)
             self.assertEqual(int(aaa["All_Strategy_OOS_Trades"]), 140)
@@ -115,7 +119,8 @@ class FinalCryptoRankingTests(unittest.TestCase):
             self.assertIn("Symbol", by_symbol.columns)
             self.assertIn("BUY_AND_HOLD_OOS", set(by_symbol["Strategy"]))
             audit = json.loads((root / "data_quality_report.json").read_text(encoding="utf-8"))
-            self.assertEqual(audit["unique_symbols_in_final_ranking"], 3)
+            self.assertEqual(audit["unique_symbols_in_final_ranking"], 4)
+            self.assertEqual(audit["symbols_missing_status"], 1)
 
 
 if __name__ == "__main__":
