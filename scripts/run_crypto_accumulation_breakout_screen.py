@@ -81,7 +81,7 @@ def analyze_symbol(
         # Compare daily VFI with the 52-week divergence context using an
         # approximately one-year daily range, not a short 52-day range.
         vfi_setup = score_zero_approach(
-            vfi_valid["VFI"], "VFI_1D", lookback=365, min_history=60,
+            vfi_valid["VFI"], "VFI_1D", lookback=365, min_history=260,
             near_zero_fraction=0.15, max_abs_near_zero=2.0,
             recent_cross_fraction=0.10, min_strength_4=0.10, min_strength_8=0.25,
         )
