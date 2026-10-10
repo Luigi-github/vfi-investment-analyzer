@@ -199,7 +199,11 @@ def main():
                             # Use a declared fallback when no threshold has enough
                             # fully completed training trades; never pick arbitrarily.
                             any_train_trades = any(candidate[2]["Trades"] > 0 for candidate in scores)
-                            best = (np.nan, 80, {"Trades": 0})
+                            fallback_train_trades = next(
+                                (candidate[2]["Trades"] for candidate in scores if candidate[1] == 80),
+                                0,
+                            )
+                            best = (np.nan, 80, {"Trades": fallback_train_trades})
                             selection_status = (
                                 "FALLBACK_INSUFFICIENT_TRAIN_TRADES"
                                 if any_train_trades else "FALLBACK_NO_TRAIN_TRADES"
