@@ -47,7 +47,8 @@ class MultiTimeframeCryptoAnalyzer:
         if timestamp is None:
             # Use the most recent available candle timestamp. Each market-data frame
             # contains closed candles only, and _latest() aligns older timeframes
-            # to this timestamp without looking ahead.\n            timestamp = max(frame.index[-1] for frame in available)
+            # to this timestamp without looking ahead.
+            timestamp = max(frame.index[-1] for frame in available)
         timestamp = pd.Timestamp(timestamp)
         weights = {"1W": 30, "1D": 30, "4H": 25, "1H": 15}
         positive = {"SUSTAINED_RECOVERY", "APPROACHING_ZERO", "ZERO_CROSS_UP",
