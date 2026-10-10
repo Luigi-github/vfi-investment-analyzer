@@ -60,6 +60,7 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         self.assertGreater(result["VFI_1D_Slope_1B"], 0)
         self.assertGreater(result["VFI_1D_Slope_4B"], 0)
         self.assertGreater(result["VFI_1D_Slope_8B"], 0)
+        self.assertTrue(pd.isna(result["VFI_1D_Range_365B"]))
         self.assertIn("need 60", result["VFI_1D_Setup_Reason"])
 
     def test_insufficient_history_is_not_ranked_as_setup(self):

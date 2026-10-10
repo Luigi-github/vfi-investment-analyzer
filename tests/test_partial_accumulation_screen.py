@@ -1,3 +1,5 @@
+import unittest
+
 import numpy as np
 import pandas as pd
 
@@ -21,29 +23,34 @@ def candles(periods: int, freq: str, start: str = "2020-01-01") -> pd.DataFrame:
     )
 
 
-def test_short_weekly_history_does_not_erase_daily_vfi_analysis():
-    daily = candles(500, "D")
-    weekly = candles(60, "7D")
-    result = analyze_symbol("TESTUSDT", daily, weekly)
+class PartialAccumulationScreenTests(unittest.TestCase):
+    def test_short_weekly_history_does_not_erase_daily_vfi_analysis(self):
+        daily = candles(500, "D")
+        weekly = candles(60, "7D")
+        result = analyze_symbol("TESTUSDT", daily, weekly)
 
-    assert result["Analysis_Status"] == "PARTIAL_ANALYSIS"
-    assert result["VFI_Analysis_Status"] == "ANALYZED"
-    assert result["Divergence_Analysis_Status"] == "INSUFFICIENT_HISTORY"
-    assert result["Daily_Bars"] == 500
-    assert result["Weekly_Bars"] == 60
-    assert pd.notna(result["VFI_1D_Value"])
-    assert result["Divergence_1W_Setup_Type"] == "INSUFFICIENT_HISTORY"
-    assert not bool(result["Combined_Setup"])
+        self.assertEqual(result["Analysis_Status"], "PARTIAL_ANALYSIS")
+        self.assertEqual(result["VFI_Analysis_Status"], "ANALYZED")
+        self.assertEqual(result["Divergence_Analysis_Status"], "INSUFFICIENT_HISTORY")
+        self.assertEqual(result["Daily_Bars"], 500)
+        self.assertEqual(result["Weekly_Bars"], 60)
+        self.assertTrue(pd.notna(result["VFI_1D_Value"]))
+        self.assertTrue(pd.notna(result["VFI_Recovery_Score_1D"]))
+        self.assertEqual(result["Divergence_1W_Setup_Type"], "INSUFFICIENT_HISTORY")
+        self.assertFalse(bool(result["Combined_Setup"]))
+
+    def test_short_daily_history_does_not_erase_weekly_divergence_analysis(self):
+        daily = candles(100, "D")
+        weekly = candles(130, "7D")
+        result = analyze_symbol("TESTUSDT", daily, weekly)
+
+        self.assertEqual(result["Analysis_Status"], "PARTIAL_ANALYSIS")
+        self.assertEqual(result["VFI_Analysis_Status"], "INSUFFICIENT_HISTORY")
+        self.assertEqual(result["Divergence_Analysis_Status"], "ANALYZED")
+        self.assertEqual(result["VFI_1D_Setup_Type"], "INSUFFICIENT_HISTORY")
+        self.assertNotEqual(result["Divergence_1W_Setup_Type"], "INSUFFICIENT_HISTORY")
+        self.assertFalse(bool(result["Combined_Setup"]))
 
 
-def test_short_daily_history_does_not_erase_weekly_divergence_analysis():
-    daily = candles(100, "D")
-    weekly = candles(130, "7D")
-    result = analyze_symbol("TESTUSDT", daily, weekly)
-
-    assert result["Analysis_Status"] == "PARTIAL_ANALYSIS"
-    assert result["VFI_Analysis_Status"] == "INSUFFICIENT_HISTORY"
-    assert result["Divergence_Analysis_Status"] == "ANALYZED"
-    assert result["VFI_1D_Setup_Type"] == "INSUFFICIENT_HISTORY"
-    assert result["Divergence_1W_Setup_Type"] != "INSUFFICIENT_HISTORY"
-    assert not bool(result["Combined_Setup"])
+if __name__ == "__main__":
+    unittest.main()

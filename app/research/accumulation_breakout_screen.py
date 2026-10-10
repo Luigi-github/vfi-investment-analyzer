@@ -41,7 +41,7 @@ def score_zero_approach(
             f"{prefix}_Near_Zero": False,
             f"{prefix}_Strong_Positive_Slope": False,
             f"{prefix}_Setup_Type": "INSUFFICIENT_HISTORY",
-            f"{prefix}_Setup_Reason": f"Insufficient valid bars: {len(series)}; need at least 9 to calculate slopes",
+            f"{prefix}_Setup_Reason": (f"Insufficient valid bars: {len(series)}; need at least 9 to calculate slopes and {min_history} to evaluate the {lookback}-bar cycle"),
             f"{prefix}_Setup_Score": 0.0,
             f"{prefix}_Normalized_Slope_4B": float("nan"),
             f"{prefix}_Normalized_Slope_8B": float("nan"),
@@ -59,7 +59,8 @@ def score_zero_approach(
             f"{prefix}_Slope_1B": slope_1,
             f"{prefix}_Slope_4B": slope_4,
             f"{prefix}_Slope_8B": slope_8,
-            f"{prefix}_Range_{lookback}B": float(series.max() - series.min()),
+            # Do not label a partial-sample range as a full cycle range.
+            f"{prefix}_Range_{lookback}B": float("nan"),
             f"{prefix}_Near_Zero": False,
             f"{prefix}_Strong_Positive_Slope": False,
             f"{prefix}_Setup_Type": "INSUFFICIENT_HISTORY",

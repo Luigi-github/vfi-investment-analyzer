@@ -21,7 +21,7 @@ Para cada oscilador se calcula:
 - Pendiente de 8 barras: cambio neto de las últimas 8 barras dividido por 8.
 - Proximidad al cero: para VFI diario, frente al rango móvil de 365 velas (aprox. un año); para Divergence semanal, frente al rango móvil de 52 velas (aprox. un año).
 - Fuerza normalizada: cambio neto de 4/8 barras dividido por la desviación estándar móvil del mismo horizonte que se usa para el rango.
-- El VFI necesita al menos 260 valores válidos para evaluar el ciclo de un año, además del calentamiento del indicador (por eso se recomienda descargar al menos 390 velas diarias). Si la historia no alcanza, se conservan el último valor y las pendientes disponibles, pero no se etiqueta como setup válido.
+- El VFI necesita al menos 365 valores válidos para evaluar el ciclo de un año, además del calentamiento de 130 velas del indicador (por eso se recomienda descargar al menos 495 velas diarias). Si la historia no alcanza, se conservan el último valor y las pendientes disponibles, pero no se etiqueta como setup válido.
 
 **PRE_ZERO_BREAK** requiere:
 1. Valor actual negativo.

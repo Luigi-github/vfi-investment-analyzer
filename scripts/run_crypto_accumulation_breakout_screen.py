@@ -53,11 +53,11 @@ def analyze_symbol(
     divergence_indicator: VolumeDivergenceMM | None = None,
 ) -> dict:
     """Analyze VFI and divergence independently so one short history cannot erase the other signal."""
-    vfi_indicator = vfi_indicator or VFIIndicator()
+    vfi_indicator = vfi_indicator or VFIIndicator(context_window=365)
     divergence_indicator = divergence_indicator or VolumeDivergenceMM()
 
     vfi_setup = score_zero_approach(
-        pd.Series(dtype=float), "VFI_1D", lookback=365, min_history=260
+        pd.Series(dtype=float), "VFI_1D", lookback=365, min_history=365
     )
     divergence_setup = score_zero_approach(
         pd.Series(dtype=float), "Divergence_1W", lookback=52, min_history=20
@@ -85,7 +85,7 @@ def analyze_symbol(
         # Compare daily VFI with the 52-week divergence context using an
         # approximately one-year daily range, not a short 52-day range.
         vfi_setup = score_zero_approach(
-            vfi_valid["VFI"], "VFI_1D", lookback=365, min_history=260,
+            vfi_valid["VFI"], "VFI_1D", lookback=365, min_history=365,
             near_zero_fraction=0.15, max_abs_near_zero=2.0,
             recent_cross_fraction=0.10, min_strength_4=0.10, min_strength_8=0.25,
         )
@@ -192,8 +192,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default="reports/crypto_accumulation_breakout")
     args = parser.parse_args()
 
-    if args.top < 1 or args.daily_bars < 390 or args.weekly_bars < 100:
-        parser.error("--top must be positive; use at least 390 daily bars (VFI warmup + cycle context) and 100 weekly bars")
+    if args.top < 1 or args.daily_bars < 495 or args.weekly_bars < 100:
+        parser.error("--top must be positive; use at least 495 daily bars (130-bar VFI warmup + 365-bar cycle context) and 100 weekly bars")
 
     service = BinanceMarketDataService()
     if args.symbols.strip().upper() == "AUTO":
@@ -277,12 +277,15 @@ def main() -> None:
         "insufficient_history": int(status_counts.get("INSUFFICIENT_HISTORY", 0)),
         "errors": int(status_counts.get("ERROR", 0)),
         "vfi_daily_candidates": int(len(vfi_candidates)),
+        "weekly_divergence_candidates": int(result["Divergence_Setup"].sum()) if "Divergence_Setup" in result else 0,
         "combined_daily_vfi_weekly_divergence_candidates": int(len(combined_candidates)),
+        "vfi_cycle_history_insufficient": int((result["VFI_Setup_Type"] == "INSUFFICIENT_HISTORY").sum()) if "VFI_Setup_Type" in result else 0,
+        "weekly_divergence_history_insufficient": int((result["Divergence_Setup_Type"] == "INSUFFICIENT_HISTORY").sum()) if "Divergence_Setup_Type" in result else 0,
         "timeframes": {"VFI": "1D", "Volume_Divergence_by_MM": "1W"},
         "intraday_timeframes_used": [],
         "ranking_logic": (
             "VFI uses completed daily candles with a 365-bar context and requires at least "
-            "260 valid VFI values after indicator warm-up; weekly Volume Divergence by MM "
+            "365 valid VFI values after indicator warm-up; weekly Volume Divergence by MM "
             "uses completed weekly candles with a 52-bar context. A PRE_ZERO_BREAK requires "
             "negative oscillator value near zero, positive 1/4/8-bar slopes, normalized "
             "4-bar rise >= 0.10 and 8-bar rise >= 0.25 standard deviations. A recent zero "
