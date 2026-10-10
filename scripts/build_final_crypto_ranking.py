@@ -145,19 +145,31 @@ def build_final_ranking(root: Path) -> None:
 
     universe_path = root / "universe_meta" / "reports-universe.json"
     universe = {}
+    universe_symbols = []
     if universe_path.exists():
         try:
             payload = json.loads(universe_path.read_text(encoding="utf-8"))
             records = payload.get("records", [])
+            universe_symbols = [str(x) for x in payload.get("symbols", [])]
             if records:
                 pd.DataFrame(records).to_csv(root / "binance_universe_liquidity.csv", index=False)
                 universe = {str(row["Symbol"]): row for row in records}
+                universe_symbols = list(dict.fromkeys(
+                    universe_symbols + [str(row["Symbol"]) for row in records]
+                ))
             (root / "universe_selection.json").write_text(
                 json.dumps({k: v for k, v in payload.items() if k != "records"}, indent=2),
                 encoding="utf-8",
             )
         except (OSError, ValueError, TypeError):
             universe = {}
+    checkpoint_path = root / "checkpoint.json"
+    if not universe_symbols and checkpoint_path.exists():
+        try:
+            checkpoint = json.loads(checkpoint_path.read_text(encoding="utf-8"))
+            universe_symbols = [str(x) for x in checkpoint.get("symbols", [])]
+        except (OSError, ValueError, TypeError):
+            universe_symbols = []
 
     summary = build_symbol_strategy_summary(oos, trades)
     if not summary.empty:
@@ -166,9 +178,22 @@ def build_final_ranking(root: Path) -> None:
     if not global_summary.empty:
         global_summary.to_csv(root / "strategy_comparison_oos_global.csv", index=False)
 
-    if mtf.empty or "Symbol" not in mtf:
+    # Start from the selected universe, not just successful MTF rows, so a
+    # failed/missing asset remains visible in the final 200-row audit.
+    if universe:
+        base_ranking = pd.DataFrame(universe.values()).drop_duplicates("Symbol", keep="last")
+    elif universe_symbols:
+        base_ranking = pd.DataFrame({"Symbol": list(dict.fromkeys(universe_symbols))})
+    elif not mtf.empty and "Symbol" in mtf:
+        base_ranking = mtf[["Symbol"]].drop_duplicates("Symbol")
+    else:
         return
-    ranking = mtf.copy()
+    ranking = base_ranking.copy()
+    if not mtf.empty and "Symbol" in mtf:
+        ranking = ranking.merge(
+            mtf.drop_duplicates("Symbol", keep="last"),
+            on="Symbol", how="left", suffixes=("_Universe", "")
+        )
     if not derivatives.empty and "Symbol" in derivatives:
         ranking = ranking.merge(derivatives.drop_duplicates("Symbol", keep="last"), on="Symbol", how="left")
     if not statuses.empty and "Symbol" in statuses:
@@ -199,10 +224,6 @@ def build_final_ranking(root: Path) -> None:
         ranking["OOS_Return_Advantage_vs_BuyHold_PctPoints"] = (
             ranking["OOS_Total_Return_Pct"] - ranking["BuyHold_OOS_Total_Return_Pct"]
         )
-
-    if universe:
-        universe_frame = pd.DataFrame(universe.values()).drop_duplicates("Symbol", keep="last")
-        ranking = ranking.merge(universe_frame, on="Symbol", how="left")
 
     numeric_cols = [
         "OOS_Trades", "OOS_Folds", "OOS_Positive_Folds",
@@ -306,6 +327,13 @@ def build_final_ranking(root: Path) -> None:
         tier = row.get("Evidence_Tier")
         parts.append(str(tier).replace("_", " ").lower())
         return "; ".join(parts)
+
+    for col in (
+        "Final_Risk_Adjusted_Score", "Confluence_Score", "Spot_MTF_Score",
+        "Perp_MTF_Score", "Spot_Direction", "Perp_Direction",
+    ):
+        if col not in ranking:
+            ranking[col] = np.nan
 
     ranking["Research_Reason"] = ranking.apply(reason, axis=1)
 
