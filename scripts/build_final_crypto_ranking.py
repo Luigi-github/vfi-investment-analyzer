@@ -259,6 +259,61 @@ def build_final_ranking(root: Path) -> None:
         return "; ".join(parts)
 
     ranking["Research_Reason"] = ranking.apply(reason, axis=1)
+
+    # Machine-readable audit summary: distinguish successful processing from
+    # statistically persuasive evidence.
+    expected_symbols = 200
+    status_counts = {}
+    if "Status" in ranking:
+        status_counts = {
+            str(key): int(value)
+            for key, value in ranking["Status"].fillna("missing_status").value_counts().items()
+        }
+    unique_symbols = int(ranking["Symbol"].astype(str).nunique())
+    missing_status = int(ranking["Status"].isna().sum()) if "Status" in ranking else expected_symbols
+    duplicate_symbols = int(ranking["Symbol"].astype(str).duplicated().sum())
+    report = {
+        "expected_universe_size": expected_symbols,
+        "mtf_ranking_rows": int(len(mtf)),
+        "unique_symbols_in_final_ranking": unique_symbols,
+        "duplicate_symbol_rows": duplicate_symbols,
+        "status_counts": status_counts,
+        "oos_eligible_symbols": int(eligible.sum()),
+        "symbols_with_positive_oos_mean_ci_lower": int((
+            eligible & (ranking["OOS_Mean_95_Lower_Pct"] > 0)
+        ).sum()),
+        "symbols_with_no_oos_trades": int((ranking["OOS_Trades"].fillna(0) == 0).sum()),
+        "symbols_missing_status": missing_status,
+        "symbols_with_errors": int((ranking["Status"] == "error").sum()) if "Status" in ranking else expected_symbols,
+        "symbols_with_insufficient_history": int((ranking["Status"] == "insufficient_history").sum()) if "Status" in ranking else 0,
+        "ranking_complete_for_200": unique_symbols == expected_symbols and duplicate_symbols == 0 and missing_status == 0,
+        "important_caveat": "OOS sample spans only the available recent hourly history; rankings are research signals, not return guarantees."
+    }
+    report["overall_status"] = "complete" if (
+        report["ranking_complete_for_200"]
+        and report["symbols_with_errors"] == 0
+        and report["symbols_with_insufficient_history"] == 0
+    ) else "partial_or_warning"
+    (root / "data_quality_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+
+    methodology = """# Top-200 VFI research ranking
+
+## Universe selection
+The universe is the intersection of currently trading Binance USDT spot pairs and USD-M USDT perpetual pairs. Assets are ordered by the sum of their spot and perpetual 24-hour quote-volume ranks, then by the worse of the two ranks. The ranking is a current liquidity snapshot, not a survivorship-bias-free historical universe.
+
+## Current signal
+The MTF signal score weights weekly 30%, daily 30%, 4-hour 25%, and 1-hour 15%. The spot and perpetual confluence scores are combined 60%/40%. Funding extremes and large 24-hour open-interest changes can reduce the score. Per-timeframe VFI, stage, slope, and timestamp fields are included for audit.
+
+## Out-of-sample test
+The primary per-asset performance evidence is the SPOT_MTF strategy in three chronological walk-forward folds. Thresholds are selected using only the training window; signals execute at the next hourly bar open. Backtest costs assume 0.04% fee and 0.03% slippage per side, with an 8% stop, 16% target, and 72-hour maximum holding period. These are modeling assumptions and may not match actual fills.
+
+## Final research score
+The score is 40% current risk-adjusted MTF signal, 25% percentile of SPOT_MTF mean net OOS trade return, 20% percentage of positive OOS folds, 10% drawdown score, and 5% sample-size score. Assets with fewer than 20 SPOT_MTF OOS trades or fewer than two OOS folds are marked INSUFFICIENT_OOS_SAMPLE and placed below eligible assets. The positive-evidence tier additionally requires a positive 95% block-bootstrap lower bound and at least two positive folds.
+
+## Interpretation limits
+A complete workflow means data and jobs were processed, not that the strategy is profitable. The recent sample is short, candidate assets are selected using today's liquidity (survivorship bias), and this score is a research prioritization tool. Validate across multiple market regimes, compare with a matched buy-and-hold benchmark, and verify fee, slippage, funding, and intrabar stop/target assumptions before any live use.
+"""
+    (root / "ranking_methodology.md").write_text(methodology, encoding="utf-8")
     ranking["Ranking_Method"] = (
         "40% current risk-adjusted MTF signal + 25% SPOT_MTF OOS mean-trade-return percentile "
         "+ 20% positive-fold consistency + 10% OOS drawdown score + 5% sample-size score; "
