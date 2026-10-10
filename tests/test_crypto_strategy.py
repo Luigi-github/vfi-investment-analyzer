@@ -1,6 +1,6 @@
 import unittest
 import pandas as pd
-from app.backtest.crypto_strategy import backtest_signals
+from app.backtest.crypto_strategy import backtest_signals, _max_drawdown
 
 
 class TestCryptoStrategy(unittest.TestCase):
@@ -46,6 +46,44 @@ class TestCryptoStrategy(unittest.TestCase):
         )
         self.assertAlmostEqual(long_trades.iloc[0]["Funding_PnL"], -0.01)
         self.assertAlmostEqual(short_trades.iloc[0]["Funding_PnL"], 0.01)
+
+
+    def test_short_stop_and_target_returns_match_configured_percentages(self):
+        idx = pd.date_range("2026-01-01", periods=6, freq="h", tz="UTC")
+        base = {
+            "Open_Spot": [100.0] * 6,
+            "High_Spot": [101.0] * 6,
+            "Low_Spot": [99.0] * 6,
+            "Close_Spot": [100.0] * 6,
+            "Score": [80.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        }
+
+        stop_frame = pd.DataFrame(base, index=idx)
+        stop_frame.loc[idx[1], "High_Spot"] = 106.0
+        stop_trades, _ = backtest_signals(
+            stop_frame, "Score", threshold=70, horizon_hours=3,
+            fee=0, slippage=0, stop_loss=0.05, take_profit=0.10,
+            direction="short",
+        )
+        self.assertEqual(stop_trades.iloc[0]["Exit_Reason"], "STOP")
+        self.assertAlmostEqual(stop_trades.iloc[0]["Gross_Return"], -0.05)
+        self.assertAlmostEqual(stop_trades.iloc[0]["Net_Return"], -0.05)
+
+        target_frame = pd.DataFrame(base, index=idx)
+        target_frame.loc[idx[1], "Low_Spot"] = 89.0
+        target_trades, _ = backtest_signals(
+            target_frame, "Score", threshold=70, horizon_hours=3,
+            fee=0, slippage=0, stop_loss=0.05, take_profit=0.10,
+            direction="short",
+        )
+        self.assertEqual(target_trades.iloc[0]["Exit_Reason"], "TARGET")
+        self.assertAlmostEqual(target_trades.iloc[0]["Gross_Return"], 0.10)
+        self.assertAlmostEqual(target_trades.iloc[0]["Net_Return"], 0.10)
+
+
+    def test_max_drawdown_includes_initial_capital(self):
+        equity_after_trades = pd.Series([0.90, 0.95])
+        self.assertAlmostEqual(_max_drawdown(equity_after_trades), -0.10)
 
 
 if __name__ == "__main__":

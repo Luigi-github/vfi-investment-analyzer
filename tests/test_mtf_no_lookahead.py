@@ -14,12 +14,12 @@ class TestMTFNoLookahead(unittest.TestCase):
                 "VFI_Slope_4B": [1.0] * len(index),
                 "VFI_Slope_8B": [1.0] * len(index),
             },
-            index=pd.DatetimeIndex(index, name="Date"),
+            index=pd.DatetimeIndex(pd.to_datetime(index, utc=True), name="Date"),
         )
 
     def test_higher_timeframe_signal_is_hidden_until_close(self):
         analyzer = MultiTimeframeCryptoAnalyzer()
-        base_idx = pd.date_range("2026-01-05 00:00", periods=8, freq="1h")
+        base_idx = pd.date_range("2026-01-05 00:00", periods=32, freq="1h", tz="UTC")
         calculated = {
             "1H": pd.DataFrame(
                 {
@@ -36,14 +36,14 @@ class TestMTFNoLookahead(unittest.TestCase):
 
         out = analyzer.build_1h_confluence_history(calculated)
 
-        self.assertTrue(pd.isna(out.loc[pd.Timestamp("2026-01-05 03:00"), "VFI_4H"]))
+        self.assertTrue(pd.isna(out.loc[pd.Timestamp("2026-01-05 03:00", tz="UTC"), "VFI_4H"]))
         self.assertEqual(
-            out.loc[pd.Timestamp("2026-01-05 04:00"), "VFI_4H"], 10.0
+            out.loc[pd.Timestamp("2026-01-05 04:00", tz="UTC"), "VFI_4H"], 10.0
         )
 
         # The daily candle opened at midnight but cannot affect hourly
         # decisions until the next midnight.
-        self.assertTrue(pd.isna(out.loc[pd.Timestamp("2026-01-05 23:00"), "VFI_1D"]))
+        self.assertTrue(pd.isna(out.loc[pd.Timestamp("2026-01-05 23:00", tz="UTC"), "VFI_1D"]))
 
     def test_1h_signal_is_not_backdated(self):
         analyzer = MultiTimeframeCryptoAnalyzer()

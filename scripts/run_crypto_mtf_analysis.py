@@ -29,6 +29,7 @@ def main():
     analyzer = MultiTimeframeCryptoAnalyzer()
     rows = []
     derivative_rows = []
+    errors = []
 
     for symbol in symbols[:args.top]:
         print(f"ANALYZING {symbol}")
@@ -61,6 +62,7 @@ def main():
                     "Funding_Mean": float(funding["fundingRate"].tail(10).mean()) if not funding.empty else None,
                 })
         except Exception as exc:
+            errors.append((symbol, repr(exc)))
             print(f"ERROR {symbol}: {exc}")
 
     ranking = pd.DataFrame(rows)
@@ -87,6 +89,9 @@ def main():
     ranking.to_csv(output / "crypto_mtf_ranking.csv", index=False)
     pd.DataFrame(derivative_rows).to_csv(output / "derivatives_snapshot.csv", index=False)
     print(ranking.to_string(index=False))
+    if errors or ranking.empty:
+        print(f"ANALYSIS FAILED: {len(errors)} symbol error(s); successful rows={len(ranking)}")
+        raise SystemExit(1)
 
 if __name__ == "__main__":
     main()
