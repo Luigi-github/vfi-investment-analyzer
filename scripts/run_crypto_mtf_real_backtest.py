@@ -31,9 +31,15 @@ STOP = 0.08
 TARGET = 0.16
 HORIZON = 72
 
+# Backtests need a materially longer sample than the 3,000-bar live-signal snapshot.
+# These limits provide about two years of hourly bars while keeping every higher
+# timeframe available across the same interval.
+BACKTEST_HISTORY_LIMITS = {"1w": 400, "1d": 900, "4h": 4500, "1h": 17520}
+
+
 def merge_symbol(service, analyzer, symbol):
-    spot_frames = service.get_multi_timeframe(symbol, "spot")
-    perp_frames = service.get_multi_timeframe(symbol, "futures")
+    spot_frames = service.get_multi_timeframe(symbol, "spot", limits=BACKTEST_HISTORY_LIMITS)
+    perp_frames = service.get_multi_timeframe(symbol, "futures", limits=BACKTEST_HISTORY_LIMITS)
     spot = analyzer.calculate(spot_frames)
     perp = analyzer.calculate(perp_frames)
     sh = analyzer.build_1h_confluence_history(spot)
