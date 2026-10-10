@@ -6,6 +6,7 @@ import pandas as pd
 from app.research.accumulation_breakout_screen import (
     rank_accumulation_candidates,
     score_zero_approach,
+    unavailable_asset_row,
 )
 
 
@@ -43,10 +44,42 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         result = score_zero_approach(values, "VFI_1D", lookback=52, min_history=20)
         self.assertEqual(result["VFI_1D_Setup_Type"], "ZERO_CROSS_RECENT")
 
+    def test_recent_zero_cross_with_weak_slope_is_rejected(self):
+        values = -7.0 + np.sin(np.arange(60) / 3.0) * 2.0
+        values[-9:] = np.linspace(-0.15, 0.05, 9)
+        result = score_zero_approach(pd.Series(values), "VFI_1D")
+        self.assertEqual(result["VFI_1D_Setup_Type"], "NONE")
+
     def test_insufficient_history_is_not_ranked_as_setup(self):
         result = score_zero_approach(pd.Series([-3.0, -2.0, -1.0]), "VFI_1D")
         self.assertEqual(result["VFI_1D_Setup_Type"], "INSUFFICIENT_HISTORY")
         self.assertEqual(result["VFI_1D_Setup_Score"], 0.0)
+
+    def test_unavailable_history_is_preserved_but_never_a_candidate(self):
+        placeholder = unavailable_asset_row(
+            "NEWCOINUSDT", 200, "INSUFFICIENT_HISTORY", "not enough daily candles"
+        )
+        frame = pd.DataFrame(
+            [
+                {
+                    "Symbol": "VALID",
+                    "VFI_Setup_Type": "PRE_ZERO_BREAK",
+                    "Divergence_Setup_Type": "PRE_ZERO_BREAK",
+                    "VFI_Setup_Score": 80.0,
+                    "Divergence_Setup_Score": 70.0,
+                    "Bullish_Divergence_Recent": False,
+                    "Analysis_Status": "ANALYZED",
+                },
+                placeholder,
+            ]
+        )
+        result = rank_accumulation_candidates(frame)
+        self.assertEqual(len(result), 2)
+        missing = result.set_index("Symbol").loc["NEWCOINUSDT"]
+        self.assertEqual(missing["Analysis_Status"], "INSUFFICIENT_HISTORY")
+        self.assertFalse(bool(missing["VFI_Setup"]))
+        self.assertFalse(bool(missing["Combined_Setup"]))
+        self.assertEqual(int(missing["Universe_Liquidity_Rank"]), 200)
 
     def test_combined_daily_vfi_weekly_divergence_setup_ranks_first(self):
         frame = pd.DataFrame(
