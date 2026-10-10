@@ -253,13 +253,28 @@ def build_final_ranking(root: Path) -> None:
     def reason(row) -> str:
         parts = []
         if pd.notna(row.get("Spot_Volume_Rank")) and pd.notna(row.get("Perp_Volume_Rank")):
-            parts.append(
+            spot_volume = row.get("Spot_24h_Quote_Volume_USD")
+            perp_volume = row.get("Perp_24h_Quote_Volume_USD")
+            liquidity = (
                 f"Universe liquidity: spot rank {int(row['Spot_Volume_Rank'])}, "
-                f"perpetual rank {int(row['Perp_Volume_Rank'])} by 24h quote volume"
+                f"perpetual rank {int(row['Perp_Volume_Rank'])}; "
+                f"24h quote volume spot ${float(spot_volume):,.0f}, "
+                f"perpetual ${float(perp_volume):,.0f}"
             )
+            spot_change = row.get("Spot_24h_Price_Change_Pct")
+            perp_change = row.get("Perp_24h_Price_Change_Pct")
+            if pd.notna(spot_change) and pd.notna(perp_change):
+                liquidity += (
+                    f"; 24h price change spot {float(spot_change):+.2f}%, "
+                    f"perpetual {float(perp_change):+.2f}%"
+                )
+            parts.append(liquidity)
         score = row.get("Final_Risk_Adjusted_Score")
         if pd.notna(score):
-            parts.append(f"current risk-adjusted MTF score {float(score):.1f}/100")
+            parts.append(
+                f"current risk-adjusted MTF score {float(score):.1f}/100 "
+                f"(spot {row.get('Spot_Direction', 'n/a')}, perpetual {row.get('Perp_Direction', 'n/a')})"
+            )
         trades_n = row.get("OOS_Trades")
         folds_n = row.get("OOS_Folds")
         mean_trade = row.get("OOS_Mean_Trade_Pct")
