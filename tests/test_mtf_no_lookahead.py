@@ -63,5 +63,23 @@ class TestMTFNoLookahead(unittest.TestCase):
         self.assertEqual(out.loc[pd.Timestamp("2026-01-05 01:00"), "VFI_1H"], 2.0)
 
 
+    def test_default_confluence_uses_latest_available_timeframe_timestamp(self):
+        analyzer = MultiTimeframeCryptoAnalyzer()
+        calculated = {
+            "1W": self._frame(["2026-01-05 00:00"], 10.0),
+            "1D": self._frame(["2026-01-09 00:00", "2026-01-10 00:00"], 20.0),
+            "4H": self._frame(["2026-01-10 04:00", "2026-01-10 08:00"], 30.0),
+            "1H": self._frame(["2026-01-10 11:00", "2026-01-10 12:00"], 40.0),
+        }
+
+        result = analyzer.confluence_at(calculated)
+
+        self.assertEqual(result["Timestamp"], pd.Timestamp("2026-01-10 12:00", tz="UTC"))
+        alignment = {row["Timeframe"]: row for row in result["Alignment"]}
+        self.assertEqual(alignment["1H"]["Timestamp"], pd.Timestamp("2026-01-10 12:00", tz="UTC"))
+        self.assertEqual(alignment["1D"]["Timestamp"], pd.Timestamp("2026-01-10 00:00", tz="UTC"))
+        self.assertEqual(alignment["4H"]["Timestamp"], pd.Timestamp("2026-01-10 08:00", tz="UTC"))
+
+
 if __name__ == "__main__":
     unittest.main()
