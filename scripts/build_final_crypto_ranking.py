@@ -314,11 +314,16 @@ def build_final_ranking(root: Path) -> None:
         "ranking_complete_for_200": unique_symbols == expected_symbols and duplicate_symbols == 0 and missing_status == 0,
         "important_caveat": "OOS sample spans only the available recent hourly history; rankings are research signals, not return guarantees."
     }
-    report["overall_status"] = "complete" if (
+    if not (
         report["ranking_complete_for_200"]
         and report["symbols_with_errors"] == 0
         and report["symbols_with_insufficient_history"] == 0
-    ) else "partial_or_warning"
+    ):
+        report["overall_status"] = "partial"
+    elif report["status_counts"].get("no_oos_trades", 0) > 0:
+        report["overall_status"] = "completed_with_warnings"
+    else:
+        report["overall_status"] = "complete"
     (root / "data_quality_report.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     methodology = """# Top-200 VFI research ranking
