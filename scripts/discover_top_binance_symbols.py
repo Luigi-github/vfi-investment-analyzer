@@ -24,13 +24,15 @@ def main() -> None:
     # why each symbol entered the research universe.
     spot_tickers = service._get(service.SPOT_BASE, "/api/v3/ticker/24hr", {})
     perp_tickers = service._get(service.FUTURES_BASE, "/fapi/v1/ticker/24hr", {})
+    spot_by_symbol = {row["symbol"]: row for row in spot_tickers if row.get("symbol") in spot_rank}
+    perp_by_symbol = {row["symbol"]: row for row in perp_tickers if row.get("symbol") in perp_rank}
     spot_volume = {
-        row["symbol"]: float(row.get("quoteVolume", 0) or 0)
-        for row in spot_tickers if row.get("symbol") in spot_rank
+        symbol: float(row.get("quoteVolume", 0) or 0)
+        for symbol, row in spot_by_symbol.items()
     }
     perp_volume = {
-        row["symbol"]: float(row.get("quoteVolume", 0) or 0)
-        for row in perp_tickers if row.get("symbol") in perp_rank
+        symbol: float(row.get("quoteVolume", 0) or 0)
+        for symbol, row in perp_by_symbol.items()
     }
 
     common = set(spot_rank) & set(perp_rank)
@@ -45,6 +47,8 @@ def main() -> None:
             "Perp_Volume_Rank": pr,
             "Spot_24h_Quote_Volume_USD": spot_volume[symbol],
             "Perp_24h_Quote_Volume_USD": perp_volume[symbol],
+            "Spot_24h_Price_Change_Pct": float(spot_by_symbol[symbol].get("priceChangePercent", 0) or 0),
+            "Perp_24h_Price_Change_Pct": float(perp_by_symbol[symbol].get("priceChangePercent", 0) or 0),
             "Combined_Volume_Rank_Sum": sr + pr,
             "Worst_Market_Volume_Rank": max(sr, pr),
         })
