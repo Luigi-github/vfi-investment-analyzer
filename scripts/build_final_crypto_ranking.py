@@ -188,8 +188,8 @@ def build_final_ranking(root: Path) -> None:
         ]].rename(columns={
             "OOS_Total_Return_Pct": "BuyHold_OOS_Total_Return_Pct",
             "OOS_Mean_Trade_Pct": "BuyHold_OOS_Mean_Fold_Return_Pct",
-            "OOS_Trades": "BuyHold_OOS_Folds",
-            "OOS_Folds": "BuyHold_Fold_Count",
+            "OOS_Trades": "BuyHold_OOS_Trades",
+            "OOS_Folds": "BuyHold_OOS_Folds",
             "OOS_Fold_Consistency_Pct": "BuyHold_Positive_Fold_Rate_Pct",
         })
         ranking = ranking.merge(benchmark, on="Symbol", how="left")
