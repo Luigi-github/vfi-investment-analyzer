@@ -52,93 +52,110 @@ def analyze_symbol(
     vfi_indicator: VFIIndicator | None = None,
     divergence_indicator: VolumeDivergenceMM | None = None,
 ) -> dict:
-    if daily is None or daily.empty:
-        raise ValueError("No daily Spot OHLCV data")
-    if weekly is None or weekly.empty:
-        raise ValueError("No weekly Spot OHLCV data")
-
+    """Analyze VFI and divergence independently so one short history cannot erase the other signal."""
     vfi_indicator = vfi_indicator or VFIIndicator()
     divergence_indicator = divergence_indicator or VolumeDivergenceMM()
 
-    # The VFI is deliberately calculated on DAILY candles (not hourly candles).
-    vfi_raw = vfi_indicator.calculate(daily)
-    vfi_analyzed = VFIAnalyzer().analyze(vfi_raw)
-    vfi_scored = VFIScore().calculate(vfi_analyzed)
-    vfi_valid = vfi_scored.loc[vfi_scored["VFI"].notna()]
-    if vfi_valid.empty:
-        raise ValueError(
-            f"Insufficient daily history for VFI warmup: daily_rows={len(daily)}"
-        )
-    vfi_latest = vfi_valid.iloc[-1]
+    vfi_setup = score_zero_approach(pd.Series(dtype=float), "VFI_1D")
+    divergence_setup = score_zero_approach(pd.Series(dtype=float), "Divergence_1W")
+    vfi_latest = None
+    div_latest = None
+    vfi_reason = ""
+    div_reason = ""
+    vfi_valid = pd.DataFrame()
+    div_valid = pd.DataFrame()
 
-    # TradingView's Volume Divergence by MM is evaluated on WEEKLY candles,
-    # roughly matching the slower context the user compares with daily VFI.
-    divergence = divergence_indicator.calculate(weekly)
-    div_valid = divergence.loc[divergence["Volume_Divergence_MM"].notna()]
-    if div_valid.empty:
-        raise ValueError(
-            f"Insufficient weekly history for Volume Divergence warmup: weekly_rows={len(weekly)}"
+    # VFI uses daily candles. Keep its result even if weekly divergence history is too short.
+    try:
+        if daily is None or daily.empty:
+            raise ValueError("No daily Spot OHLCV data")
+        vfi_raw = vfi_indicator.calculate(daily)
+        vfi_analyzed = VFIAnalyzer().analyze(vfi_raw)
+        vfi_scored = VFIScore().calculate(vfi_analyzed)
+        vfi_valid = vfi_scored.loc[vfi_scored["VFI"].notna()]
+        if vfi_valid.empty:
+            raise ValueError(
+                f"Insufficient daily history for VFI warmup: daily_rows={len(daily)}"
+            )
+        vfi_latest = vfi_valid.iloc[-1]
+        vfi_setup = score_zero_approach(
+            vfi_valid["VFI"], "VFI_1D", lookback=52, min_history=20,
+            near_zero_fraction=0.15, max_abs_near_zero=2.0,
+            recent_cross_fraction=0.10, min_strength_4=0.10, min_strength_8=0.25,
         )
-    div_latest = div_valid.iloc[-1]
+        vfi_stage = str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN"))
+        vfi_stage_eligible = vfi_stage in {
+            "EARLY_RECOVERY", "SUSTAINED_RECOVERY", "APPROACHING_ZERO",
+            "ZERO_CROSS_UP", "ACCUMULATION",
+        }
+        if not vfi_stage_eligible and vfi_setup["VFI_1D_Setup_Type"] in {
+            "PRE_ZERO_BREAK", "ZERO_CROSS_RECENT",
+        }:
+            vfi_setup["VFI_1D_Setup_Type"] = "NONE"
+            vfi_setup["VFI_1D_Setup_Score"] = min(
+                float(vfi_setup["VFI_1D_Setup_Score"]), 59.9
+            )
+    except Exception as exc:
+        vfi_reason = repr(exc)
+        vfi_stage = "UNKNOWN"
+        vfi_stage_eligible = False
 
-    vfi_setup = score_zero_approach(
-        vfi_valid["VFI"],
-        "VFI_1D",
-        lookback=52,
-        min_history=20,
-        near_zero_fraction=0.15,
-        max_abs_near_zero=2.0,
-        recent_cross_fraction=0.10,
-        min_strength_4=0.10,
-        min_strength_8=0.25,
-    )
-    vfi_stage = str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN"))
-    vfi_stage_eligible = vfi_stage in {
-        "EARLY_RECOVERY", "SUSTAINED_RECOVERY", "APPROACHING_ZERO",
-        "ZERO_CROSS_UP", "ACCUMULATION",
-    }
-    # Require the existing VFI cycle classifier to agree with a recovery/
-    # accumulation phase. A slope-only oscillator outside those phases is
-    # retained for audit but cannot become a VFI candidate.
-    if not vfi_stage_eligible and vfi_setup["VFI_1D_Setup_Type"] in {
-        "PRE_ZERO_BREAK", "ZERO_CROSS_RECENT",
-    }:
-        vfi_setup["VFI_1D_Setup_Type"] = "NONE"
-        vfi_setup["VFI_1D_Setup_Score"] = min(
-            float(vfi_setup["VFI_1D_Setup_Score"]), 59.9
+    # Volume Divergence by MM uses weekly candles to match the user's TradingView comparison.
+    try:
+        if weekly is None or weekly.empty:
+            raise ValueError("No weekly Spot OHLCV data")
+        divergence = divergence_indicator.calculate(weekly)
+        div_valid = divergence.loc[divergence["Volume_Divergence_MM"].notna()]
+        if div_valid.empty:
+            raise ValueError(
+                "Insufficient weekly history for Volume Divergence warmup: "
+                f"weekly_rows={len(weekly)}"
+            )
+        div_latest = div_valid.iloc[-1]
+        divergence_setup = score_zero_approach(
+            div_valid["Volume_Divergence_MM"], "Divergence_1W",
+            lookback=52, min_history=20, near_zero_fraction=0.15,
+            max_abs_near_zero=None, recent_cross_fraction=0.10,
+            min_strength_4=0.10, min_strength_8=0.25,
         )
-    divergence_setup = score_zero_approach(
-        div_valid["Volume_Divergence_MM"],
-        "Divergence_1W",
-        lookback=52,
-        min_history=20,
-        near_zero_fraction=0.15,
-        max_abs_near_zero=None,
-        recent_cross_fraction=0.10,
-        min_strength_4=0.10,
-        min_strength_8=0.25,
-    )
+    except Exception as exc:
+        div_reason = repr(exc)
 
-    bull_age = div_latest.get("Volume_Div_Bullish_Age_Bars", np.nan)
-    bear_age = div_latest.get("Volume_Div_Bearish_Age_Bars", np.nan)
+    vfi_available = vfi_latest is not None
+    div_available = div_latest is not None
+    if vfi_available and div_available:
+        status = "ANALYZED"
+    elif vfi_available or div_available:
+        other_reason = div_reason if vfi_available else vfi_reason
+        status = "PARTIAL_ANALYSIS" if "Insufficient" in other_reason or "No " in other_reason else "PARTIAL_ERROR"
+    elif ("Insufficient" in vfi_reason or "No " in vfi_reason) and ("Insufficient" in div_reason or "No " in div_reason):
+        status = "INSUFFICIENT_HISTORY"
+    else:
+        status = "ERROR"
+
+    bull_age = div_latest.get("Volume_Div_Bullish_Age_Bars", np.nan) if div_available else np.nan
+    bear_age = div_latest.get("Volume_Div_Bearish_Age_Bars", np.nan) if div_available else np.nan
     bullish_recent = pd.notna(bull_age) and float(bull_age) <= 8
     bearish_recent = pd.notna(bear_age) and float(bear_age) <= 8
 
     row = {
         "Symbol": symbol,
-        "Analysis_Status": "ANALYZED",
-        "Exclusion_Reason": "",
-        "Price": float(vfi_latest["Close"]),
-        "Daily_Candle_Date": vfi_valid.index[-1].strftime("%Y-%m-%d"),
-        "Weekly_Candle_Date": div_valid.index[-1].strftime("%Y-%m-%d"),
-        "Daily_Bars": int(len(daily)),
-        "Weekly_Bars": int(len(weekly)),
-        "VFI_State_1D": str(vfi_latest.get("VFI_State", "UNKNOWN")),
-        "VFI_Cycle_Stage_1D": vfi_stage,
-        "VFI_Stage_Eligible_1D": bool(vfi_stage_eligible),
-        "VFI_Recovery_Score_1D": float(vfi_latest.get("VFI_Recovery_Score", np.nan)),
-        "VFI_Accumulation_Confirmed_1D": bool(vfi_latest.get("Accumulation_Confirmed", False)),
-        "Divergence_MM_Signal_1W": str(div_latest.get("Volume_Div_Signal", "")),
+        "Analysis_Status": status,
+        "VFI_Analysis_Status": "ANALYZED" if vfi_available else ("INSUFFICIENT_HISTORY" if "Insufficient" in vfi_reason or "No " in vfi_reason else "ERROR"),
+        "Divergence_Analysis_Status": "ANALYZED" if div_available else ("INSUFFICIENT_HISTORY" if "Insufficient" in div_reason or "No " in div_reason else "ERROR"),
+        "Exclusion_Reason": "; ".join(x for x in [vfi_reason, div_reason] if x),
+        "Analysis_Detail": "Both indicators available" if vfi_available and div_available else "One indicator unavailable; available indicator retained",
+        "Price": float(vfi_latest["Close"]) if vfi_available else np.nan,
+        "Daily_Candle_Date": vfi_valid.index[-1].strftime("%Y-%m-%d") if vfi_available else "",
+        "Weekly_Candle_Date": div_valid.index[-1].strftime("%Y-%m-%d") if div_available else "",
+        "Daily_Bars": int(len(daily)) if daily is not None else 0,
+        "Weekly_Bars": int(len(weekly)) if weekly is not None else 0,
+        "VFI_State_1D": str(vfi_latest.get("VFI_State", "UNKNOWN")) if vfi_available else "UNKNOWN",
+        "VFI_Cycle_Stage_1D": str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN")) if vfi_available else "UNKNOWN",
+        "VFI_Stage_Eligible_1D": bool(vfi_stage_eligible) if vfi_available else False,
+        "VFI_Recovery_Score_1D": float(vfi_latest.get("VFI_Recovery_Score", np.nan)) if vfi_available else np.nan,
+        "VFI_Accumulation_Confirmed_1D": bool(vfi_latest.get("Accumulation_Confirmed", False)) if vfi_available else False,
+        "Divergence_MM_Signal_1W": str(div_latest.get("Volume_Div_Signal", "")) if div_available else "",
         "Bullish_Divergence_Recent": bool(bullish_recent),
         "Bullish_Divergence_Age_Weeks": float(bull_age) if pd.notna(bull_age) else np.nan,
         "Bearish_Divergence_Recent": bool(bearish_recent),
@@ -146,8 +163,6 @@ def analyze_symbol(
     }
     row.update(vfi_setup)
     row.update(divergence_setup)
-    # Stable names consumed by the ranking helper; detailed columns retain
-    # their timeframe suffixes for auditability.
     row["VFI_Setup_Type"] = vfi_setup["VFI_1D_Setup_Type"]
     row["VFI_Setup_Score"] = vfi_setup["VFI_1D_Setup_Score"]
     row["Divergence_Setup_Type"] = divergence_setup["Divergence_1W_Setup_Type"]
