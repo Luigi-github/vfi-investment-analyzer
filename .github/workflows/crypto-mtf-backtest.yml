@@ -71,13 +71,18 @@ jobs:
         run: python -u scripts/run_crypto_mtf_analysis.py --symbols "${{ matrix.symbol }}" --min-volume 0 --top 1 --output-dir "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}/mtf"
       - name: Run walk-forward strategy backtest
         run: python -u scripts/run_crypto_mtf_real_backtest.py --symbols "${{ matrix.symbol }}" --output-dir "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}/backtest"
-      - name: Prepare artifact folder
+      - name: Prepare compact artifact folder
         if: always()
         run: |
-          mkdir -p "artifact/${{ matrix.symbol }}"
-          if [ -d "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}" ]; then
-            cp -R "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}/." "artifact/${{ matrix.symbol }}/"
-          fi
+          base="reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}"
+          dest="artifact/${{ matrix.symbol }}"
+          mkdir -p "$dest/mtf" "$dest/backtest"
+          for f in crypto_mtf_ranking.csv derivatives_snapshot.csv; do
+            [ ! -f "$base/mtf/$f" ] || cp "$base/mtf/$f" "$dest/mtf/$f"
+          done
+          for f in strategy_pnl_comparison.csv walk_forward_oos.csv oos_trades.csv walk_forward_summary.csv; do
+            [ ! -f "$base/backtest/$f" ] || cp "$base/backtest/$f" "$dest/backtest/$f"
+          done
       - name: Upload per-symbol results and logs
         if: always()
         uses: actions/upload-artifact@v4
