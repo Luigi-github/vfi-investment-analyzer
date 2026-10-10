@@ -202,6 +202,53 @@ def main():
                 for threshold in (70,80):
                     s,tr=run_one(hist,funding,strategy,threshold)
                     all_summaries.append({"Symbol":symbol,"Strategy":strategy,"Threshold":threshold,**s})
+            # Matched out-of-sample spot buy-and-hold benchmark for each
+            # exact test window. This is a benchmark row, not a tuned strategy.
+            benchmark_folds = [
+                (int(n*.50), int(n*.65)),
+                (int(n*.65), int(n*.80)),
+                (int(n*.80), n),
+            ]
+            for fold, (test0, test1) in enumerate(benchmark_folds, 1):
+                if test1 <= test0 or test0 >= n:
+                    continue
+                window = hist.iloc[test0:test1]
+                entry = float(hist.iloc[test0]["Open_Spot"])
+                exit_price = float(hist.iloc[test1 - 1]["Close_Spot"])
+                gross = exit_price / entry - 1.0
+                costs = 2.0 * (FEE + SLIPPAGE)
+                net = gross - costs
+                close_path = window["Close_Spot"].astype(float) / entry - costs
+                equity_path = pd.concat(
+                    [pd.Series([1.0]), close_path.reset_index(drop=True)],
+                    ignore_index=True,
+                )
+                benchmark_dd = float(
+                    (equity_path / equity_path.cummax() - 1.0).min() * 100.0
+                )
+                entry_ts = hist.index[test0]
+                exit_ts = hist.index[test1 - 1]
+                holding_hours = max((exit_ts - entry_ts).total_seconds() / 3600.0, 0.0)
+                oos_rows.append({
+                    "Symbol": symbol, "Strategy": "BUY_AND_HOLD_OOS", "Fold": fold,
+                    "Train_End": hist.index[test0 - 1],
+                    "Test_Start": entry_ts, "Test_End": exit_ts,
+                    "Selected_Threshold": 0, "Threshold_Selection_Status": "BENCHMARK_NO_TUNING",
+                    "Train_Avg_Trade_Pct": np.nan, "Trades": 1,
+                    "Win_Rate_Pct": 100.0 if net > 0 else 0.0,
+                    "Total_Return_Pct": net * 100.0,
+                    "Average_Trade_Pct": net * 100.0,
+                    "Profit_Factor": np.nan, "Max_Drawdown_Pct": benchmark_dd,
+                    "OOS_Mean_95_Lower_Pct": np.nan, "OOS_Mean_95_Upper_Pct": np.nan,
+                })
+                trade_rows.append(pd.DataFrame([{
+                    "Signal_Date": entry_ts, "Entry_Date": entry_ts, "Exit_Date": exit_ts,
+                    "Entry_Price": entry, "Exit_Price": exit_price,
+                    "Gross_Return": gross, "Costs": costs, "Funding_PnL": 0.0,
+                    "Net_Return": net, "Holding_Hours": holding_hours,
+                    "Exit_Reason": "BENCHMARK_HORIZON", "Direction": "long",
+                    "Symbol": symbol, "Strategy": "BUY_AND_HOLD_OOS", "Fold": fold,
+                }])
             bh=buy_and_hold(hist,fee=FEE,slippage=SLIPPAGE)
             all_summaries.append({"Symbol":symbol,"Strategy":"BUY_AND_HOLD","Threshold":0,**bh})
             status["OOS_Folds"] = len({row["Fold"] for row in oos_rows if row["Symbol"] == symbol})
