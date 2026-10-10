@@ -277,7 +277,10 @@ def main() -> None:
         "insufficient_history": int(status_counts.get("INSUFFICIENT_HISTORY", 0)),
         "errors": int(status_counts.get("ERROR", 0)),
         "vfi_daily_candidates": int(len(vfi_candidates)),
+        "weekly_divergence_candidates": int(result["Divergence_Setup"].sum()) if "Divergence_Setup" in result else 0,
         "combined_daily_vfi_weekly_divergence_candidates": int(len(combined_candidates)),
+        "vfi_cycle_history_insufficient": int((result["VFI_Setup_Type"] == "INSUFFICIENT_HISTORY").sum()) if "VFI_Setup_Type" in result else 0,
+        "weekly_divergence_history_insufficient": int((result["Divergence_Setup_Type"] == "INSUFFICIENT_HISTORY").sum()) if "Divergence_Setup_Type" in result else 0,
         "timeframes": {"VFI": "1D", "Volume_Divergence_by_MM": "1W"},
         "intraday_timeframes_used": [],
         "ranking_logic": (
