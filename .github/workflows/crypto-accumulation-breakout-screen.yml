@@ -1,0 +1,63 @@
+name: Binance Early Accumulation Breakout Screen
+
+on:
+  workflow_dispatch:
+    inputs:
+      top:
+        description: Number of liquid Spot + USD-M perpetual assets to screen
+        required: true
+        default: "200"
+      daily_bars:
+        description: Daily candles for VFI (minimum 160)
+        required: true
+        default: "1000"
+      weekly_bars:
+        description: Weekly candles for Volume Divergence by MM (minimum 100)
+        required: true
+        default: "400"
+  push:
+    branches: [main]
+    paths:
+      - "app/research/accumulation_breakout_screen.py"
+      - "scripts/run_crypto_accumulation_breakout_screen.py"
+      - "app/indicators/vfi.py"
+      - "app/indicators/volume_divergence_mm.py"
+      - ".github/workflows/crypto-accumulation-breakout-screen.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: binance-accumulation-breakout-screen
+  cancel-in-progress: false
+
+jobs:
+  screen:
+    name: Daily VFI + weekly divergence top-200 screen
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements-backtest.txt
+      - name: Install dependencies
+        run: python -m pip install -r requirements-backtest.txt
+      - name: Screen assets (no intraday timeframes)
+        run: >-
+          python -u scripts/run_crypto_accumulation_breakout_screen.py
+          --top "${{ inputs.top || '200' }}"
+          --daily-bars "${{ inputs.daily_bars || '1000' }}"
+          --weekly-bars "${{ inputs.weekly_bars || '400' }}"
+          --min-volume 0
+          --output-dir reports/crypto_accumulation_breakout
+      - name: Upload full ranking and candidate lists
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crypto-early-accumulation-screen-${{ github.run_number }}
+          path: reports/crypto_accumulation_breakout/
+          if-no-files-found: warn
+          retention-days: 30
