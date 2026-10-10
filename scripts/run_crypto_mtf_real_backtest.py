@@ -251,8 +251,12 @@ def main():
                 }]))
             bh=buy_and_hold(hist,fee=FEE,slippage=SLIPPAGE)
             all_summaries.append({"Symbol":symbol,"Strategy":"BUY_AND_HOLD","Threshold":0,**bh})
-            status["OOS_Folds"] = len({row["Fold"] for row in oos_rows if row["Symbol"] == symbol})
-            status["OOS_Trades"] = int(sum(row["Trades"] for row in oos_rows if row["Symbol"] == symbol))
+            strategy_oos_rows = [
+                row for row in oos_rows
+                if row["Symbol"] == symbol and row["Strategy"] != "BUY_AND_HOLD_OOS"
+            ]
+            status["OOS_Folds"] = len({row["Fold"] for row in strategy_oos_rows})
+            status["OOS_Trades"] = int(sum(row["Trades"] for row in strategy_oos_rows))
             status["Status"] = "completed" if status["OOS_Trades"] > 0 else "no_oos_trades"
             if status["Status"] == "no_oos_trades":
                 status["Reason"] = "The walk-forward windows completed but produced no OOS trades"
