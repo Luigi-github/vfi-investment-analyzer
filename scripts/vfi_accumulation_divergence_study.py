@@ -159,12 +159,15 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
     # Map confirmed weekly signals to daily rows only after the week closes.
     wbull = weekly_div["Volume_Div_Bullish"].fillna(False).astype(bool)
     wbear = weekly_div["Volume_Div_Bearish"].fillna(False).astype(bool)
+    weekly_signal_names = weekly_div["Volume_Div_Signal"].astype(str)
     weekly_signal = pd.DataFrame({
         "Weekly_Bullish_Div_Confirmed": wbull,
         "Weekly_Bearish_Div_Confirmed": wbear,
         "Weekly_Bullish_Div_Age_Bars": weekly_div["Volume_Div_Bullish_Age_Bars"],
         "Weekly_Bearish_Div_Age_Bars": weekly_div["Volume_Div_Bearish_Age_Bars"],
-        "Weekly_Div_Signal": weekly_div["Volume_Div_Signal"].astype(str),
+        "Weekly_Last_Bullish_Signal": weekly_signal_names.where(wbull, np.nan).ffill(),
+        "Weekly_Last_Bearish_Signal": weekly_signal_names.where(wbear, np.nan).ffill(),
+        "Weekly_Div_Signal": weekly_signal_names,
         "Weekly_Div_Value": weekly_div["Volume_Divergence_MM"],
     }).reset_index().rename(columns={weekly_div.index.name or "index": "Weekly_Date"})
     weekly_signal["Weekly_Date"] = pd.to_datetime(weekly_signal["Weekly_Date"])
@@ -204,7 +207,17 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         DAILY_DIVERGENCE_FRESH_DAYS,
     )
     joined["Daily_Div_Signal"] = daily_div["Volume_Div_Signal"].reindex(joined.index).fillna("")
-    joined["Weekly_Div_Age_Days"] = joined["Weekly_Bullish_Div_Age_Bars"] * 7.0
+    joined["Weekly_Div_Age_Days"] = np.where(
+        joined["Weekly_Bullish_Div_Age_Bars"].le(joined["Weekly_Bearish_Div_Age_Bars"]),
+        joined["Weekly_Bullish_Div_Age_Bars"] * 7.0,
+        joined["Weekly_Bearish_Div_Age_Bars"] * 7.0,
+    )
+    joined["Weekly_Div_Signal"] = np.where(
+        joined["Weekly_Bullish_Div_Age_Bars"].le(joined["Weekly_Bearish_Div_Age_Bars"]),
+        joined["Weekly_Last_Bullish_Signal"],
+        joined["Weekly_Last_Bearish_Signal"],
+    )
+    joined["Weekly_Div_Signal"] = joined["Weekly_Div_Signal"].fillna("")
     joined["Daily_Div_Age_Days"] = daily_div["Volume_Div_Bullish_Age_Bars"].reindex(joined.index)
 
     conditions = {
