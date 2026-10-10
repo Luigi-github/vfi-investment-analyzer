@@ -15,7 +15,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: free-binance-top200-\${{ github.ref }}
+  group: free-binance-top200-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     outputs:
-      symbols: \${{ steps.universe.outputs.symbols }}
+      symbols: ${{ steps.universe.outputs.symbols }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -49,7 +49,7 @@ jobs:
           retention-days: 7
 
   backtest:
-    name: Backtest \${{ matrix.symbol }}
+    name: Backtest ${{ matrix.symbol }}
     needs: discover
     runs-on: ubuntu-latest
     timeout-minutes: 60
@@ -57,7 +57,7 @@ jobs:
       fail-fast: false
       max-parallel: 10
       matrix:
-        symbol: \${{ fromJson(needs.discover.outputs.symbols) }}
+        symbol: ${{ fromJson(needs.discover.outputs.symbols) }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -68,21 +68,21 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Run MTF ranking for symbol
-        run: python -u scripts/run_crypto_mtf_analysis.py --symbols "\${{ matrix.symbol }}" --min-volume 0 --top 1 --output-dir "reports/free_cloud_backtest/per_symbol/\${{ matrix.symbol }}/mtf"
+        run: python -u scripts/run_crypto_mtf_analysis.py --symbols "${{ matrix.symbol }}" --min-volume 0 --top 1 --output-dir "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}/mtf"
       - name: Run walk-forward strategy backtest
-        run: python -u scripts/run_crypto_mtf_real_backtest.py --symbols "\${{ matrix.symbol }}" --output-dir "reports/free_cloud_backtest/per_symbol/\${{ matrix.symbol }}/backtest"
+        run: python -u scripts/run_crypto_mtf_real_backtest.py --symbols "${{ matrix.symbol }}" --output-dir "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}/backtest"
       - name: Prepare artifact folder
         if: always()
         run: |
-          mkdir -p "artifact/\${{ matrix.symbol }}"
-          if [ -d "reports/free_cloud_backtest/per_symbol/\${{ matrix.symbol }}" ]; then
-            cp -R "reports/free_cloud_backtest/per_symbol/\${{ matrix.symbol }}/." "artifact/\${{ matrix.symbol }}/"
+          mkdir -p "artifact/${{ matrix.symbol }}"
+          if [ -d "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}" ]; then
+            cp -R "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}/." "artifact/${{ matrix.symbol }}/"
           fi
       - name: Upload per-symbol results and logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-mtf-\${{ matrix.symbol }}
+          name: crypto-mtf-${{ matrix.symbol }}
           path: artifact/**
           if-no-files-found: warn
           retention-days: 7
@@ -111,7 +111,7 @@ jobs:
           if-no-artifact-found: ignore
       - name: Save universe and progress checkpoint
         env:
-          SYMBOLS_JSON: \${{ needs.discover.outputs.symbols }}
+          SYMBOLS_JSON: ${{ needs.discover.outputs.symbols }}
         run: |
           python - <<'PY'
           import json, os
@@ -140,7 +140,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-mtf-top200-results-\${{ github.run_number }}
+          name: crypto-mtf-top200-results-${{ github.run_number }}
           path: reports/free_cloud_backtest/
           if-no-files-found: warn
           retention-days: 30
