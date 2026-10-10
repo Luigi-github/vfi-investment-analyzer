@@ -15,7 +15,8 @@ permissions:
 
 concurrency:
   group: free-binance-top200-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer audited full run supersedes stale queued/running versions.
+  cancel-in-progress: true
 
 jobs:
   discover:
