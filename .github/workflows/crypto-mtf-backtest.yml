@@ -15,7 +15,8 @@ permissions:
 
 concurrency:
   group: free-binance-top200-${{ github.ref }}
-  cancel-in-progress: false
+  # A newer audited full run supersedes stale queued/running versions.
+  cancel-in-progress: true
 
 jobs:
   discover:
@@ -113,6 +114,11 @@ jobs:
           path: reports/free_cloud_backtest/per_symbol
           merge-multiple: true
           if-no-artifact-found: ignore
+      - name: Download universe liquidity metadata
+        uses: actions/download-artifact@v4
+        with:
+          name: binance-universe-definition
+          path: reports/free_cloud_backtest/universe_meta
       - name: Save universe and progress checkpoint
         env:
           SYMBOLS_JSON: ${{ needs.discover.outputs.symbols }}
@@ -155,8 +161,13 @@ jobs:
               run_status = "completed_with_warnings"
           else:
               run_status = "completed"
+          universe_path = root / "universe_meta" / "reports-universe.json"
+          universe_meta = json.loads(universe_path.read_text(encoding="utf-8")) if universe_path.exists() else {}
           manifest = {
-              "selection_method": "Top 200 intersection of Binance USDT spot and USD-M perpetual markets ranked by combined 24h quote-volume ranks",
+              "selection_method": universe_meta.get("selection_method", "Intersection of active Binance USDT spot and USD-M perpetual markets ranked by combined 24h quote-volume ranks"),
+              "retrieved_at_utc": universe_meta.get("retrieved_at_utc"),
+              "universe_size": len(symbols),
+              "liquidity_metadata_file": "binance_universe_liquidity.csv",
               "symbols": symbols,
               "completed": sorted(completed),
               "no_oos_trades": sorted(no_oos_trades),

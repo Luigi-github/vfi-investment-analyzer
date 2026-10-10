@@ -7,6 +7,7 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from scripts.run_resumable_crypto_backtests import aggregate_outputs
+from scripts.build_final_crypto_ranking import build_final_ranking
 
 def main() -> None:
     parser = argparse.ArgumentParser()
@@ -38,7 +39,8 @@ def main() -> None:
         else:
             state["status"] = "completed"
         manifest.write_text(json.dumps(state, indent=2), encoding="utf-8")
-    print(f"Aggregated report files in {root}")
+    build_final_ranking(root)
+    print(f"Aggregated and audited report files in {root}")
 
 if __name__ == "__main__":
     main()

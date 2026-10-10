@@ -9,6 +9,20 @@ sys.path.insert(0, str(ROOT))
 from app.data.binance_market_data import BinanceMarketDataService
 from app.research.multi_timeframe_crypto import MultiTimeframeCryptoAnalyzer
 
+def alignment_fields(prefix, confluence):
+    fields = {f"{prefix}_Snapshot_Timestamp": confluence.get("Timestamp")}
+    for row in confluence.get("Alignment", []):
+        timeframe = row.get("Timeframe", "UNKNOWN")
+        fields[f"{prefix}_{timeframe}_Stage"] = row.get("Stage")
+        fields[f"{prefix}_{timeframe}_Timestamp"] = row.get("Timestamp")
+        fields[f"{prefix}_{timeframe}_VFI"] = row.get("VFI")
+        fields[f"{prefix}_{timeframe}_Slope_1B"] = row.get("Slope_1B")
+        fields[f"{prefix}_{timeframe}_Slope_4B"] = row.get("Slope_4B")
+        fields[f"{prefix}_{timeframe}_Slope_8B"] = row.get("Slope_8B")
+        fields[f"{prefix}_{timeframe}_Recovery_Score"] = row.get("Recovery_Score")
+    return fields
+
+
 def main():
     parser = ArgumentParser(description="Binance Spot + USDⓈ-M perpetual multi-timeframe VFI research.")
     parser.add_argument("--symbols", default="AUTO")
@@ -40,7 +54,7 @@ def main():
             perp_calc = analyzer.calculate(perp)
             spot_conf = analyzer.confluence_at(spot_calc)
             perp_conf = analyzer.confluence_at(perp_calc)
-            rows.append({
+            row = {
                 "Symbol": symbol,
                 "Spot_MTF_Score": spot_conf["Score"],
                 "Spot_Direction": spot_conf["Direction"],
@@ -49,7 +63,14 @@ def main():
                 "Confluence_Score": (spot_conf["Score"] * 0.60 + perp_conf["Score"] * 0.40),
                 "Spot_1W": spot_conf["Alignment"][0]["Stage"] if spot_conf["Alignment"] else None,
                 "Perp_1W": perp_conf["Alignment"][0]["Stage"] if perp_conf["Alignment"] else None,
-            })
+                "Spot_Last_Price": float(spot["1H"]["Close"].iloc[-1]) if "1H" in spot and not spot["1H"].empty else None,
+                "Perp_Last_Price": float(perp["1H"]["Close"].iloc[-1]) if "1H" in perp and not perp["1H"].empty else None,
+                "Spot_Last_Candle_Timestamp": spot["1H"].index[-1] if "1H" in spot and not spot["1H"].empty else None,
+                "Perp_Last_Candle_Timestamp": perp["1H"].index[-1] if "1H" in perp and not perp["1H"].empty else None,
+            }
+            row.update(alignment_fields("Spot", spot_conf))
+            row.update(alignment_fields("Perp", perp_conf))
+            rows.append(row)
             oi = service.get_open_interest_history(symbol, period="1h")
             funding = service.get_funding_history(symbol)
             if not oi.empty:

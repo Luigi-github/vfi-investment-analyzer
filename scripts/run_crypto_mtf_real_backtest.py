@@ -14,6 +14,8 @@ from app.backtest.crypto_strategy import backtest_signals, buy_and_hold
 from app.backtest.block_bootstrap import block_bootstrap_mean
 
 THRESHOLDS = (60, 65, 70, 75, 80, 85, 90)
+MIN_TRAIN_TRADES = 10
+FIXED_THRESHOLDS = {"BOTH_MTF": 80, "COMBINED_70": 70, "COMBINED_80": 80}
 STRATEGIES = {
     "SPOT_MTF": ("MTF_Score_Spot", "Spot"),
     "PERP_MTF": ("MTF_Score_Perp", "Perp"),
@@ -156,31 +158,57 @@ def main():
                     # resolve the 72h label, but only keep trades whose signal
                     # AND exit are fully known before the train/test boundary.
                     train_end_with_labels = min(n, train1 + HORIZON + 1)
-                    for threshold in THRESHOLDS:
-                        s, tr = run_one(
-                            hist, funding, strategy, threshold,
+                    if strategy in FIXED_THRESHOLDS:
+                        fixed = FIXED_THRESHOLDS[strategy]
+                        train_stats, train_trades = run_one(
+                            hist, funding, strategy, fixed,
                             train0, train_end_with_labels
                         )
-                        if not tr.empty:
-                            tr = tr.loc[
-                                (tr["Signal_Date"] < train_cutoff_ts)
-                                & (tr["Exit_Date"] < train_cutoff_ts)
+                        if not train_trades.empty:
+                            train_trades = train_trades.loc[
+                                (train_trades["Signal_Date"] < train_cutoff_ts)
+                                & (train_trades["Exit_Date"] < train_cutoff_ts)
                             ]
-                        avg = float(tr["Net_Return"].mean() * 100) if not tr.empty else -np.inf
-                        s = dict(s)
-                        s["Trades"] = len(tr)
-                        s["Average_Trade_Pct"] = avg
-                        scores.append((avg, threshold, s))
-                    valid_scores = [candidate for candidate in scores if np.isfinite(candidate[0])]
-                    if valid_scores:
-                        best = max(valid_scores, key=lambda x: x[0])
-                        selection_status = "TRAINED"
+                        train_avg = (
+                            float(train_trades["Net_Return"].mean() * 100)
+                            if not train_trades.empty else np.nan
+                        )
+                        best = (train_avg, fixed, {"Trades": len(train_trades)})
+                        selection_status = "FIXED_THRESHOLD"
                     else:
-                        # Never pick the first threshold arbitrarily when the training
-                        # window has no completed trades; use a declared fallback and
-                        # mark that this fold had no evidence for threshold selection.
-                        best = (np.nan, 80, {})
-                        selection_status = "FALLBACK_NO_TRAIN_TRADES"
+                        for threshold in THRESHOLDS:
+                            _, tr = run_one(
+                                hist, funding, strategy, threshold,
+                                train0, train_end_with_labels
+                            )
+                            if not tr.empty:
+                                tr = tr.loc[
+                                    (tr["Signal_Date"] < train_cutoff_ts)
+                                    & (tr["Exit_Date"] < train_cutoff_ts)
+                                ]
+                            # Avoid choosing a threshold on a tiny, noisy training sample.
+                            avg = (
+                                float(tr["Net_Return"].mean() * 100)
+                                if len(tr) >= MIN_TRAIN_TRADES else -np.inf
+                            )
+                            scores.append((avg, threshold, {"Trades": len(tr)}))
+                        valid_scores = [candidate for candidate in scores if np.isfinite(candidate[0])]
+                        if valid_scores:
+                            best = max(valid_scores, key=lambda x: x[0])
+                            selection_status = "TRAINED_MIN_10_TRADES"
+                        else:
+                            # Use a declared fallback when no threshold has enough
+                            # fully completed training trades; never pick arbitrarily.
+                            any_train_trades = any(candidate[2]["Trades"] > 0 for candidate in scores)
+                            fallback_train_trades = next(
+                                (candidate[2]["Trades"] for candidate in scores if candidate[1] == 80),
+                                0,
+                            )
+                            best = (np.nan, 80, {"Trades": fallback_train_trades})
+                            selection_status = (
+                                "FALLBACK_INSUFFICIENT_TRAIN_TRADES"
+                                if any_train_trades else "FALLBACK_NO_TRAIN_TRADES"
+                            )
                     test_stats,trades=run_one(hist,funding,strategy,best[1],test0,test1)
                     if len(trades) < 20:
                         # A bootstrap interval from a handful of trades is degenerate
@@ -192,20 +220,78 @@ def main():
                          "Train_End":hist.index[train1-1],"Test_Start":hist.index[test0],
                          "Test_End":hist.index[test1-1],"Selected_Threshold":best[1],
                          "Threshold_Selection_Status":selection_status,
-                         "Train_Avg_Trade_Pct":best[0],**test_stats,
+                         "Train_Avg_Trade_Pct":best[0],
+                         "Train_Trades_At_Selected_Threshold":int(best[2].get("Trades", 0)),
+                         **test_stats,
                          "OOS_Mean_95_Lower_Pct":ci["Lower_95"]*100 if pd.notna(ci["Lower_95"]) else np.nan,
                          "OOS_Mean_95_Upper_Pct":ci["Upper_95"]*100 if pd.notna(ci["Upper_95"]) else np.nan}
                     oos_rows.append(row)
                     if not trades.empty:
                         trades=trades.copy(); trades["Symbol"]=symbol; trades["Strategy"]=strategy; trades["Fold"]=fold
                         trade_rows.append(trades)
-                for threshold in (70,80):
+                summary_thresholds = (
+                    [FIXED_THRESHOLDS[strategy]]
+                    if strategy in FIXED_THRESHOLDS else [70, 80]
+                )
+                for threshold in summary_thresholds:
                     s,tr=run_one(hist,funding,strategy,threshold)
                     all_summaries.append({"Symbol":symbol,"Strategy":strategy,"Threshold":threshold,**s})
+            # Matched out-of-sample spot buy-and-hold benchmark for each
+            # exact test window. This is a benchmark row, not a tuned strategy.
+            benchmark_folds = [
+                (int(n*.50), int(n*.65)),
+                (int(n*.65), int(n*.80)),
+                (int(n*.80), n),
+            ]
+            for fold, (test0, test1) in enumerate(benchmark_folds, 1):
+                benchmark_entry_i = test0 + 1  # same next-bar execution convention as strategy signals
+                if test1 <= benchmark_entry_i or benchmark_entry_i >= n:
+                    continue
+                window = hist.iloc[benchmark_entry_i:test1]
+                entry = float(hist.iloc[benchmark_entry_i]["Open_Spot"])
+                exit_price = float(hist.iloc[test1 - 1]["Close_Spot"])
+                gross = exit_price / entry - 1.0
+                costs = 2.0 * (FEE + SLIPPAGE)
+                net = gross - costs
+                close_path = window["Close_Spot"].astype(float) / entry - costs
+                equity_path = pd.concat(
+                    [pd.Series([1.0]), close_path.reset_index(drop=True)],
+                    ignore_index=True,
+                )
+                benchmark_dd = float(
+                    (equity_path / equity_path.cummax() - 1.0).min() * 100.0
+                )
+                entry_ts = hist.index[benchmark_entry_i]
+                exit_ts = hist.index[test1 - 1]
+                holding_hours = max((exit_ts - entry_ts).total_seconds() / 3600.0, 0.0)
+                oos_rows.append({
+                    "Symbol": symbol, "Strategy": "BUY_AND_HOLD_OOS", "Fold": fold,
+                    "Train_End": hist.index[test0 - 1],
+                    "Test_Start": entry_ts, "Test_End": exit_ts,
+                    "Selected_Threshold": 0, "Threshold_Selection_Status": "BENCHMARK_NO_TUNING",
+                    "Train_Avg_Trade_Pct": np.nan, "Trades": 1,
+                    "Win_Rate_Pct": 100.0 if net > 0 else 0.0,
+                    "Total_Return_Pct": net * 100.0,
+                    "Average_Trade_Pct": net * 100.0,
+                    "Profit_Factor": np.nan, "Max_Drawdown_Pct": benchmark_dd,
+                    "OOS_Mean_95_Lower_Pct": np.nan, "OOS_Mean_95_Upper_Pct": np.nan,
+                })
+                trade_rows.append(pd.DataFrame([{
+                    "Signal_Date": entry_ts, "Entry_Date": entry_ts, "Exit_Date": exit_ts,
+                    "Entry_Price": entry, "Exit_Price": exit_price,
+                    "Gross_Return": gross, "Costs": costs, "Funding_PnL": 0.0,
+                    "Net_Return": net, "Holding_Hours": holding_hours,
+                    "Exit_Reason": "BENCHMARK_HORIZON", "Direction": "long",
+                    "Symbol": symbol, "Strategy": "BUY_AND_HOLD_OOS", "Fold": fold,
+                }]))
             bh=buy_and_hold(hist,fee=FEE,slippage=SLIPPAGE)
             all_summaries.append({"Symbol":symbol,"Strategy":"BUY_AND_HOLD","Threshold":0,**bh})
-            status["OOS_Folds"] = len({row["Fold"] for row in oos_rows if row["Symbol"] == symbol})
-            status["OOS_Trades"] = int(sum(row["Trades"] for row in oos_rows if row["Symbol"] == symbol))
+            strategy_oos_rows = [
+                row for row in oos_rows
+                if row["Symbol"] == symbol and row["Strategy"] != "BUY_AND_HOLD_OOS"
+            ]
+            status["OOS_Folds"] = len({row["Fold"] for row in strategy_oos_rows})
+            status["OOS_Trades"] = int(sum(row["Trades"] for row in strategy_oos_rows))
             status["Status"] = "completed" if status["OOS_Trades"] > 0 else "no_oos_trades"
             if status["Status"] == "no_oos_trades":
                 status["Reason"] = "The walk-forward windows completed but produced no OOS trades"
