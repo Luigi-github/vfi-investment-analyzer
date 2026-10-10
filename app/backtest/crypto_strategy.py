@@ -103,7 +103,7 @@ def backtest_signals(
                 if take_profit is not None and lo <= entry * (1 - take_profit):
                     exit_i, exit_price, reason = j, entry * (1 - take_profit), "TARGET"
                     break
-        gross = exit_price / entry - 1.0 if direction == "long" else entry / exit_price - 1.0
+        gross = exit_price / entry - 1.0 if direction == "long" else 1.0 - exit_price / entry
         costs = _cost_rate(fee, slippage)
         funding_pnl = 0.0
         if len(funding):
