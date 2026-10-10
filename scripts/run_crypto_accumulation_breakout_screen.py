@@ -25,6 +25,7 @@ from app.scoring.vfi_score import VFIScore
 from app.research.accumulation_breakout_screen import (
     rank_accumulation_candidates,
     score_zero_approach,
+    unavailable_asset_row,
 )
 
 
@@ -125,6 +126,8 @@ def analyze_symbol(
 
     row = {
         "Symbol": symbol,
+        "Analysis_Status": "ANALYZED",
+        "Exclusion_Reason": "",
         "Price": float(vfi_latest["Close"]),
         "Daily_Candle_Date": vfi_valid.index[-1].strftime("%Y-%m-%d"),
         "Weekly_Candle_Date": div_valid.index[-1].strftime("%Y-%m-%d"),
@@ -192,8 +195,18 @@ def main() -> None:
             row["Universe_Liquidity_Rank"] = number
             rows.append(row)
         except Exception as exc:
-            errors.append({"Symbol": symbol, "Error": repr(exc)})
-            print(f"ERROR {symbol}: {exc}", flush=True)
+            reason = repr(exc)
+            is_insufficient = isinstance(exc, ValueError) and (
+                "Insufficient daily history" in str(exc)
+                or "Insufficient weekly history" in str(exc)
+            )
+            status = "INSUFFICIENT_HISTORY" if is_insufficient else "ERROR"
+            rows.append(unavailable_asset_row(symbol, number, status, reason))
+            if not is_insufficient:
+                errors.append({"Symbol": symbol, "Error": reason})
+                print(f"ERROR {symbol}: {exc}", flush=True)
+            else:
+                print(f"INSUFFICIENT HISTORY {symbol}: {exc}", flush=True)
 
     result = rank_accumulation_candidates(pd.DataFrame(rows))
     if not result.empty:
@@ -211,10 +224,16 @@ def main() -> None:
         combined_candidates.to_csv(output / "combined_vfi_divergence_candidates.csv", index=False)
 
     pd.DataFrame(errors, columns=["Symbol", "Error"]).to_csv(output / "errors.csv", index=False)
+    status_counts = (
+        result["Analysis_Status"].value_counts().to_dict()
+        if not result.empty and "Analysis_Status" in result else {}
+    )
     summary = {
         "universe_requested": len(symbols),
-        "assets_analyzed": len(result),
-        "errors": len(errors),
+        "assets_reported": int(len(result)),
+        "assets_analyzed": int(status_counts.get("ANALYZED", 0)),
+        "insufficient_history": int(status_counts.get("INSUFFICIENT_HISTORY", 0)),
+        "errors": int(status_counts.get("ERROR", 0)),
         "vfi_daily_candidates": int(len(vfi_candidates)),
         "combined_daily_vfi_weekly_divergence_candidates": int(len(combined_candidates)),
         "timeframes": {"VFI": "1D", "Volume_Divergence_by_MM": "1W"},
