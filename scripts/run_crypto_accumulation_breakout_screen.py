@@ -91,6 +91,21 @@ def analyze_symbol(
         min_strength_4=0.10,
         min_strength_8=0.25,
     )
+    vfi_stage = str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN"))
+    vfi_stage_eligible = vfi_stage in {
+        "EARLY_RECOVERY", "SUSTAINED_RECOVERY", "APPROACHING_ZERO",
+        "ZERO_CROSS_UP", "ACCUMULATION",
+    }
+    # Require the existing VFI cycle classifier to agree with a recovery/
+    # accumulation phase. A slope-only oscillator outside those phases is
+    # retained for audit but cannot become a VFI candidate.
+    if not vfi_stage_eligible and vfi_setup["VFI_1D_Setup_Type"] in {
+        "PRE_ZERO_BREAK", "ZERO_CROSS_RECENT",
+    }:
+        vfi_setup["VFI_1D_Setup_Type"] = "NONE"
+        vfi_setup["VFI_1D_Setup_Score"] = min(
+            float(vfi_setup["VFI_1D_Setup_Score"]), 59.9
+        )
     divergence_setup = score_zero_approach(
         div_valid["Volume_Divergence_MM"],
         "Divergence_1W",
@@ -116,7 +131,8 @@ def analyze_symbol(
         "Daily_Bars": int(len(daily)),
         "Weekly_Bars": int(len(weekly)),
         "VFI_State_1D": str(vfi_latest.get("VFI_State", "UNKNOWN")),
-        "VFI_Cycle_Stage_1D": str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN")),
+        "VFI_Cycle_Stage_1D": vfi_stage,
+        "VFI_Stage_Eligible_1D": bool(vfi_stage_eligible),
         "VFI_Recovery_Score_1D": float(vfi_latest.get("VFI_Recovery_Score", np.nan)),
         "VFI_Accumulation_Confirmed_1D": bool(vfi_latest.get("Accumulation_Confirmed", False)),
         "Divergence_MM_Signal_1W": str(div_latest.get("Volume_Div_Signal", "")),
