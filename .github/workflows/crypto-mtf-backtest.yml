@@ -8,20 +8,29 @@ on:
 jobs:
   backtest:
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 350
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12.10"
+          cache: pip
+          cache-dependency-path: requirements.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
       - name: Run multi-timeframe ranking
-        run: python scripts/run_crypto_mtf_analysis.py --symbols AUTO --min-volume 10000000 --top 200 --output-dir reports/crypto_mtf
-      - name: Run purged walk-forward real backtest on the same Binance universe
-        run: python scripts/run_crypto_mtf_real_backtest.py --symbols AUTO --output-dir reports/crypto_mtf_real_backtest
-      - name: Upload MTF research
+        run: python -u scripts/run_crypto_mtf_analysis.py --symbols AUTO --min-volume 10000000 --top 200 --output-dir reports/crypto_mtf
+        env:
+          PYTHONUNBUFFERED: "1"
+      - name: Run purged walk-forward real backtest
+        run: python -u scripts/run_crypto_mtf_real_backtest.py --symbols AUTO --output-dir reports/crypto_mtf_real_backtest
+        env:
+          PYTHONUNBUFFERED: "1"
+      - name: Upload MTF research and backtest
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: crypto-binance-mtf-full
+          name: crypto-binance-mtf-full-${{ github.run_number }}
           path: reports/
+          if-no-files-found: warn
+          retention-days: 30
