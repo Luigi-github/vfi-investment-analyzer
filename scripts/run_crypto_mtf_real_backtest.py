@@ -248,7 +248,7 @@ def main():
                     "Net_Return": net, "Holding_Hours": holding_hours,
                     "Exit_Reason": "BENCHMARK_HORIZON", "Direction": "long",
                     "Symbol": symbol, "Strategy": "BUY_AND_HOLD_OOS", "Fold": fold,
-                }])
+                }]))
             bh=buy_and_hold(hist,fee=FEE,slippage=SLIPPAGE)
             all_summaries.append({"Symbol":symbol,"Strategy":"BUY_AND_HOLD","Threshold":0,**bh})
             status["OOS_Folds"] = len({row["Fold"] for row in oos_rows if row["Symbol"] == symbol})
