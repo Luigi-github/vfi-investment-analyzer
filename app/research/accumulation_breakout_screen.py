@@ -139,6 +139,10 @@ def rank_accumulation_candidates(results: pd.DataFrame) -> pd.DataFrame:
         [1, 2],
         default=3,
     )
+    if "VFI_Setup_Score" not in result:
+        result["VFI_Setup_Score"] = 0.0
+    if "Divergence_Setup_Score" not in result:
+        result["Divergence_Setup_Score"] = 0.0
     bullish_div = result.get(
         "Bullish_Divergence_Recent", pd.Series(False, index=result.index)
     ).fillna(False).astype(bool)
