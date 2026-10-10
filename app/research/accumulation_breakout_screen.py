@@ -80,6 +80,8 @@ def score_zero_approach(
         and slope_1 > 0
         and slope_4 > 0
         and slope_8 > 0
+        and norm_4 >= min_strength_4
+        and norm_8 >= min_strength_8
     )
 
     if value < 0 and near_zero and strong_slope:
