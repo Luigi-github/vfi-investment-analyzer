@@ -213,7 +213,9 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         joined["Weekly_Bearish_Div_Age_Bars"] * 7.0,
     )
     joined["Weekly_Div_Signal"] = np.where(
-        joined["Weekly_Bullish_Div_Age_Bars"].le(joined["Weekly_Bearish_Div_Age_Bars"]),
+        joined["Weekly_Bullish_Div_Age_Bars"].fillna(np.inf).le(
+            joined["Weekly_Bearish_Div_Age_Bars"].fillna(np.inf)
+        ),
         joined["Weekly_Last_Bullish_Signal"],
         joined["Weekly_Last_Bearish_Signal"],
     )
