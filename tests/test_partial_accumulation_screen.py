@@ -32,6 +32,7 @@ def test_short_weekly_history_does_not_erase_daily_vfi_analysis():
     assert result["Daily_Bars"] == 500
     assert result["Weekly_Bars"] == 60
     assert pd.notna(result["VFI_1D_Value"])
+    assert pd.notna(result["VFI_Recovery_Score_1D"])
     assert result["Divergence_1W_Setup_Type"] == "INSUFFICIENT_HISTORY"
     assert not bool(result["Combined_Setup"])
 
