@@ -75,26 +75,46 @@ def backtest_signals(
     if not required_ohlc.issubset(df.columns):
         raise ValueError(f"history must contain {price_prefix} OHLC columns")
     funding = funding.sort_index() if funding is not None else pd.Series(dtype=float)
+    # Convert repeatedly accessed columns to NumPy once. Repeated df.iloc[i]
+    # creates a pandas Series for every hourly bar and dominates long-history
+    # walk-forward runtime when the same strategy is simulated many times.
+    signal_values = pd.to_numeric(df[signal_column], errors="coerce").to_numpy(
+        dtype=np.float64, na_value=np.nan
+    )
+    opens = pd.to_numeric(df[f"Open_{price_prefix}"], errors="coerce").to_numpy(
+        dtype=np.float64, na_value=np.nan
+    )
+    highs = pd.to_numeric(df[f"High_{price_prefix}"], errors="coerce").to_numpy(
+        dtype=np.float64, na_value=np.nan
+    )
+    lows = pd.to_numeric(df[f"Low_{price_prefix}"], errors="coerce").to_numpy(
+        dtype=np.float64, na_value=np.nan
+    )
+    closes = pd.to_numeric(df[f"Close_{price_prefix}"], errors="coerce").to_numpy(
+        dtype=np.float64, na_value=np.nan
+    )
+    funding_index = funding.index
+    funding_values = pd.to_numeric(funding, errors="coerce").fillna(0.0).to_numpy(dtype=np.float64)
     trades = []
     i = 0
     idx = df.index
     while i < len(df) - 2:
-        signal_value = pd.to_numeric(df.iloc[i][signal_column], errors="coerce")
+        signal_value = signal_values[i]
         # Missing/invalid MTF values mean "no signal", not a passing signal.
         # This matters when a higher timeframe has less history than 1H.
-        if pd.isna(signal_value) or not np.isfinite(float(signal_value)) or float(signal_value) < threshold:
+        if not np.isfinite(signal_value) or signal_value < threshold:
             i += 1
             continue
         entry_i = i + 1
         entry_ts = idx[entry_i]
-        entry = float(df.iloc[entry_i][f"Open_{price_prefix}"])
+        entry = float(opens[entry_i])
         end_i = min(len(df) - 1, entry_i + int(horizon_hours))
         exit_i = end_i
-        exit_price = float(df.iloc[end_i][f"Close_{price_prefix}"])
+        exit_price = float(closes[end_i])
         reason = "HORIZON"
         for j in range(entry_i, end_i + 1):
-            hi = float(df.iloc[j][f"High_{price_prefix}"])
-            lo = float(df.iloc[j][f"Low_{price_prefix}"])
+            hi = float(highs[j])
+            lo = float(lows[j])
             if direction == "long":
                 if stop_loss is not None and lo <= entry * (1 - stop_loss):
                     exit_i, exit_price, reason = j, entry * (1 - stop_loss), "STOP"
@@ -112,9 +132,13 @@ def backtest_signals(
         gross = exit_price / entry - 1.0 if direction == "long" else 1.0 - exit_price / entry
         costs = _cost_rate(fee, slippage)
         funding_pnl = 0.0
-        if len(funding):
-            f = funding.loc[(funding.index > entry_ts) & (funding.index <= idx[exit_i])]
-            funding_pnl = -float(f.sum()) if direction == "long" else float(f.sum())
+        if len(funding_values):
+            # Match (entry_ts, exit_ts]: exclude a funding event exactly at entry,
+            # include one exactly at exit, as the original timestamp mask did.
+            funding_start = funding_index.searchsorted(entry_ts, side="right")
+            funding_end = funding_index.searchsorted(idx[exit_i], side="right")
+            funding_sum = float(funding_values[funding_start:funding_end].sum())
+            funding_pnl = -funding_sum if direction == "long" else funding_sum
         net = gross - costs + funding_pnl
         holding_hours = max((idx[exit_i] - entry_ts).total_seconds() / 3600.0, 0.0)
         trades.append({
