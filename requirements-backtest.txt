@@ -1,0 +1,6 @@
+# Minimal dependencies for Binance MTF ranking and backtesting jobs.
+# Keep this separate from the full application requirements to reduce
+# repeated package installation across the 200-symbol GitHub Actions matrix.
+numpy==2.5.2
+pandas==3.0.5
+requests==2.32.5
