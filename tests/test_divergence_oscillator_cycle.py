@@ -10,7 +10,8 @@ class DivergenceOscillatorCycleTests(unittest.TestCase):
     def test_weekly_divergence_oscillator_has_pre_zero_and_cross_flags(self):
         idx = pd.date_range("2022-01-02", periods=130, freq="W-SUN")
         # Negative oscillator rising through zero near the end.
-        osc = np.linspace(-10.0, 1.0, len(idx))
+        osc = np.linspace(-10.0, -0.1, len(idx))
+        osc[-1] = 0.1
         frame = pd.DataFrame({"Volume_Divergence_MM": osc}, index=idx)
         result = add_divergence_cycle_features(
             frame, periods=(1, 2, 4), suffix="W", scale_window=52, min_periods=20
