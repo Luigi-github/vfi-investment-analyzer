@@ -29,7 +29,7 @@ Para cada oscilador se calcula:
 4. Pendientes de 1, 4 y 8 barras positivas.
 5. Aumento normalizado de 4 barras de al menos 0.10 desviaciones estándar y de 8 barras de al menos 0.25.
 
-**ZERO_CROSS_RECENT** es una categoría aparte: el oscilador acaba de pasar de negativo a cero/positivo, sigue dentro del 10% del rango móvil y las tres pendientes son positivas. No se acepta un oscilador que lleva tiempo muy por encima de cero.
+**ZERO_CROSS_RECENT** es una categoría aparte: el oscilador acaba de pasar de negativo a cero/positivo, sigue dentro del 10% del rango móvil, las tres pendientes son positivas y también supera los mismos mínimos de fuerza normalizada de 4/8 barras. No se acepta un cruce débil ni un oscilador que lleva tiempo muy por encima de cero.
 
 La clasificación final da prioridad a:
 1. **Tier 1 — VFI diario + Divergence semanal:** ambos cumplen PRE_ZERO_BREAK o ZERO_CROSS_RECENT.
