@@ -27,7 +27,8 @@ Open the completed workflow run and download the consolidated artifact. Importan
 - `binance_universe_liquidity.csv`: exact 24-hour spot/perpetual quote volumes and ranks explaining why each symbol entered the universe.
 - `crypto_mtf_ranking.csv`: global current-signal ranking with per-timeframe VFI stage, value, slope, and timestamp.
 - `final_crypto_ranking.csv`: one row per asset, with current MTF score, liquidity evidence, SPOT_MTF walk-forward OOS results, matched buy-and-hold comparison, evidence tier, composite research score, and a human-readable reason.
-- `ranking_methodology.md`: ranking formula, selection criteria, costs, and limitations.
+- `ranking_methodology.md` and `ranking_methodology_es.md`: ranking formula, selection criteria, costs, and limitations in English and Spanish.
+- `Motivo_Ranking_ES` in `final_crypto_ranking.csv`: Spanish explanation of each asset's selection and evidence.
 - `data_quality_report.json`: number of assets processed, errors, missing statuses, sample-size eligibility, and completeness status.
 - `strategy_comparison_oos_global.csv`: pooled per-trade comparison across strategies, including the matched out-of-sample buy-and-hold benchmark.
 - `walk_forward_oos.csv`: walk-forward fold results, including folds with no trades and benchmark folds.
