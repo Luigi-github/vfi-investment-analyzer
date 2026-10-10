@@ -2,13 +2,6 @@ name: Free Binance Top-200 MTF Backtests
 
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths:
-      - "app/**"
-      - "scripts/**"
-      - "requirements.txt"
-      - ".github/workflows/crypto-mtf-backtest.yml"
 
 permissions:
   contents: read
