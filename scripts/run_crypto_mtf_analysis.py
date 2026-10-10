@@ -63,6 +63,10 @@ def main():
                 "Confluence_Score": (spot_conf["Score"] * 0.60 + perp_conf["Score"] * 0.40),
                 "Spot_1W": spot_conf["Alignment"][0]["Stage"] if spot_conf["Alignment"] else None,
                 "Perp_1W": perp_conf["Alignment"][0]["Stage"] if perp_conf["Alignment"] else None,
+                "Spot_Last_Price": float(spot["1H"]["Close"].iloc[-1]) if "1H" in spot and not spot["1H"].empty else None,
+                "Perp_Last_Price": float(perp["1H"]["Close"].iloc[-1]) if "1H" in perp and not perp["1H"].empty else None,
+                "Spot_Last_Candle_Timestamp": spot["1H"].index[-1] if "1H" in spot and not spot["1H"].empty else None,
+                "Perp_Last_Candle_Timestamp": perp["1H"].index[-1] if "1H" in perp and not perp["1H"].empty else None,
             }
             row.update(alignment_fields("Spot", spot_conf))
             row.update(alignment_fields("Perp", perp_conf))
