@@ -30,9 +30,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements-backtest.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-backtest.txt
       - name: Build ranked universe
         id: universe
         shell: bash
@@ -63,9 +63,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements-backtest.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-backtest.txt
       - name: Run MTF ranking for symbol
         run: python -u scripts/run_crypto_mtf_analysis.py --symbols "${{ matrix.symbol }}" --min-volume 0 --top 1 --output-dir "reports/free_cloud_backtest/per_symbol/${{ matrix.symbol }}/mtf"
       - name: Run walk-forward strategy backtest
@@ -103,9 +103,9 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: requirements-backtest.txt
       - name: Install dependencies
-        run: python -m pip install -r requirements.txt
+        run: python -m pip install -r requirements-backtest.txt
       - name: Download completed per-symbol artifacts
         uses: actions/download-artifact@v4
         with:
