@@ -14,6 +14,22 @@ class TestCryptoStrategy(unittest.TestCase):
         trades, _ = backtest_signals(h, "Score", threshold=70, horizon_hours=3, fee=0, slippage=0)
         self.assertEqual(trades.iloc[0]["Entry_Date"], idx[1])
 
+    def test_missing_signal_values_do_not_open_trades(self):
+        idx = pd.date_range("2026-01-01", periods=12, freq="h", tz="UTC")
+        h = pd.DataFrame({
+            "Open_Spot": [100.0] * 12,
+            "High_Spot": [101.0] * 12,
+            "Low_Spot": [99.0] * 12,
+            "Close_Spot": [100.0] * 12,
+            "Score": [float("nan"), float("nan"), 80.0] + [0.0] * 9,
+        }, index=idx)
+        trades, _ = backtest_signals(
+            h, "Score", threshold=70, horizon_hours=3, fee=0, slippage=0
+        )
+        self.assertEqual(len(trades), 1)
+        self.assertEqual(trades.iloc[0]["Signal_Date"], idx[2])
+        self.assertEqual(trades.iloc[0]["Entry_Date"], idx[3])
+
     def test_stop_loss(self):
         idx = pd.date_range("2026-01-01", periods=6, freq="h", tz="UTC")
         h = pd.DataFrame({
