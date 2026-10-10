@@ -28,5 +28,7 @@ class TestMultiTimeframeCrypto(unittest.TestCase):
             "VFI_Recovery_Score": np.full(140, 70.),
         }, index=idx)
         result = analyzer.confluence_at({"1W": base})
-        self.assertEqual(result["Direction"], "BULLISH")
-        self.assertGreaterEqual(result["Score"], 99)
+        # A bullish weekly frame is useful, but cannot stand in for the
+        # missing daily and intraday frames on the fixed 100-point scale.
+        self.assertEqual(result["Direction"], "MIXED")
+        self.assertAlmostEqual(result["Score"], 65.0)
