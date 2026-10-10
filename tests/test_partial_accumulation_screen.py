@@ -22,14 +22,14 @@ def candles(periods: int, freq: str, start: str = "2020-01-01") -> pd.DataFrame:
 
 
 def test_short_weekly_history_does_not_erase_daily_vfi_analysis():
-    daily = candles(300, "D")
+    daily = candles(500, "D")
     weekly = candles(60, "7D")
     result = analyze_symbol("TESTUSDT", daily, weekly)
 
     assert result["Analysis_Status"] == "PARTIAL_ANALYSIS"
     assert result["VFI_Analysis_Status"] == "ANALYZED"
     assert result["Divergence_Analysis_Status"] == "INSUFFICIENT_HISTORY"
-    assert result["Daily_Bars"] == 300
+    assert result["Daily_Bars"] == 500
     assert result["Weekly_Bars"] == 60
     assert pd.notna(result["VFI_1D_Value"])
     assert result["Divergence_1W_Setup_Type"] == "INSUFFICIENT_HISTORY"
