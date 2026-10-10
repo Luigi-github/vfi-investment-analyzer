@@ -127,6 +127,12 @@ def analyze_symbol(
     }
     row.update(vfi_setup)
     row.update(divergence_setup)
+    # Stable names consumed by the ranking helper; detailed columns retain
+    # their timeframe suffixes for auditability.
+    row["VFI_Setup_Type"] = vfi_setup["VFI_1D_Setup_Type"]
+    row["VFI_Setup_Score"] = vfi_setup["VFI_1D_Setup_Score"]
+    row["Divergence_Setup_Type"] = divergence_setup["Divergence_1W_Setup_Type"]
+    row["Divergence_Setup_Score"] = divergence_setup["Divergence_1W_Setup_Score"]
     ranked = rank_accumulation_candidates(pd.DataFrame([row]))
     return ranked.iloc[0].to_dict()
 
