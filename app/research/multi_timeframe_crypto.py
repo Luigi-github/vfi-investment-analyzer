@@ -75,7 +75,10 @@ class MultiTimeframeCryptoAnalyzer:
                 "Slope_8B": self._numeric(row, "VFI_Slope_8B"),
                 "Recovery_Score": self._numeric(row, "VFI_Recovery_Score"),
             })
-        normalized = 50.0 if available_weight == 0 else 50.0 + 50.0 * score / available_weight
+        # Keep the full 100-point timeframe denominator. Missing higher
+        # timeframes contribute no directional evidence instead of allowing a
+        # single available 1H frame to produce a misleading 100/100 score.
+        normalized = 50.0 + 50.0 * score / 100.0
         return {
             "Timestamp": timestamp, "Score": float(normalized),
             "Direction": "BULLISH" if normalized >= 70 else "BEARISH" if normalized <= 30 else "MIXED",
@@ -131,13 +134,14 @@ class MultiTimeframeCryptoAnalyzer:
             weights = {"1W": 30, "1D": 30, "4H": 25, "1H": 15}
             positive = {"SUSTAINED_RECOVERY","APPROACHING_ZERO","ZERO_CROSS_UP","ACCUMULATION","BULLISH_FLOW"}
             negative = {"SUSTAINED_WEAKENING","DISTRIBUTION","ZERO_CROSS_DOWN","BEARISH_FLOW"}
-            total = available = 0.0
+            total = 0.0
             for tf,w in weights.items():
                 stage = row.get(f"Stage_{tf}")
                 if pd.isna(stage): continue
                 total += w * (1 if stage in positive else -1 if stage in negative else 0)
-                available += w
-            return 50.0 if not available else 50.0 + 50.0 * total / available
+            # Do not renormalize over only the available frames. Missing weekly
+            # or daily data must lower confidence, not inflate the score.
+            return 50.0 + 50.0 * total / 100.0
         out["MTF_Score"] = out.apply(stage_score, axis=1)
         out["MTF_Direction"] = np.select([out["MTF_Score"] >= 70, out["MTF_Score"] <= 30], ["BULLISH", "BEARISH"], default="MIXED")
         return out
