@@ -217,7 +217,6 @@ def main():
             errors.append((symbol, repr(exc)))
             print("ERROR",symbol,exc)
 
-    pd.DataFrame(status_rows).to_csv(out/"backtest_status.csv",index=False)
     pd.DataFrame(all_summaries).to_csv(out/"strategy_pnl_comparison.csv",index=False)
     oos=pd.DataFrame(oos_rows); oos.to_csv(out/"walk_forward_oos.csv",index=False)
     if trade_rows: pd.concat(trade_rows,ignore_index=True).to_csv(out/"oos_trades.csv",index=False)
@@ -244,6 +243,7 @@ def main():
         agg=agg.sort_values(sort_column,ascending=False,na_position="last")
         agg.to_csv(out/"walk_forward_summary.csv",index=False)
         print(agg.to_string(index=False))
+    pd.DataFrame(status_rows).to_csv(out/"backtest_status.csv",index=False)
     if errors:
         print(f"BACKTEST FAILED: {len(errors)} symbol(s) had exceptions: {errors}")
         raise SystemExit(1)
