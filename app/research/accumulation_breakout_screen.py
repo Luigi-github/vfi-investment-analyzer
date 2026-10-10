@@ -95,8 +95,10 @@ def score_zero_approach(
         if near_limit > 0
         else 0.0
     )
-    strength = 20.0 * min(max(norm_4, 0.0) / max(min_strength_4, 1e-9), 1.0)
-    strength += 20.0 * min(max(norm_8, 0.0) / max(min_strength_8, 1e-9), 1.0)
+    # Keep strength ranking informative after the minimum eligibility
+    # thresholds have been passed; exceptionally steep slopes score higher.
+    strength = 20.0 * min(max(norm_4, 0.0) / 0.75, 1.0)
+    strength += 20.0 * min(max(norm_8, 0.0) / 1.50, 1.0)
     consistency = 20.0 if positive_slopes else 0.0
     score = float(min(100.0, proximity + strength + consistency))
     if setup_type == "NONE":
