@@ -19,13 +19,14 @@ Para cada oscilador se calcula:
 - Pendiente de 1 barra: valor actual menos valor anterior.
 - Pendiente de 4 barras: cambio neto de las últimas 4 barras dividido por 4.
 - Pendiente de 8 barras: cambio neto de las últimas 8 barras dividido por 8.
-- Proximidad al cero: distancia absoluta al cero frente al rango móvil de 52 barras.
-- Fuerza normalizada: cambio neto de 4/8 barras dividido por la desviación estándar móvil de 52 barras.
+- Proximidad al cero: para VFI diario, frente al rango móvil de 365 velas (aprox. un año); para Divergence semanal, frente al rango móvil de 52 velas (aprox. un año).
+- Fuerza normalizada: cambio neto de 4/8 barras dividido por la desviación estándar móvil del mismo horizonte que se usa para el rango.
+- El VFI necesita al menos 260 valores válidos para evaluar el ciclo de un año, además del calentamiento del indicador (por eso se recomienda descargar al menos 390 velas diarias). Si la historia no alcanza, se conservan el último valor y las pendientes disponibles, pero no se etiqueta como setup válido.
 
 **PRE_ZERO_BREAK** requiere:
 1. Valor actual negativo.
 2. En VFI diario, el clasificador de ciclo del proyecto debe estar en recuperación/acercamiento a cero (o cruce alcista reciente).
-3. Valor cerca de cero: como máximo 15% del rango móvil de 52 barras; en VFI diario además se limita a 2 puntos absolutos.
+3. Valor cerca de cero: como máximo 15% del rango móvil correspondiente; en VFI diario además se limita a 2 puntos absolutos.
 4. Pendientes de 1, 4 y 8 barras positivas.
 5. Aumento normalizado de 4 barras de al menos 0.10 desviaciones estándar y de 8 barras de al menos 0.25.
 
@@ -51,7 +52,7 @@ Las puntuaciones sirven para ordenar candidatos, no son probabilidades de rentab
 
 El script `scripts/run_crypto_accumulation_breakout_screen.py` produce:
 
-- `all_assets.csv`: los 200 símbolos del universo, incluyendo filas marcadas `INSUFFICIENT_HISTORY` o `ERROR` para que ningún activo desaparezca silenciosamente.
+- `all_assets.csv`: los 200 símbolos del universo, incluyendo filas `ANALYZED`, `PARTIAL_ANALYSIS`, `INSUFFICIENT_HISTORY` o `ERROR`. VFI diario y Divergence semanal se calculan independientemente para que la falta de historia semanal no borre una señal diaria útil. Cada oscilador incluye un motivo explícito para aceptar o rechazar el setup.
 - `vfi_daily_candidates.csv`: activos con historia suficiente que pasan el filtro del VFI diario.
 - `combined_vfi_divergence_candidates.csv`: candidatos que pasan ambos filtros.
 - `errors.csv`: símbolos sin datos o con error de cálculo.

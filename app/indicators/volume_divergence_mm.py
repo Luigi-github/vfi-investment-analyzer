@@ -22,7 +22,9 @@ class VolumeDivergenceMM:
         op = np.asarray(opens, dtype=float)
         cl = np.asarray(closes, dtype=float)
         out = np.full(len(values), np.nan)
-        weights = np.arange(length, 0, -1, dtype=float) * length
+        # Input arrays are oldest -> newest, so Pine's WMA weights
+        # must increase toward the newest candle (the current bar).
+        weights = np.arange(1, length + 1, dtype=float)
         norm = weights.sum()
         for i in range(length - 1, len(values)):
             start = i - length + 1
