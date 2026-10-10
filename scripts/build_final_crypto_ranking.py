@@ -109,11 +109,17 @@ def build_global_strategy_comparison(trades: pd.DataFrame, summary: pd.DataFrame
         return pd.DataFrame()
     rows = []
     for strategy, group in trades.groupby("Strategy"):
-        metrics = trade_metrics(group)
+        returns = pd.to_numeric(group["Net_Return"], errors="coerce").dropna()
         per_symbol = group.assign(Net_Return=pd.to_numeric(group["Net_Return"], errors="coerce")).groupby("Symbol")["Net_Return"].mean()
+        gains = float(returns[returns > 0].sum())
+        losses = float(-returns[returns < 0].sum())
         rows.append({
             "Strategy": strategy,
-            **{f"Global_{k}": v for k, v in metrics.items()},
+            "Global_OOS_Trades": int(len(returns)),
+            "Global_OOS_Mean_Trade_Pct": float(returns.mean() * 100) if len(returns) else np.nan,
+            "Global_OOS_Median_Trade_Pct": float(returns.median() * 100) if len(returns) else np.nan,
+            "Global_OOS_Win_Rate_Pct": float((returns > 0).mean() * 100) if len(returns) else np.nan,
+            "Global_OOS_Profit_Factor": float(gains / losses) if losses > 0 else np.nan,
             "Symbols_With_OOS_Trades": int(group["Symbol"].nunique()) if "Symbol" in group else np.nan,
             "Symbols_With_Positive_Mean_Trade": int((per_symbol > 0).sum()),
         })
@@ -160,21 +166,23 @@ def build_final_ranking(root: Path) -> None:
     if mtf.empty or "Symbol" not in mtf:
         return
     ranking = mtf.copy()
-    for table in (derivatives, statuses):
-        if not table.empty and "Symbol" in table:
-            table = table.drop_duplicates("Symbol", keep="last")
-            ranking = ranking.merge(table, on="Symbol", how="left", suffixes=("", "_Status"))
+    if not derivatives.empty and "Symbol" in derivatives:
+        ranking = ranking.merge(derivatives.drop_duplicates("Symbol", keep="last"), on="Symbol", how="left")
+    if not statuses.empty and "Symbol" in statuses:
+        status_table = statuses.drop_duplicates("Symbol", keep="last").copy()
+        for col in ("OOS_Folds", "OOS_Trades"):
+            if col in status_table:
+                status_table = status_table.rename(columns={col: f"All_Strategy_{col}"})
+        ranking = ranking.merge(status_table, on="Symbol", how="left", suffixes=("", "_Status"))
 
     # Current-signal rank is kept separate from out-of-sample performance.
     primary = summary[summary["Strategy"] == "SPOT_MTF"].copy() if not summary.empty else pd.DataFrame()
     if not primary.empty:
         ranking = ranking.merge(primary, on="Symbol", how="left", suffixes=("", "_SPOT_MTF"))
 
-    for symbol in ranking["Symbol"].astype(str):
-        record = universe.get(symbol, {})
-        for key, value in record.items():
-            if key != "Symbol":
-                ranking.loc[ranking["Symbol"].astype(str) == symbol, key] = value
+    if universe:
+        universe_frame = pd.DataFrame(universe.values()).drop_duplicates("Symbol", keep="last")
+        ranking = ranking.merge(universe_frame, on="Symbol", how="left")
 
     numeric_cols = [
         "OOS_Trades", "OOS_Folds", "OOS_Positive_Folds",
