@@ -361,9 +361,10 @@ def build_final_ranking(root: Path) -> None:
         ).sum()),
         # OOS_Trades in the final ranking belongs to the primary SPOT_MTF
         # strategy; the status file counts trades across every strategy.
-        "symbols_with_no_spot_mtf_oos_trades": int(
-            (ranking["OOS_Trades"].fillna(0) == 0).sum()
-        ),
+        "symbols_with_no_spot_mtf_oos_trades": int((
+            ranking.get("Status", pd.Series(index=ranking.index, dtype=object)).notna()
+            & (ranking["OOS_Trades"].fillna(0) == 0)
+        ).sum()),
         "symbols_with_no_trades_any_strategy": int((
             ranking.get("Status", pd.Series(index=ranking.index, dtype=object)).notna()
             & (pd.to_numeric(
