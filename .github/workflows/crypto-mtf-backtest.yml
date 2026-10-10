@@ -1,9 +1,9 @@
 name: Crypto Binance MTF Backtest
 
+# Expensive full-universe research is intentionally manual-only. Use the
+# resumable free-cloud runner described in docs/FREE_CLOUD_BACKTEST.md instead.
 on:
   workflow_dispatch:
-  push:
-    branches: [main]
 
 jobs:
   backtest:
