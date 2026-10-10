@@ -204,7 +204,7 @@ def main():
                     all_summaries.append({"Symbol":symbol,"Strategy":strategy,"Threshold":threshold,**s})
             bh=buy_and_hold(hist,fee=FEE,slippage=SLIPPAGE)
             all_summaries.append({"Symbol":symbol,"Strategy":"BUY_AND_HOLD","Threshold":0,**bh})
-            status["OOS_Folds"] = sum(1 for row in oos_rows if row["Symbol"] == symbol)
+            status["OOS_Folds"] = len({row["Fold"] for row in oos_rows if row["Symbol"] == symbol})
             status["OOS_Trades"] = int(sum(row["Trades"] for row in oos_rows if row["Symbol"] == symbol))
             status["Status"] = "completed" if status["OOS_Trades"] > 0 else "no_oos_trades"
             if status["Status"] == "no_oos_trades":
@@ -240,7 +240,8 @@ def main():
             agg=fold_agg.merge(pd.DataFrame(rows),on="Strategy",how="left")
         else:
             agg=fold_agg
-        agg=agg.sort_values("Aggregate_OOS_Mean_Trade_Pct",ascending=False)
+        sort_column = "Aggregate_OOS_Mean_Trade_Pct" if "Aggregate_OOS_Mean_Trade_Pct" in agg else "Mean_Fold_Return_Pct"
+        agg=agg.sort_values(sort_column,ascending=False,na_position="last")
         agg.to_csv(out/"walk_forward_summary.csv",index=False)
         print(agg.to_string(index=False))
     if errors:
