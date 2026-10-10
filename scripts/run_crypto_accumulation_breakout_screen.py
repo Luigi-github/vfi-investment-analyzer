@@ -282,7 +282,7 @@ def main() -> None:
         "intraday_timeframes_used": [],
         "ranking_logic": (
             "VFI uses completed daily candles with a 365-bar context and requires at least "
-            "260 valid VFI values after indicator warm-up; weekly Volume Divergence by MM "
+            "365 valid VFI values after indicator warm-up; weekly Volume Divergence by MM "
             "uses completed weekly candles with a 52-bar context. A PRE_ZERO_BREAK requires "
             "negative oscillator value near zero, positive 1/4/8-bar slopes, normalized "
             "4-bar rise >= 0.10 and 8-bar rise >= 0.25 standard deviations. A recent zero "
