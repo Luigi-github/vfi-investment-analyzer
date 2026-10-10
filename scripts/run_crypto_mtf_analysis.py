@@ -9,10 +9,42 @@ sys.path.insert(0, str(ROOT))
 from app.data.binance_market_data import BinanceMarketDataService
 from app.research.multi_timeframe_crypto import MultiTimeframeCryptoAnalyzer
 
+TIMEFRAME_LABELS = ("1W", "1D", "4H", "1H")
+
+
+def alignment_stage(confluence, timeframe):
+    """Return the stage for the named timeframe; never assume list position."""
+    return next(
+        (row.get("Stage") for row in confluence.get("Alignment", [])
+         if row.get("Timeframe") == timeframe),
+        None,
+    )
+
+
 def alignment_fields(prefix, confluence):
     fields = {f"{prefix}_Snapshot_Timestamp": confluence.get("Timestamp")}
+    available = [
+        row.get("Timeframe") for row in confluence.get("Alignment", [])
+        if row.get("Timeframe") in TIMEFRAME_LABELS
+    ]
+    fields[f"{prefix}_Available_Timeframes"] = ",".join(available)
+    fields[f"{prefix}_Missing_Timeframes"] = ",".join(
+        timeframe for timeframe in TIMEFRAME_LABELS if timeframe not in available
+    )
+    # Keep a stable schema even when a symbol has insufficient history for a
+    # timeframe. Missing weekly data must not be mislabeled as a daily stage.
+    for timeframe in TIMEFRAME_LABELS:
+        fields[f"{prefix}_{timeframe}_Stage"] = None
+        fields[f"{prefix}_{timeframe}_Timestamp"] = None
+        fields[f"{prefix}_{timeframe}_VFI"] = None
+        fields[f"{prefix}_{timeframe}_Slope_1B"] = None
+        fields[f"{prefix}_{timeframe}_Slope_4B"] = None
+        fields[f"{prefix}_{timeframe}_Slope_8B"] = None
+        fields[f"{prefix}_{timeframe}_Recovery_Score"] = None
     for row in confluence.get("Alignment", []):
         timeframe = row.get("Timeframe", "UNKNOWN")
+        if timeframe not in TIMEFRAME_LABELS:
+            continue
         fields[f"{prefix}_{timeframe}_Stage"] = row.get("Stage")
         fields[f"{prefix}_{timeframe}_Timestamp"] = row.get("Timestamp")
         fields[f"{prefix}_{timeframe}_VFI"] = row.get("VFI")
@@ -61,8 +93,8 @@ def main():
                 "Perp_MTF_Score": perp_conf["Score"],
                 "Perp_Direction": perp_conf["Direction"],
                 "Confluence_Score": (spot_conf["Score"] * 0.60 + perp_conf["Score"] * 0.40),
-                "Spot_1W": spot_conf["Alignment"][0]["Stage"] if spot_conf["Alignment"] else None,
-                "Perp_1W": perp_conf["Alignment"][0]["Stage"] if perp_conf["Alignment"] else None,
+                "Spot_1W": alignment_stage(spot_conf, "1W"),
+                "Perp_1W": alignment_stage(perp_conf, "1W"),
                 "Spot_Last_Price": float(spot["1H"]["Close"].iloc[-1]) if "1H" in spot and not spot["1H"].empty else None,
                 "Perp_Last_Price": float(perp["1H"]["Close"].iloc[-1]) if "1H" in perp and not perp["1H"].empty else None,
                 "Spot_Last_Candle_Timestamp": spot["1H"].index[-1] if "1H" in spot and not spot["1H"].empty else None,
