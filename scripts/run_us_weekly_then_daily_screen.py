@@ -384,6 +384,47 @@ def main():
         ).reset_index(drop=True)
         daily_df.insert(0, "Rank", range(1, len(daily_df) + 1))
     strict_daily = daily_df[daily_df["VFI_Early_Accumulation_Qualified"].eq(True)].copy() if not daily_df.empty else daily_df.copy()
+    # Explicit weekly-first ranking: require the weekly VFI early-turn gate,
+    # then confirm the Volume Divergence MM line is rising on both 4- and 8-week
+    # windows. Rank qualifying names by absolute VFI (closest to zero first).
+    vfi_divergence_ranking = weekly_df.copy()
+    for col in ["Weekly_VFI", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B",
+                "Weekly_Price_Return_13W", "Weekly_Divergence_Slope_4B",
+                "Weekly_Divergence_Slope_8B", "Weekly_Score"]:
+        if col in vfi_divergence_ranking.columns:
+            vfi_divergence_ranking[col] = pd.to_numeric(vfi_divergence_ranking[col], errors="coerce")
+    vfi_divergence_ranking = vfi_divergence_ranking[
+        vfi_divergence_ranking["Weekly_Screen_Status"].isin(
+            ["CANDIDATE", "EARLY_TURN_WATCH", "RECENT_ZERO_CROSS_WATCH"]
+        )
+        & vfi_divergence_ranking["Weekly_VFI"].between(-15.0, 0.0)
+        & (vfi_divergence_ranking["Weekly_VFI_Slope_4B"] > 0)
+        & (vfi_divergence_ranking["Weekly_VFI_Slope_8B"] > 0)
+        & (vfi_divergence_ranking["Weekly_Price_Return_13W"] <= 0.15)
+        & (vfi_divergence_ranking["Weekly_Divergence_Slope_4B"] > 0)
+        & (vfi_divergence_ranking["Weekly_Divergence_Slope_8B"] > 0)
+    ].copy()
+    vfi_divergence_ranking["VFI_Distance_To_Zero"] = vfi_divergence_ranking["Weekly_VFI"].abs()
+    vfi_divergence_ranking = vfi_divergence_ranking.sort_values(
+        ["VFI_Distance_To_Zero", "Weekly_Score"], ascending=[True, False]
+    )
+    vfi_divergence_cols = [
+        "Symbol", "Weekly_Screen_Status", "Liquidity_Rank", "Average_Dollar_Turnover_20D",
+        "Weekly_Score", "Weekly_Candle_Date", "Weekly_VFI", "Weekly_VFI_Prev",
+        "Weekly_VFI_Signal", "Weekly_VFI_Histogram", "Weekly_VFI_Slope_4B",
+        "Weekly_VFI_Slope_8B", "Weekly_VFI_Smooth_Rising_Score",
+        "Weekly_Price_Return_13W", "Weekly_Divergence", "Weekly_Divergence_Slope_4B",
+        "Weekly_Divergence_Slope_8B", "VFI_Distance_To_Zero"
+    ]
+    vfi_divergence_ranking = vfi_divergence_ranking[
+        [c for c in vfi_divergence_cols if c in vfi_divergence_ranking.columns]
+    ].reset_index(drop=True)
+    vfi_divergence_ranking.insert(0, "Rank", range(1, len(vfi_divergence_ranking) + 1))
+    vfi_divergence_ranking.to_csv(out / "us_weekly_vfi_divergence_ranking.csv", index=False)
+    print("WEEKLY VFI + DIVERGENCE CONFIRMATION RANKING:", flush=True)
+    print(vfi_divergence_ranking.to_string(index=False) if not vfi_divergence_ranking.empty
+          else "No assets passed both the weekly VFI early-turn filter and positive 4/8-week divergence slopes.", flush=True)
+
     weekly_out = weekly_df.drop(columns=[], errors="ignore")
     weekly_out.to_csv(out / "us_100_weekly_screen.csv", index=False)
     liquidity_df.sort_values("Average_Dollar_Turnover_20D", ascending=False).to_csv(out / "us_liquidity_universe.csv", index=False)
