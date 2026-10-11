@@ -1,7 +1,7 @@
 """Screen the 100 most liquid names from a broad US large-cap universe.
 
 Liquidity is ranked by mean daily dollar turnover (Close * Volume) over the
-latest 20 completed sessions. The 120-name seed universe is curated, so this
+latest 20 completed sessions. The curated seed universe is, so this
 is a reproducible liquid-US-universe screen, not a claim to cover every US
 listing. Ranking emphasizes pre-zero VFI, weekly MM volume divergence and
 OHLCV accumulation proxies (OBV, A/D, CMF, MFI). No intraday bars are used.
@@ -71,7 +71,7 @@ def early_price_score(ret20: float) -> float:
 def main() -> None:
     import argparse
     parser = argparse.ArgumentParser()
-    parser.add_argument("--period", default="2y")
+    parser.add_argument("--period", default="max")
     parser.add_argument("--top", type=int, default=100)
     parser.add_argument("--output-dir", default="reports/us_top100_liquid")
     args = parser.parse_args()
