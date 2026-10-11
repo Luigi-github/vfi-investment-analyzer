@@ -19,6 +19,7 @@ def score_zero_approach(
     near_zero_fraction: float = 0.15,
     max_abs_near_zero: float | None = None,
     recent_cross_fraction: float = 0.10,
+    recent_cross_bars: int = 1,
     min_strength_4: float = 0.10,
     min_strength_8: float = 0.25,
 ) -> dict:
@@ -94,8 +95,17 @@ def score_zero_approach(
         and norm_4 >= min_strength_4
         and norm_8 >= min_strength_8
     )
+    cross_bars_ago = None
+    # Accept a bounded recent cross, but only if the oscillator is still near
+    # zero now and its current short/medium slopes remain positive.
+    max_cross_age = max(1, int(recent_cross_bars))
+    for age in range(1, min(max_cross_age, len(series) - 1) + 1):
+        if float(series.iloc[-age - 1]) < 0 <= float(series.iloc[-age]):
+            cross_bars_ago = age
+            break
     crossed_recently = (
-        prior < 0 <= value
+        cross_bars_ago is not None
+        and value >= 0
         and value_range > 0
         and value <= value_range * recent_cross_fraction
         and slope_1 > 0
@@ -157,6 +167,7 @@ def score_zero_approach(
         f"{prefix}_Normalized_Slope_4B": float(norm_4),
         f"{prefix}_Normalized_Slope_8B": float(norm_8),
         f"{prefix}_Setup_Type": setup_type,
+        f"{prefix}_Recent_Zero_Cross_Bars_Ago": cross_bars_ago if cross_bars_ago is not None else np.nan,
         f"{prefix}_Setup_Reason": reason,
         f"{prefix}_Setup_Score": score,
     }
