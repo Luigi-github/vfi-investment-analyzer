@@ -15,6 +15,7 @@ from scripts.vfi_accumulation_divergence_study import (
 )
 
 
+# Regression coverage for complete weekly oscillator history and zero-approach cycles.
 class VfiDailyWeeklyStudyTests(unittest.TestCase):
     def test_fresh_signal_expires_in_daily_bars(self):
         idx = pd.date_range("2026-01-01", periods=10, freq="D")
