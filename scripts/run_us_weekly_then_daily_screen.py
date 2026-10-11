@@ -261,20 +261,41 @@ def main():
     near_zero["_VFI_Abs"] = pd.to_numeric(near_zero["Weekly_VFI"], errors="coerce").abs()
     near_zero = near_zero.sort_values(["_VFI_Abs", "Weekly_Score"], ascending=[True, False])
     watchlist_symbols = near_zero["Symbol"].tolist()
+
+    # Also investigate a *recent* weekly zero-cross, but only while price has
+    # not already run up. This captures an early turn just over zero without
+    # admitting extended rallies such as names up >15% over 13 weeks.
+    cross_flag = valid_weekly.get(
+        "Weekly_VFI_Zero_Cross_Recent_4B", pd.Series(False, index=valid_weekly.index)
+    ).fillna(False).astype(bool)
+    below_zero_bars = pd.to_numeric(
+        valid_weekly.get("Weekly_VFI_Bars_Below_Zero_26B", pd.Series(0, index=valid_weekly.index)),
+        errors="coerce",
+    )
+    recent_cross_mask = (
+        vfi_num.between(0.0, 3.0) & cross_flag & (slope4_num > 0) & (slope8_num > 0)
+        & (ret13_num <= 0.15) & (smooth_num >= 35) & (below_zero_bars >= 8)
+    )
+    recent_cross = valid_weekly.loc[recent_cross_mask].copy()
+    if not recent_cross.empty:
+        recent_cross["_VFI_Abs"] = pd.to_numeric(recent_cross["Weekly_VFI"], errors="coerce").abs()
+        recent_cross = recent_cross.sort_values(["_VFI_Abs", "Weekly_Score"], ascending=[True, False])
+    recent_cross_symbols = recent_cross["Symbol"].tolist()
+    for crossed_symbol in recent_cross_symbols:
+        weekly_df.loc[weekly_df["Symbol"].eq(crossed_symbol), "Weekly_Screen_Status"] = "RECENT_ZERO_CROSS_WATCH"
+
     turn_watch_symbols = weekly_df.loc[
         weekly_df["Weekly_Screen_Status"].eq("EARLY_TURN_WATCH")
     ].sort_values("Weekly_Score", ascending=False)["Symbol"].tolist()
-    chosen = list(dict.fromkeys(strict_symbols + watchlist_symbols + turn_watch_symbols))[:args.max_daily_candidates]
-    if strict_symbols and (watchlist_symbols or turn_watch_symbols):
+    chosen = list(dict.fromkeys(
+        strict_symbols + watchlist_symbols + recent_cross_symbols + turn_watch_symbols
+    ))[:args.max_daily_candidates]
+    if strict_symbols and (watchlist_symbols or recent_cross_symbols or turn_watch_symbols):
         daily_selection_mode = "STRICT_PLUS_WEEKLY_WATCHLIST"
     elif strict_symbols:
         daily_selection_mode = "STRICT_WEEKLY_CANDIDATES"
-    elif watchlist_symbols and turn_watch_symbols:
-        daily_selection_mode = "NEAR_ZERO_PLUS_EARLY_TURN_WATCHLIST"
-    elif watchlist_symbols:
-        daily_selection_mode = "NEAR_ZERO_WATCHLIST_ONLY"
-    elif turn_watch_symbols:
-        daily_selection_mode = "EARLY_TURN_WATCHLIST_ONLY"
+    elif watchlist_symbols or recent_cross_symbols or turn_watch_symbols:
+        daily_selection_mode = "WEEKLY_EARLY_ACCUMULATION_WATCHLIST"
     else:
         # Do not silently analyse arbitrary high-score assets when none passed
         # the weekly gate; that would break the requested weekly-first process.
@@ -300,8 +321,11 @@ def main():
             # Strict daily gate: do not promote a signal if VFI has already
             # crossed zero or if only the shortest slope is positive.
             smooth_daily = dvfi.get("VFI_Smooth_Rising_Score", np.nan)
+            daily_zero_cross = bool(dvfi.get("VFI_Zero_Cross_Recent_4B", False))
+            daily_pre_zero = bool(np.isfinite(vfi) and -15.0 <= vfi <= 0.0)
+            daily_post_zero = bool(np.isfinite(vfi) and 0.0 < vfi <= 2.0 and daily_zero_cross)
             vfi_early = bool(
-                np.isfinite(vfi) and -15.0 <= vfi <= 0.0
+                (daily_pre_zero or daily_post_zero)
                 and np.isfinite(vfi_slope4) and vfi_slope4 > 0
                 and np.isfinite(vfi_slope8) and vfi_slope8 > 0
                 and price_ret_20 <= 0.10
@@ -309,7 +333,7 @@ def main():
                 and np.isfinite(smooth_daily) and smooth_daily >= 55
             )
             near_zero_watch = bool(
-                np.isfinite(vfi) and -5.0 <= vfi <= 0.0
+                (np.isfinite(vfi) and -5.0 <= vfi <= 0.0 or daily_post_zero)
                 and np.isfinite(vfi_slope4) and vfi_slope4 > 0
                 and np.isfinite(vfi_slope8) and vfi_slope8 > 0
                 and price_ret_20 <= 0.10
@@ -342,7 +366,13 @@ def main():
                 "Daily_VFI_Near_Zero": dvfi.get("VFI_Near_Zero"),
                 "Weekly_Price_Return_13W": float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Price_Return_13W"].iloc[0]),
                 "Weekly_Candle_Date": weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Candle_Date"].iloc[0],
-                "Setup_Interpretation": "EARLY_ACCUMULATION_CANDIDATE" if vfi_early else ("SMOOTH_NEAR_ZERO_WATCH" if near_zero_watch else "DOES_NOT_MEET_STRICT_VFI_FILTER"),
+                "Setup_Interpretation": (
+                    "EARLY_ACCUMULATION_CANDIDATE_RECENT_ZERO_CROSS" if vfi_early and daily_post_zero else
+                    "EARLY_ACCUMULATION_CANDIDATE_PRE_ZERO" if vfi_early else
+                    "RECENT_ZERO_CROSS_WATCH" if near_zero_watch and daily_post_zero else
+                    "SMOOTH_NEAR_ZERO_WATCH" if near_zero_watch else
+                    "DOES_NOT_MEET_STRICT_VFI_FILTER"
+                ),
             })
         except Exception as exc:
             errors.append({"Symbol": symbol, "Stage": "DAILY", "Error": repr(exc)})
@@ -365,6 +395,7 @@ def main():
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
         "weekly_candidates": len(rankable),
         "weekly_early_turn_watchlist": int(weekly_df["Weekly_Screen_Status"].eq("EARLY_TURN_WATCH").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
+        "weekly_recent_zero_cross_watchlist": int(weekly_df["Weekly_Screen_Status"].eq("RECENT_ZERO_CROSS_WATCH").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
         "daily_analyzed": len(daily_df), "daily_selection_mode": daily_selection_mode,
         "strict_daily_vfi_candidates": int(len(strict_daily)),
         "weekly_candle_policy": "completed Friday candles only",
@@ -376,6 +407,7 @@ def main():
     }, indent=2, default=str), encoding="utf-8")
     print(json.dumps({"seed_universe": len(seed_symbols), "selected_by_liquidity": len(selected_symbols), "weekly_candidates": len(rankable),
                       "weekly_early_turn_watchlist": int(weekly_df["Weekly_Screen_Status"].eq("EARLY_TURN_WATCH").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
+                      "weekly_recent_zero_cross_watchlist": int(weekly_df["Weekly_Screen_Status"].eq("RECENT_ZERO_CROSS_WATCH").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
                       "daily_analyzed": len(daily_df), "strict_daily_vfi_candidates": len(strict_daily),
                       "errors": len(errors)}, indent=2))
     if not strict_daily.empty:
