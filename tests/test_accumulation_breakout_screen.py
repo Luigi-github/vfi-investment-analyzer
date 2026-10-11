@@ -44,6 +44,25 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         result = score_zero_approach(values, "VFI_1D", lookback=52, min_history=20)
         self.assertEqual(result["VFI_1D_Setup_Type"], "ZERO_CROSS_RECENT")
 
+    def test_zero_cross_two_bars_ago_is_accepted_for_daily_window(self):
+        values = -7.0 + np.sin(np.arange(60) / 3.0) * 2.0
+        values[-9:] = np.linspace(-5.0, -0.5, 9)
+        values[-3:] = [-0.1, 0.05, 0.1]
+        result = score_zero_approach(
+            pd.Series(values), "VFI_1D", recent_cross_bars=3
+        )
+        self.assertEqual(result["VFI_1D_Setup_Type"], "ZERO_CROSS_RECENT")
+        self.assertEqual(result["VFI_1D_Recent_Zero_Cross_Bars_Ago"], 2)
+
+    def test_zero_cross_older_than_allowed_window_is_rejected(self):
+        values = -7.0 + np.sin(np.arange(60) / 3.0) * 2.0
+        values[-9:] = np.linspace(-5.0, -0.5, 9)
+        values[-5:] = [-0.1, 0.05, 0.1, 0.15, 0.2]
+        result = score_zero_approach(
+            pd.Series(values), "Divergence_1W", recent_cross_bars=2
+        )
+        self.assertEqual(result["Divergence_1W_Setup_Type"], "NONE")
+
     def test_recent_zero_cross_with_weak_slope_is_rejected(self):
         values = -7.0 + np.sin(np.arange(60) / 3.0) * 2.0
         values[-9:] = np.linspace(-0.15, 0.05, 9)
