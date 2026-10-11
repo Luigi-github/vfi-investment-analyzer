@@ -45,9 +45,9 @@ class VFIAnalyzer:
         # Prefer timeframe-neutral bar-based columns. Older indicator outputs
         # used the misleading 4W/8W names even when the input was daily.
         if "VFI_Slope_4B" not in df.columns and "VFI_Slope_4W" in df.columns:
-            df["VFI_Slope_4B"] = df["VFI_Slope_4B"]
+            df["VFI_Slope_4B"] = df["VFI_Slope_4W"]
         if "VFI_Slope_8B" not in df.columns and "VFI_Slope_8W" in df.columns:
-            df["VFI_Slope_8B"] = df["VFI_Slope_8B"]
+            df["VFI_Slope_8B"] = df["VFI_Slope_8W"]
 
         required_columns = [
             "VFI",
