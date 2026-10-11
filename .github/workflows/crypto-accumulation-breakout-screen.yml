@@ -16,7 +16,7 @@ on:
         required: true
         default: "400"
   push:
-    branches: [main, fix/daily-vfi-slope-semantics]
+    branches: [main]
     paths:
       - "app/research/accumulation_breakout_screen.py"
       - "scripts/run_crypto_accumulation_breakout_screen.py"
