@@ -12,7 +12,7 @@ on:
         required: true
         default: "1000"
       weekly_bars:
-        description: Weekly candles: 77-bar indicator warmup + 52 valid bars (minimum 129)
+        description: "Weekly candles: 77-bar indicator warmup + 52 valid bars (minimum 129)"
         required: true
         default: "400"
   push:
