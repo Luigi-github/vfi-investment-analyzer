@@ -15,20 +15,7 @@ from app.data.market_data import MarketDataService
 from app.indicators.vfi import VFIIndicator
 from app.indicators.volume_divergence_mm import VolumeDivergenceMM
 
-# These are the user's previously discussed research assets, not a newly
-# discovered/top-200 universe. Crypto uses Binance spot USDT daily candles.
-CRYPTO_SYMBOLS = [
-    "AAVEUSDT", "ACEUSDT", "ADAUSDT", "APTUSDT", "ARBUSDT", "ASTERUSDT",
-    "AVAXUSDT", "BCHUSDT", "BNBUSDT", "BTCUSDT", "DOGEUSDT", "DOTUSDT",
-    "ENAUSDT", "ETHUSDT", "FETUSDT", "FILUSDT", "GRAMUSDT", "GTCUSDT",
-    "HBARUSDT", "HEMIUSDT", "HYPEUSDT", "INJUSDT", "JUPUSDT", "LINKUSDT",
-    "LTCUSDT", "MARSCOINUSDT", "METUSDT", "MINAUSDT", "MOVRUSDT", "NEARUSDT",
-    "NMRUSDT", "ONDOUSDT", "ORCAUSDT", "PAXGUSDT", "PENGUUSDT", "PUMPUSDT",
-    "QNTUSDT", "RENDERUSDT", "SANDUSDT", "SOLUSDT", "SUIUSDT", "TAOUSDT",
-    "TRUMPUSDT", "TRXUSDT", "UNIUSDT", "WLDUSDT", "XAUTUSDT", "XLMUSDT",
-    "XRPUSDT", "ZECUSDT", "ZROUSDT",
-]
-
+# Crypto universe is discovered dynamically from the top-200 liquid Binance spot/perpetual intersection.
 # Historical non-crypto examples supplied for the earlier VFI cycle research.
 YAHOO_ASSETS = {
     "DDD": "DDD",
@@ -497,8 +484,8 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
                 "Weekly_Div_Osc_Strong_Rising_Slope": bool(row["Weekly_Div_Osc_Strong_Rising_Slope"]),
                 "Weekly_Div_Osc_Early_Setup": bool(row["Weekly_Div_Osc_Early_Setup"]),
                 "Weekly_Div_Osc_Zero_Cross_Up": bool(row["Weekly_Div_Osc_Zero_Cross_Up"]),
-        "Weekly_Div_Osc_Zero_Cross_Up_Recent": bool(row["Weekly_Div_Osc_Zero_Cross_Up_Recent"]),
-        "Weekly_Div_Osc_Estimated_Weeks_To_Zero": float(row["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) if pd.notna(row["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) else np.nan,
+                "Weekly_Div_Osc_Zero_Cross_Up_Recent": bool(row["Weekly_Div_Osc_Zero_Cross_Up_Recent"]),
+                "Weekly_Div_Osc_Estimated_Weeks_To_Zero": float(row["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) if pd.notna(row["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) else np.nan,
                 "Daily_Div_Signal": str(row.get("Daily_Div_Signal", "")),
                 "Daily_Div_Age_Bars": float(row["Daily_Div_Age_Bars"]) if pd.notna(row["Daily_Div_Age_Bars"]) else np.nan,
                 "VFI_Negative_Near_Zero": bool(row["VFI_Negative_Near_Zero"]),
