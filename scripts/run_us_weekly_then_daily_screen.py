@@ -32,12 +32,28 @@ def vfi_snapshot(data):
         if len(valid) < 10: return {}
         s = valid["VFI"]
         latest = valid.iloc[-1]
+        last_vfi = float(s.iloc[-1])
+        prior_vfi = float(s.iloc[-2]) if len(s) >= 2 else float("nan")
+        tail26 = s.tail(26)
+        min26 = float(tail26.min()) if len(tail26) else float("nan")
+        recent4 = s.tail(4)
+        crossed_zero_4b = bool(
+            len(recent4) >= 2 and
+            ((recent4.shift(1) < 0) & (recent4 >= 0)).any()
+        )
         return {
-            "VFI": float(s.iloc[-1]),
+            "VFI": last_vfi,
+            "VFI_Prev": prior_vfi,
+            "VFI_Signal": float(latest.get("VFI_Signal", np.nan)),
+            "VFI_Histogram": float(latest.get("VFI_Histogram", np.nan)),
             "VFI_Slope_4B": safe_slope(s, 4),
             "VFI_Slope_8B": safe_slope(s, 8),
             "VFI_Improving": bool(safe_slope(s, 4) > 0 and safe_slope(s, 8) > 0),
-            "VFI_Near_Zero": bool(abs(float(s.iloc[-1])) <= 2.0),
+            "VFI_Near_Zero": bool(abs(last_vfi) <= 2.0),
+            "VFI_Min_26B": min26,
+            "VFI_Rebound_From_Min_26B": last_vfi - min26 if np.isfinite(min26) else float("nan"),
+            "VFI_Bars_Below_Zero_26B": int((tail26 < 0).sum()),
+            "VFI_Zero_Cross_Recent_4B": crossed_zero_4b,
             "VFI_State": str(latest.get("VFI_State", "")),
         }
     except Exception as exc:
@@ -98,42 +114,63 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--symbols", default=",".join(US_LIQUID_UNIVERSE))
     p.add_argument("--period", default="max")
-    p.add_argument("--max-daily-candidates", type=int, default=50)
+    p.add_argument("--top", type=int, default=100, help="Analyze the top N names ranked by recent dollar turnover within the curated seed universe.")
+    p.add_argument("--max-daily-candidates", type=int, default=30)
     p.add_argument("--output-dir", default="reports/us_weekly_then_daily")
     args = p.parse_args()
     symbols = list(dict.fromkeys(s.strip().upper() for s in args.symbols.split(",") if s.strip()))
+    seed_symbols = symbols
     service = MarketDataService()
     out = ROOT / args.output_dir
     out.mkdir(parents=True, exist_ok=True)
-    weekly_rows, candidate_frames, errors = [], {}, []
-    for i, symbol in enumerate(symbols, 1):
-        print(f"[WEEKLY {i}/{len(symbols)}] {symbol}", flush=True)
+    raw_data, liquidity_rows, errors = {}, [], []
+    print(f"Downloading data for {len(seed_symbols)} liquid US-listed seed symbols to rank turnover...", flush=True)
+    for i, symbol in enumerate(seed_symbols, 1):
+        print(f"[LIQUIDITY {i}/{len(seed_symbols)}] {symbol}", flush=True)
         try:
             raw = service.get_daily_data(symbol, period=args.period)
-            row = weekly_screen(symbol, raw)
+            daily = completed_daily(raw)
+            raw_data[symbol] = daily
+            dollar_turnover = (pd.to_numeric(daily["Close"], errors="coerce") *
+                               pd.to_numeric(daily["Volume"], errors="coerce")).replace([np.inf, -np.inf], np.nan).dropna().tail(20)
+            turnover = float(dollar_turnover.mean()) if len(dollar_turnover) >= 10 else float("nan")
+            liquidity_rows.append({"Symbol": symbol, "Average_Dollar_Turnover_20D": turnover,
+                                   "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d") if not daily.empty else "",
+                                   "Liquidity_Status": "OK" if np.isfinite(turnover) else "INSUFFICIENT_DATA"})
+        except Exception as exc:
+            errors.append({"Symbol": symbol, "Stage": "LIQUIDITY", "Error": repr(exc)})
+            liquidity_rows.append({"Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
+                                   "Liquidity_Data_Date": "", "Liquidity_Status": f"ERROR: {exc!r}"})
+    liquidity_df = pd.DataFrame(liquidity_rows)
+    eligible = liquidity_df[np.isfinite(pd.to_numeric(liquidity_df["Average_Dollar_Turnover_20D"], errors="coerce"))]
+    selected = eligible.sort_values("Average_Dollar_Turnover_20D", ascending=False).head(args.top).copy()
+    selected_symbols = selected["Symbol"].tolist()
+    liquidity_rank = {row.Symbol: (rank, float(row.Average_Dollar_Turnover_20D))
+                      for rank, row in enumerate(selected.itertuples(index=False), 1)}
+    print(f"Liquidity universe={len(seed_symbols)}; selected top {len(selected_symbols)} by 20-session dollar turnover.", flush=True)
+
+    weekly_rows, candidate_frames = [], {}
+    for i, symbol in enumerate(selected_symbols, 1):
+        print(f"[WEEKLY {i}/{len(selected_symbols)}] {symbol}", flush=True)
+        try:
+            row = weekly_screen(symbol, raw_data[symbol])
             candidate_frames[symbol] = (row.pop("_daily"), row.pop("_weekly"))
             row["Weekly_Screen_Status"] = "CANDIDATE" if row.pop("_qualifies") else "NOT_SELECTED"
+            row["Liquidity_Rank"] = liquidity_rank[symbol][0]
+            row["Average_Dollar_Turnover_20D"] = liquidity_rank[symbol][1]
             weekly_rows.append(row)
         except Exception as exc:
             errors.append({"Symbol": symbol, "Stage": "WEEKLY", "Error": repr(exc)})
-            weekly_rows.append({"Symbol": symbol, "Weekly_Screen_Status": "ERROR", "Error": repr(exc)})
+            weekly_rows.append({"Symbol": symbol, "Weekly_Screen_Status": "ERROR", "Error": repr(exc),
+                                "Liquidity_Rank": liquidity_rank[symbol][0],
+                                "Average_Dollar_Turnover_20D": liquidity_rank[symbol][1]})
     weekly_df = pd.DataFrame(weekly_rows)
     rankable = weekly_df[weekly_df["Weekly_Screen_Status"].eq("CANDIDATE")].copy() if "Weekly_Screen_Status" in weekly_df else pd.DataFrame()
     if not rankable.empty:
         rankable = rankable.sort_values("Weekly_Score", ascending=False)
-    # If the strict weekly gate yields no candidates, still inspect the highest-ranked
-    # valid weekly setups on daily candles. This is explicitly diagnostic, not a buy signal.
-    daily_selection_mode = "STRICT_WEEKLY_CANDIDATES"
-    if not rankable.empty:
-        chosen = rankable["Symbol"].head(args.max_daily_candidates).tolist()
-    else:
-        daily_selection_mode = "TOP_WEEKLY_SCORE_DIAGNOSTIC_FALLBACK"
-        valid_weekly = weekly_df[weekly_df["Weekly_Screen_Status"].ne("ERROR")].copy()
-        valid_weekly = valid_weekly.sort_values("Weekly_Score", ascending=False, na_position="last")
-        chosen = valid_weekly["Symbol"].head(min(30, args.max_daily_candidates)).tolist()
     print(f"Weekly universe={len(symbols)}; strict weekly candidates={len(rankable)}; daily deep-dive={len(chosen)}; mode={daily_selection_mode}", flush=True)
     print("TOP WEEKLY RANKING (diagnostic scores, not buy signals):", flush=True)
-    weekly_cols = [c for c in ["Symbol", "Weekly_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
+    weekly_cols = [c for c in ["Liquidity_Rank", "Symbol", "Average_Dollar_Turnover_20D", "Weekly_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Prev", "Weekly_VFI_Signal", "Weekly_VFI_Histogram", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_VFI_Min_26B", "Weekly_VFI_Rebound_From_Min_26B", "Weekly_VFI_Bars_Below_Zero_26B", "Weekly_VFI_Zero_Cross_Recent_4B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
     if not weekly_df.empty and "Weekly_Score" in weekly_df.columns:
         print(weekly_df.sort_values("Weekly_Score", ascending=False, na_position="last")[weekly_cols].head(20).to_string(index=False), flush=True)
     daily_rows = []
@@ -193,20 +230,24 @@ def main():
     strict_daily = daily_df[daily_df["VFI_Early_Accumulation_Qualified"].eq(True)].copy() if not daily_df.empty else daily_df.copy()
     weekly_out = weekly_df.drop(columns=[], errors="ignore")
     weekly_out.to_csv(out / "us_100_weekly_screen.csv", index=False)
+    liquidity_df.sort_values("Average_Dollar_Turnover_20D", ascending=False).to_csv(out / "us_liquidity_universe.csv", index=False)
     daily_df.to_csv(out / "us_daily_shortlist_ranking.csv", index=False)
     strict_daily.to_csv(out / "us_daily_strict_vfi_candidates.csv", index=False)
     (out / "run_summary.json").write_text(json.dumps({
-        "requested_symbols": len(symbols), "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
+        "seed_universe_size": len(seed_symbols), "requested_top_liquid": args.top,
+        "selected_by_20_session_dollar_turnover": len(selected_symbols),
+        "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
         "weekly_candidates": len(rankable), "daily_analyzed": len(daily_df),
         "daily_selection_mode": daily_selection_mode,
         "strict_daily_vfi_candidates": int(len(strict_daily)),
         "weekly_candle_policy": "completed Friday candles only",
         "daily_candle_policy": "completed daily candles only",
-        "universe_note": "Curated liquid US-listed stocks and ETFs, not a live volume-ranked top-100 list.",
+        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within the curated seed universe; not all US listings.",
+        "liquidity_ranking_csv": "us_liquidity_universe.csv",
         "method_note": "Technical OHLCV proxies; not direct institutional-flow data. Final score is heuristic and requires out-of-sample backtesting.",
         "errors": errors,
     }, indent=2, default=str), encoding="utf-8")
-    print(json.dumps({"requested_symbols": len(symbols), "weekly_candidates": len(rankable),
+    print(json.dumps({"seed_universe": len(seed_symbols), "selected_by_liquidity": len(selected_symbols), "weekly_candidates": len(rankable),
                       "daily_analyzed": len(daily_df), "strict_daily_vfi_candidates": len(strict_daily),
                       "errors": len(errors)}, indent=2))
     if not strict_daily.empty:
