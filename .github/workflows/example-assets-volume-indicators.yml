@@ -1,0 +1,40 @@
+name: Example assets volume accumulation indicators
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "scripts/run_volume_accumulation_indicators.py"
+      - "tests/test_volume_accumulation_indicators.py"
+      - ".github/workflows/example-assets-volume-indicators.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  volume-indicator-screen:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+          cache: "pip"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt pytest
+      - name: Compile project
+        run: python -m compileall app scripts
+      - name: Run indicator unit tests
+        run: pytest -q tests/test_volume_accumulation_indicators.py
+      - name: Run all example assets
+        run: python scripts/run_volume_accumulation_indicators.py --period max
+      - name: Upload reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: example-assets-volume-accumulation-indicators
+          path: reports/volume_accumulation/
+          if-no-files-found: warn
+          retention-days: 14
