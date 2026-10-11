@@ -249,8 +249,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default="reports/crypto_accumulation_breakout")
     args = parser.parse_args()
 
-    if args.top < 1 or args.daily_bars < 495 or args.weekly_bars < 100:
-        parser.error("--top must be positive; use at least 495 daily bars (130-bar VFI warmup + 365-bar cycle context) and 100 weekly bars")
+    if args.top < 1 or args.daily_bars < 624 or args.weekly_bars < 100:
+        parser.error("--top must be positive; use at least 624 daily bars (259-bar VFI warmup + 365 valid daily VFI observations) and 100 weekly bars")
 
     service = BinanceMarketDataService()
     if args.symbols.strip().upper() == "AUTO":
