@@ -67,10 +67,18 @@ def weekly_screen(symbol, daily):
     vfi_slope = vfi.get("VFI_Slope_4B", np.nan)
     weekly_rank_score = 0.65 * flow_score + 0.20 * flow_trend_score + 0.15 * (100 if vfi_slope > 0 else 0)
     # Keep early setups: improving flow, price not excessively extended. A negative VFI can still qualify.
+    vfi_value = vfi.get("VFI", np.nan)
+    vfi_slope4 = vfi.get("VFI_Slope_4B", np.nan)
+    vfi_slope8 = vfi.get("VFI_Slope_8B", np.nan)
+    # Strict weekly gate: VFI must still be below zero, close enough to be
+    # approaching it, and accelerating over both short and medium windows.
     qualifies = bool(
         np.isfinite(weekly_rank_score) and weekly_rank_score >= 48
-        and (flow_score >= 48 or vfi_slope > 0 or div.get("Weekly_Divergence_Slope_4B", 0) > 0)
-        and price_ret_13w <= 0.25
+        and np.isfinite(vfi_value) and -15.0 <= vfi_value <= 0.0
+        and np.isfinite(vfi_slope4) and vfi_slope4 > 0
+        and np.isfinite(vfi_slope8) and vfi_slope8 > 0
+        and flow_score >= 45
+        and price_ret_13w <= 0.15
     )
     return {
         "Symbol": symbol, "Weekly_Score": float(weekly_rank_score),
@@ -127,16 +135,27 @@ def main():
             vfi = dvfi.get("VFI", np.nan)
             vfi_slope4 = dvfi.get("VFI_Slope_4B", np.nan)
             vfi_slope8 = dvfi.get("VFI_Slope_8B", np.nan)
-            # Reward improving negative/near-zero VFI, penalize overextended prices.
-            early_vfi_score = 100 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0 and vfi_slope8 > 0) else (
-                85 if (np.isfinite(vfi) and abs(vfi) <= 2 and vfi_slope4 > 0) else (
-                65 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0) else (
-                45 if (vfi_slope4 > 0 and vfi_slope8 > 0) else 20)))
+            # Strict daily gate: do not promote a signal if VFI has already
+            # crossed zero or if only the shortest slope is positive.
+            vfi_early = bool(
+                np.isfinite(vfi) and -15.0 <= vfi <= 0.0
+                and np.isfinite(vfi_slope4) and vfi_slope4 > 0
+                and np.isfinite(vfi_slope8) and vfi_slope8 > 0
+                and price_ret_20 <= 0.10
+                and dscore >= 45
+            )
+            near_zero_watch = bool(
+                np.isfinite(vfi) and -2.0 <= vfi <= 0.0
+                and np.isfinite(vfi_slope4) and vfi_slope4 > 0
+                and price_ret_20 <= 0.10
+            )
+            early_vfi_score = 100 if vfi_early else (75 if near_zero_watch else 20)
             extension_penalty = 20 if price_ret_20 > 0.20 else (10 if price_ret_20 > 0.12 else 0)
             final_score = max(0, min(100, 0.45 * float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Score"].iloc[0])
                                      + 0.35 * dscore + 0.20 * early_vfi_score - extension_penalty))
             daily_rows.append({
-                "Symbol": symbol, "Final_Rank_Score": final_score,
+                "Symbol": symbol, "VFI_Early_Accumulation_Qualified": vfi_early,
+                "Final_Rank_Score": final_score,
                 "Weekly_Score": float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Score"].iloc[0]),
                 "Daily_Flow_Score": dscore, "Daily_Price": float(daily["Close"].iloc[-1]),
                 "Daily_Candle_Date": daily.index[-1].strftime("%Y-%m-%d"),
@@ -147,20 +166,26 @@ def main():
                 "Daily_VFI_Near_Zero": dvfi.get("VFI_Near_Zero"),
                 "Weekly_Price_Return_13W": float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Price_Return_13W"].iloc[0]),
                 "Weekly_Candle_Date": weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Candle_Date"].iloc[0],
-                "Setup_Interpretation": "EARLY_ACCUMULATION_CANDIDATE" if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0 and vfi_slope8 > 0 and price_ret_20 <= 0.12 and dscore >= 45) else ("NEAR_ZERO_RECOVERY_WATCH" if (np.isfinite(vfi) and abs(vfi) <= 2 and vfi_slope4 > 0 and price_ret_20 <= 0.12) else "WATCH / NEEDS_CONFIRMATION"),
+                "Setup_Interpretation": "EARLY_ACCUMULATION_CANDIDATE" if vfi_early else ("NEAR_ZERO_RECOVERY_WATCH" if near_zero_watch else "DOES_NOT_MEET_STRICT_VFI_FILTER"),
             })
         except Exception as exc:
             errors.append({"Symbol": symbol, "Stage": "DAILY", "Error": repr(exc)})
     daily_df = pd.DataFrame(daily_rows)
     if not daily_df.empty:
-        daily_df = daily_df.sort_values("Final_Rank_Score", ascending=False).reset_index(drop=True)
+        daily_df = daily_df.sort_values(
+            ["VFI_Early_Accumulation_Qualified", "Final_Rank_Score"],
+            ascending=[False, False]
+        ).reset_index(drop=True)
         daily_df.insert(0, "Rank", range(1, len(daily_df) + 1))
+    strict_daily = daily_df[daily_df["VFI_Early_Accumulation_Qualified"].eq(True)].copy() if not daily_df.empty else daily_df.copy()
     weekly_out = weekly_df.drop(columns=[], errors="ignore")
     weekly_out.to_csv(out / "us_100_weekly_screen.csv", index=False)
     daily_df.to_csv(out / "us_daily_shortlist_ranking.csv", index=False)
+    strict_daily.to_csv(out / "us_daily_strict_vfi_candidates.csv", index=False)
     (out / "run_summary.json").write_text(json.dumps({
         "requested_symbols": len(symbols), "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
         "weekly_candidates": len(rankable), "daily_analyzed": len(daily_df),
+        "strict_daily_vfi_candidates": int(len(strict_daily)),
         "weekly_candle_policy": "completed Friday candles only",
         "daily_candle_policy": "completed daily candles only",
         "universe_note": "Curated liquid US-listed stocks and ETFs, not a live volume-ranked top-100 list.",
@@ -168,9 +193,16 @@ def main():
         "errors": errors,
     }, indent=2, default=str), encoding="utf-8")
     print(json.dumps({"requested_symbols": len(symbols), "weekly_candidates": len(rankable),
-                      "daily_analyzed": len(daily_df), "errors": len(errors)}, indent=2))
-    if not daily_df.empty:
-        print(daily_df.head(30).to_string(index=False))
+                      "daily_analyzed": len(daily_df), "strict_daily_vfi_candidates": len(strict_daily),
+                      "errors": len(errors)}, indent=2))
+    if not strict_daily.empty:
+        print("STRICT EARLY VFI CANDIDATES:")
+        print(strict_daily.to_string(index=False))
+    else:
+        print("No asset currently meets the strict weekly + daily VFI-from-below criteria.")
+        if not daily_df.empty:
+            print("Daily analysis of weekly candidates (diagnostic; not buy signals):")
+            print(daily_df.to_string(index=False))
 
 if __name__ == "__main__":
     main()
