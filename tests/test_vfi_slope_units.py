@@ -8,7 +8,7 @@ from app.indicators.vfi import VFIIndicator
 
 
 class TestVFISlopeUnits(unittest.TestCase):
-    def sample_ohlcv(self, bars=220):
+    def sample_ohlcv(self, bars=360):
         index = pd.date_range("2025-01-01", periods=bars, freq="D", tz="UTC")
         close = 100 + np.arange(bars) * 0.15 + np.sin(np.arange(bars) / 4.0)
         open_ = close - 0.1
