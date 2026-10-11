@@ -89,7 +89,9 @@ def weekly_screen(symbol, daily):
     if len(weekly) < 40:
         raise ValueError(f"Only {len(weekly)} completed weekly bars; need 40")
     flow = calculate_indicators(weekly, window=13)
-    vfi = vfi_snapshot(weekly)
+    # Require a genuinely extended weekly trajectory: 20 completed weekly candles (~5 months),
+    # rather than allowing a short 13-week rebound to dominate the ranking.
+    vfi = vfi_snapshot(weekly, smooth_window=20)
     div = {}
     try:
         d = VolumeDivergenceMM().calculate(weekly)
