@@ -77,7 +77,7 @@ def weekly_screen(symbol, daily):
         and np.isfinite(vfi_value) and -15.0 <= vfi_value <= 0.0
         and np.isfinite(vfi_slope4) and vfi_slope4 > 0
         and np.isfinite(vfi_slope8) and vfi_slope8 > 0
-        and flow_score >= 45
+        and flow_score >= 35
         and price_ret_13w <= 0.15
     )
     return {
