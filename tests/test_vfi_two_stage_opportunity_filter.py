@@ -67,7 +67,7 @@ class TwoStageOpportunityFilterTests(unittest.TestCase):
         frame = pd.DataFrame({"Volume_Divergence_MM": osc}, index=idx)
         result = add_divergence_cycle_features(frame)
         self.assertFalse(bool(result["Div_Osc_Early_Setup_W"].iloc[-1]))
-        self.assertEqual(result["Div_Osc_Estimated_Weeks_To_Zero_W"].iloc[-1], np.nan)
+        self.assertTrue(pd.isna(result["Div_Osc_Estimated_Weeks_To_Zero_W"].iloc[-1]))
 
     def test_dynamic_universe_ranks_intersection_by_combined_liquidity_rank(self):
         class FakeService:
