@@ -8,7 +8,7 @@ on:
         required: true
         default: "200"
       daily_bars:
-        description: Daily candles for VFI warmup plus one-year cycle context (minimum 495)
+        description: Daily candles for VFI warmup plus one-year cycle context (minimum 624)
         required: true
         default: "1000"
       weekly_bars:
@@ -16,7 +16,7 @@ on:
         required: true
         default: "400"
   push:
-    branches: [main]
+    branches: [main, fix/daily-vfi-slope-semantics]
     paths:
       - "app/research/accumulation_breakout_screen.py"
       - "scripts/run_crypto_accumulation_breakout_screen.py"
