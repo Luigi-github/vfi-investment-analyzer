@@ -28,8 +28,8 @@ from app.scoring.vfi_score import VFIScore
 # US-listed assets and crypto examples, plus Colombian equities from BVC
 # Yahoo Finance uses the .CL suffix for BVC-listed shares.
 DEFAULT_SYMBOLS = [
-    "DDD", "INTC", "NVDA", "BTC-USD", "ETH-USD",
-    "EEM", "SPY", "AMD", "SQM", "EC", "AU", "CIB",
+    "DDD", "INTC", "NVDA", "BTC-USD", "ETH-USD", "LTC-USD",
+    "EEM", "SPY", "AMD", "SQM", "EC", "AU", "CIB", "NU",
     "ISA.CL", "GEB.CL", "MINEROS.CL",
 ]
 
