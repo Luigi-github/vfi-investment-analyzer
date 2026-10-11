@@ -45,6 +45,52 @@ def ranked_common_universe(service: BinanceMarketDataService, top: int, min_volu
     )[:top]
 
 
+def universe_liquidity_metadata(
+    service: BinanceMarketDataService,
+    symbols: list[str],
+) -> dict[str, dict]:
+    """Attach auditable 24-hour quote volume and full-universe ranks to selected symbols."""
+    spot_tickers = service._get(service.SPOT_BASE, "/api/v3/ticker/24hr", {})
+    perp_tickers = service._get(service.FUTURES_BASE, "/fapi/v1/ticker/24hr", {})
+
+    def volume_map(rows):
+        result = {}
+        for item in rows if isinstance(rows, list) else []:
+            try:
+                result[str(item["symbol"])] = float(item.get("quoteVolume", 0.0))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return result
+
+    spot_volume = volume_map(spot_tickers)
+    perp_volume = volume_map(perp_tickers)
+    spot_rank = {
+        symbol: rank
+        for rank, (symbol, _) in enumerate(
+            sorted(spot_volume.items(), key=lambda item: (-item[1], item[0])), start=1
+        )
+    }
+    perp_rank = {
+        symbol: rank
+        for rank, (symbol, _) in enumerate(
+            sorted(perp_volume.items(), key=lambda item: (-item[1], item[0])), start=1
+        )
+    }
+    return {
+        symbol: {
+            "Spot_Quote_Volume_24H_USDT": spot_volume.get(symbol, np.nan),
+            "Perpetual_Quote_Volume_24H_USDT": perp_volume.get(symbol, np.nan),
+            "Spot_Quote_Volume_Rank": spot_rank.get(symbol, np.nan),
+            "Perpetual_Quote_Volume_Rank": perp_rank.get(symbol, np.nan),
+            "Combined_Liquidity_Rank_Sum": (
+                spot_rank[symbol] + perp_rank[symbol]
+                if symbol in spot_rank and symbol in perp_rank else np.nan
+            ),
+        }
+        for symbol in symbols
+    }
+
+
 def analyze_symbol(
     symbol: str,
     daily: pd.DataFrame,
@@ -205,6 +251,8 @@ def main() -> None:
     if not symbols:
         raise RuntimeError("No Binance Spot + USD-M perpetual symbols found")
 
+    liquidity_metadata = universe_liquidity_metadata(service, symbols)
+
     output = ROOT / args.output_dir
     output.mkdir(parents=True, exist_ok=True)
     rows = []
@@ -227,6 +275,7 @@ def main() -> None:
         try:
             row = analyze_symbol(symbol, daily, weekly)
             row["Universe_Liquidity_Rank"] = number
+            row.update(liquidity_metadata.get(symbol, {}))
             if fetch_errors:
                 row["Exclusion_Reason"] = "; ".join(
                     x for x in [str(row.get("Exclusion_Reason", "")), *fetch_errors] if x
