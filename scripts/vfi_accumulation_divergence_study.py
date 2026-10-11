@@ -267,12 +267,13 @@ def classify_two_stage_opportunities(frame: pd.DataFrame) -> pd.DataFrame:
     joined["VFI_Opportunity_Ready"] = joined["VFI_Stage"].isin(["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS"])
     joined["Divergence_Cycle_Stage"] = np.select(
         [
+            ~joined["Weekly_Divergence_History_Sufficient"].fillna(False),
             joined["Weekly_Div_Osc_Early_Setup"].fillna(False),
             joined["Weekly_Div_Osc_Zero_Cross_Up_Recent"].fillna(False),
             joined["Weekly_Div_Value"].ge(0),
             joined["Weekly_Div_Value"].lt(0),
         ],
-        ["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS", "POSITIVE_AFTER_CROSS_OR_LATE", "NEGATIVE_NOT_READY"],
+        ["NO_HISTORY", "PRE_ZERO_SETUP", "FRESH_ZERO_CROSS", "POSITIVE_AFTER_CROSS_OR_LATE", "NEGATIVE_NOT_READY"],
         default="NO_HISTORY",
     )
     joined["Divergence_Cycle_Ready"] = joined["Divergence_Cycle_Stage"].isin(["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS"])
@@ -530,31 +531,15 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
 
     latest = joined.iloc[-1]
     weekly_age = latest["Weekly_Div_Age_Days"]
-    signal_type = "NO_SETUP"
-    if bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Div_Osc_Early_Setup"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
-        signal_type = "VFI_SETUP + WEEKLY_DIV_OSC_SETUP + BULLISH_DIVERGENCE"
-    elif bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Div_Osc_Early_Setup"]):
-        signal_type = "VFI_SETUP + WEEKLY_DIV_OSC_SETUP"
-    elif bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Div_Osc_Zero_Cross_Up"]):
-        signal_type = "VFI_SETUP + WEEKLY_DIV_OSC_ZERO_CROSS"
-    elif bool(latest["VFI_Early_Setup"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
-        signal_type = "VFI_EARLY_SETUP + WEEKLY_BULLISH_DIVERGENCE"
-    elif bool(latest["VFI_Early_Setup"]):
-        signal_type = "VFI_EARLY_SETUP; WAIT_FOR_WEEKLY_DIV_OSC"
-    elif bool(latest["VFI_Recovery_From_Negative"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
-        signal_type = "VFI_RECOVERY_FROM_NEGATIVE + WEEKLY_BULLISH_DIVERGENCE"
-    elif bool(latest["VFI_Recovery_From_Negative"]):
-        signal_type = "VFI_RECOVERY_FROM_NEGATIVE"
-    elif bool(latest["VFI_Zero_Cross_Up"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
-        signal_type = "VFI_ZERO_CROSS + WEEKLY_BULLISH_DIVERGENCE"
-    elif bool(latest["VFI_Zero_Cross_Up"]):
-        signal_type = "VFI_ZERO_CROSS_UP"
-    elif bool(latest["Weekly_Div_Osc_Early_Setup"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
-        signal_type = "WEEKLY_DIV_OSC_SETUP + BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP"
-    elif bool(latest["Weekly_Div_Osc_Early_Setup"]):
-        signal_type = "WEEKLY_DIV_OSC_SETUP; WAIT_FOR_VFI_SETUP"
-    elif bool(latest["Weekly_Bullish_Div_Recent"]):
-        signal_type = "WEEKLY_BULLISH_DIVERGENCE; WAIT_FOR_VFI_SETUP"
+    signal_type = str(latest["Candidate_Status"])
+    if bool(latest["Two_Stage_Opportunity"]) and bool(latest["Weekly_Bullish_Div_Recent"]):
+        signal_type = "TWO_STAGE_CANDIDATE + RECENT_BULLISH_DIVERGENCE"
+    elif bool(latest["Two_Stage_Opportunity"]):
+        signal_type = "TWO_STAGE_CANDIDATE"
+    elif str(latest["VFI_Stage"]) == "POSITIVE_AFTER_CROSS_OR_LATE":
+        signal_type = "VFI_ALREADY_ABOVE_ZERO; EXCLUDED_FROM_EARLY_ENTRY"
+    elif str(latest["Divergence_Cycle_Stage"]) == "POSITIVE_AFTER_CROSS_OR_LATE":
+        signal_type = "DIVERGENCE_OSC_ALREADY_ABOVE_ZERO; EXCLUDED_FROM_EARLY_ENTRY"
     current = {
         "Asset": asset,
         "Source": "BINANCE_SPOT" if crypto else "YAHOO_FINANCE",
@@ -588,9 +573,6 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Div_Osc_Zero_Cross_Up": bool(latest["Weekly_Div_Osc_Zero_Cross_Up"]),
         "Weekly_Div_Osc_Zero_Cross_Up_Recent": bool(latest["Weekly_Div_Osc_Zero_Cross_Up_Recent"]),
         "Weekly_Div_Osc_Estimated_Weeks_To_Zero": float(latest["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) if pd.notna(latest["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) else np.nan,
-        "Weekly_Div_Osc_Negative_Near_Zero": bool(latest["Weekly_Div_Osc_Negative_Near_Zero"]),
-        "Weekly_Div_Osc_Positive_Slopes": bool(latest["Weekly_Div_Osc_Positive_Slopes"]),
-        "Weekly_Div_Osc_Strong_Rising_Slope": bool(latest["Weekly_Div_Osc_Strong_Rising_Slope"]),
         "Weekly_Div_Age_Days": float(weekly_age) if pd.notna(weekly_age) else np.nan,
         "Weekly_Bars": int(len(weekly)),
         "Weekly_Divergence_History_Sufficient": bool(weekly_history_sufficient),
@@ -692,8 +674,9 @@ def main():
     )
 
     current.to_csv(out / "current_opportunities.csv", index=False)
+    pd.DataFrame(universe_records).to_csv(out / "crypto_universe_liquidity.csv", index=False)
     # Actionable shortlist strictly applies VFI first, then weekly divergence oscillator.
-    filtered = current[current["Two_Stage_Opportunity"]].copy()
+    filtered = current[current["Two_Stage_Opportunity"]].copy() if not current.empty else current.copy()
     filtered = filtered.sort_values(
         ["Opportunity_Tier", "Setup_Score", "VFI_Estimated_Days_To_Zero",
          "Weekly_Div_Osc_Estimated_Weeks_To_Zero"],
@@ -735,7 +718,6 @@ def main():
         "max_estimated_days_to_vfi_zero": VFI_MAX_ESTIMATED_DAYS_TO_ZERO,
         "max_estimated_weeks_to_divergence_zero": DIVERGENCE_MAX_ESTIMATED_WEEKS_TO_ZERO,
         "divergence": "Causal Volume Divergence by MM implementation; pivot signal recorded on confirmation bar, not backdated. Weekly oscillator cycle is a separate filter from the confirmed price/oscillator bullish-divergence pivot.",
-        "divergence": "Causal Volume Divergence by MM implementation; pivot signal recorded on confirmation bar, not backdated.",
         "completed_assets": int(len(current)),
         "errors": int(len(errors_df)),
         "two_stage_candidates": int(current["Two_Stage_Opportunity"].sum()) if not current.empty else 0,
@@ -765,7 +747,7 @@ def main():
     print("\n=== STRATEGY COMPARISON ===")
     if not summary.empty:
         print(summary.to_string(index=False))
-    print(f"\nAssets completed: {len(current)} / {len(CRYPTO_SYMBOLS) + len(YAHOO_ASSETS)}")
+    print(f"\nAssets completed: {len(current)} / {len(crypto_symbols) + len(YAHOO_ASSETS)}")
     print(f"Errors: {len(errors_df)}")
     print(f"Reports: {out.resolve()}")
 
