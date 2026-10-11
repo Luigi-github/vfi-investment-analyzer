@@ -88,7 +88,7 @@ def calculate_indicators(data: pd.DataFrame, *, window: int = 20) -> dict:
     # Chaikin Money Flow: recent money-flow volume divided by recent volume.
     mfv = multiplier * volume
     vol_sum = volume.rolling(window, min_periods=window).sum()
-    cmf = mfv.rolling(window, min_periods=window).sum() / vol_sum.replace(0, np.nan)
+    cmf_volume_sum = volume.rolling(20, min_periods=20).sum()\n    cmf = mfv.rolling(20, min_periods=20).sum() / cmf_volume_sum.replace(0, np.nan)
 
     # Money Flow Index, volume-weighted momentum oscillator (0..100).
     typical = (high + low + close) / 3.0
