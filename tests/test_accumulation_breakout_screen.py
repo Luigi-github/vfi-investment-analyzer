@@ -163,6 +163,31 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         self.assertEqual(int(result.iloc[0]["Setup_Tier"]), 1)
         self.assertIn("both below zero", result.iloc[0]["Setup_Priority_Reason"])
 
+    def test_vfi_pre_zero_with_full_weekly_history_ranks_above_short_history(self):
+        frame = pd.DataFrame([
+            {
+                "Symbol": "SHORT_WEEKLY_HISTORY",
+                "VFI_Setup_Type": "PRE_ZERO_BREAK",
+                "Divergence_Setup_Type": "INSUFFICIENT_HISTORY",
+                "VFI_Setup_Score": 99.0,
+                "Divergence_Setup_Score": 0.0,
+                "Divergence_Cycle_History_Status": "INSUFFICIENT_VALID_WEEKLY_BARS_FOR_52_WEEK_CYCLE",
+            },
+            {
+                "Symbol": "FULL_WEEKLY_HISTORY",
+                "VFI_Setup_Type": "PRE_ZERO_BREAK",
+                "Divergence_Setup_Type": "NONE",
+                "VFI_Setup_Score": 60.0,
+                "Divergence_Setup_Score": 30.0,
+                "Divergence_Cycle_History_Status": "SUFFICIENT",
+            },
+        ])
+        result = rank_accumulation_candidates(frame)
+        self.assertEqual(result.iloc[0]["Symbol"], "FULL_WEEKLY_HISTORY")
+        self.assertEqual(int(result.iloc[0]["Setup_Tier"]), 3)
+        self.assertEqual(result.iloc[1]["Symbol"], "SHORT_WEEKLY_HISTORY")
+        self.assertEqual(int(result.iloc[1]["Setup_Tier"]), 4)
+
     def test_combined_daily_vfi_weekly_divergence_setup_ranks_first(self):
         frame = pd.DataFrame(
             [
