@@ -14,11 +14,17 @@ class VFIScore:
 
         df = data.copy()
 
+        # Prefer timeframe-neutral bar names; accept legacy columns from older callers.
+        if "VFI_Slope_4B" not in df.columns and "VFI_Slope_4W" in df.columns:
+            df["VFI_Slope_4B"] = df["VFI_Slope_4W"]
+        if "VFI_Slope_8B" not in df.columns and "VFI_Slope_8W" in df.columns:
+            df["VFI_Slope_8B"] = df["VFI_Slope_8W"]
+
         required_columns = [
             "VFI",
             "VFI_Slope",
-            "VFI_Slope_4W",
-            "VFI_Slope_8W",
+            "VFI_Slope_4B",
+            "VFI_Slope_8B",
             "VFI_Distance_Zero",
             "VFI_Range_Position",
             "VFI_Recovery_From_Min_Pct",
@@ -79,21 +85,21 @@ class VFIScore:
         # ==========================================================
 
         both_positive = (
-            (df["VFI_Slope_4W"] > 0)
+            (df["VFI_Slope_4B"] > 0)
             &
-            (df["VFI_Slope_8W"] > 0)
+            (df["VFI_Slope_8B"] > 0)
         )
 
         four_week_positive = (
-            (df["VFI_Slope_4W"] > 0)
+            (df["VFI_Slope_4B"] > 0)
             &
-            (df["VFI_Slope_8W"] <= 0)
+            (df["VFI_Slope_8B"] <= 0)
         )
 
         eight_week_positive = (
-            (df["VFI_Slope_8W"] > 0)
+            (df["VFI_Slope_8B"] > 0)
             &
-            (df["VFI_Slope_4W"] <= 0)
+            (df["VFI_Slope_4B"] <= 0)
         )
 
         df.loc[
@@ -323,11 +329,11 @@ class VFIScore:
         )
 
         df["Accumulation_4W"] = (
-            df["VFI_Slope_4W"] > 0
+            df["VFI_Slope_4B"] > 0
         )
 
         df["Accumulation_8W"] = (
-            df["VFI_Slope_8W"] > 0
+            df["VFI_Slope_8B"] > 0
         )
 
         df["Accumulation_Negative_VFI"] = (
@@ -556,7 +562,7 @@ class VFIScore:
             &
             (df["VFI_Slope"] < 0)
             &
-            (df["VFI_Slope_4W"] < 0)
+            (df["VFI_Slope_4B"] < 0)
         )
 
         df.loc[
@@ -576,7 +582,7 @@ class VFIScore:
             &
             (df["VFI_Slope"] > 0)
             &
-            (df["VFI_Slope_4W"] <= 0)
+            (df["VFI_Slope_4B"] <= 0)
         )
 
         df.loc[
@@ -595,9 +601,9 @@ class VFIScore:
             &
             (df["VFI_Slope"] > 0)
             &
-            (df["VFI_Slope_4W"] > 0)
+            (df["VFI_Slope_4B"] > 0)
             &
-            (df["VFI_Slope_8W"] > 0)
+            (df["VFI_Slope_8B"] > 0)
         )
 
         df.loc[
@@ -622,7 +628,7 @@ class VFIScore:
             &
             (df["VFI_Slope"] > 0)
             &
-            (df["VFI_Slope_4W"] > 0)
+            (df["VFI_Slope_4B"] > 0)
         )
 
         df.loc[
@@ -687,9 +693,9 @@ class VFIScore:
             &
             (df["VFI_Slope"] < 0)
             &
-            (df["VFI_Slope_4W"] < 0)
+            (df["VFI_Slope_4B"] < 0)
             &
-            (df["VFI_Slope_8W"] < 0)
+            (df["VFI_Slope_8B"] < 0)
         )
 
         df.loc[
@@ -711,7 +717,7 @@ class VFIScore:
             &
             (df["VFI_Slope"] < 0)
             &
-            (df["VFI_Slope_4W"] < 0)
+            (df["VFI_Slope_4B"] < 0)
         )
 
         df.loc[

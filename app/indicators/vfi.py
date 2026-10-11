@@ -238,34 +238,21 @@ class VFIIndicator:
         )
 
         # ==========================================================
-        # 19. 4-week average VFI slope
+        # 19. Bar-based average VFI slopes
         #
-        # Measures the average weekly change during the last
-        # 4 weeks.
+        # These are bar counts, not calendar weeks. On a daily input,
+        # 4B/8B means 4/8 days; on a weekly input, 4/8 weeks.
+        # Keep the legacy 4W/8W aliases for older consumers, but new
+        # code should use the timeframe-neutral 4B/8B columns.
         # ==========================================================
 
-        df["VFI_Slope_4W"] = (
-            (
-                df["VFI"]
-                - df["VFI"].shift(4)
-            )
-            / 4.0
-        )
+        df["VFI_Slope_4B"] = (df["VFI"] - df["VFI"].shift(4)) / 4.0
+        df["VFI_Slope_8B"] = (df["VFI"] - df["VFI"].shift(8)) / 8.0
 
-        # ==========================================================
-        # 20. 8-week average VFI slope
-        #
-        # Measures the average weekly change during the last
-        # 8 weeks.
-        # ==========================================================
-
-        df["VFI_Slope_8W"] = (
-            (
-                df["VFI"]
-                - df["VFI"].shift(8)
-            )
-            / 8.0
-        )
+        # Backward-compatible aliases. These names are historical and
+        # should not be interpreted as weeks unless the input is weekly.
+        df["VFI_Slope_4W"] = df["VFI_Slope_4B"]
+        df["VFI_Slope_8W"] = df["VFI_Slope_8B"]
 
         # ==========================================================
         # 21. Rolling minimum

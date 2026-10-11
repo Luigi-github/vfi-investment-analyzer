@@ -45,6 +45,69 @@ def ranked_common_universe(service: BinanceMarketDataService, top: int, min_volu
     )[:top]
 
 
+def universe_liquidity_metadata(
+    service: BinanceMarketDataService,
+    symbols: list[str],
+) -> dict[str, dict]:
+    """Attach auditable 24-hour quote volume and full-universe ranks to selected symbols."""
+    try:
+        spot_tickers = service._get(service.SPOT_BASE, "/api/v3/ticker/24hr", {})
+        spot_error = ""
+    except Exception as exc:
+        spot_tickers, spot_error = [], repr(exc)
+    try:
+        perp_tickers = service._get(service.FUTURES_BASE, "/fapi/v1/ticker/24hr", {})
+        perp_error = ""
+    except Exception as exc:
+        perp_tickers, perp_error = [], repr(exc)
+
+    def volume_map(rows):
+        result = {}
+        for item in rows if isinstance(rows, list) else []:
+            try:
+                result[str(item["symbol"])] = float(item.get("quoteVolume", 0.0))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return result
+
+    spot_volume = volume_map(spot_tickers)
+    perp_volume = volume_map(perp_tickers)
+    spot_rank = {
+        symbol: rank
+        for rank, (symbol, _) in enumerate(
+            sorted(spot_volume.items(), key=lambda item: (-item[1], item[0])), start=1
+        )
+    }
+    perp_rank = {
+        symbol: rank
+        for rank, (symbol, _) in enumerate(
+            sorted(perp_volume.items(), key=lambda item: (-item[1], item[0])), start=1
+        )
+    }
+    return {
+        symbol: {
+            "Spot_Quote_Volume_24H_USDT": spot_volume.get(symbol, np.nan),
+            "Perpetual_Quote_Volume_24H_USDT": perp_volume.get(symbol, np.nan),
+            "Spot_Quote_Volume_Rank": spot_rank.get(symbol, np.nan),
+            "Perpetual_Quote_Volume_Rank": perp_rank.get(symbol, np.nan),
+            "Combined_Liquidity_Rank_Sum": (
+                spot_rank[symbol] + perp_rank[symbol]
+                if symbol in spot_rank and symbol in perp_rank else np.nan
+            ),
+            "Spot_Liquidity_Metadata_Status": (
+                "AVAILABLE" if symbol in spot_volume else ("FETCH_ERROR" if spot_error else "MISSING_SYMBOL")
+            ),
+            "Perpetual_Liquidity_Metadata_Status": (
+                "AVAILABLE" if symbol in perp_volume else ("FETCH_ERROR" if perp_error else "MISSING_SYMBOL")
+            ),
+            "Liquidity_Metadata_Error": "; ".join(
+                error for error in [spot_error, perp_error] if error
+            ),
+        }
+        for symbol in symbols
+    }
+
+
 def analyze_symbol(
     symbol: str,
     daily: pd.DataFrame,
@@ -87,23 +150,17 @@ def analyze_symbol(
         vfi_setup = score_zero_approach(
             vfi_valid["VFI"], "VFI_1D", lookback=365, min_history=365,
             near_zero_fraction=0.15, max_abs_near_zero=2.0,
-            recent_cross_fraction=0.10, min_strength_4=0.10, min_strength_8=0.25,
+            recent_cross_fraction=0.10, recent_cross_bars=3,
+            min_strength_4=0.10, min_strength_8=0.25,
         )
         vfi_stage = str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN"))
-        vfi_stage_eligible = vfi_stage in {
-            "EARLY_RECOVERY", "SUSTAINED_RECOVERY", "APPROACHING_ZERO",
-            "ZERO_CROSS_UP", "ACCUMULATION",
-        }
-        if not vfi_stage_eligible and vfi_setup["VFI_1D_Setup_Type"] in {
+        # The generic VFIAnalyzer stage uses fixed raw 4/8-bar thresholds and
+        # can contradict this screen's normalized 1D zero-approach criteria.
+        # Keep that stage as diagnostic metadata; eligibility is decided only
+        # by the explicit, timeframe-specific setup rules above.
+        vfi_stage_eligible = vfi_setup["VFI_1D_Setup_Type"] in {
             "PRE_ZERO_BREAK", "ZERO_CROSS_RECENT",
-        }:
-            vfi_setup["VFI_1D_Setup_Type"] = "NONE"
-            vfi_setup["VFI_1D_Setup_Reason"] = (
-                f"Rejected by VFI cycle-stage gate: current stage is {vfi_stage}"
-            )
-            vfi_setup["VFI_1D_Setup_Score"] = min(
-                float(vfi_setup["VFI_1D_Setup_Score"]), 59.9
-            )
+        }
     except Exception as exc:
         vfi_reason = repr(exc)
         vfi_stage = "UNKNOWN"
@@ -125,7 +182,7 @@ def analyze_symbol(
             div_valid["Volume_Divergence_MM"], "Divergence_1W",
             lookback=52, min_history=20, near_zero_fraction=0.15,
             max_abs_near_zero=None, recent_cross_fraction=0.10,
-            min_strength_4=0.10, min_strength_8=0.25,
+            recent_cross_bars=2, min_strength_4=0.10, min_strength_8=0.25,
         )
     except Exception as exc:
         div_reason = repr(exc)
@@ -192,8 +249,8 @@ def main() -> None:
     parser.add_argument("--output-dir", default="reports/crypto_accumulation_breakout")
     args = parser.parse_args()
 
-    if args.top < 1 or args.daily_bars < 495 or args.weekly_bars < 100:
-        parser.error("--top must be positive; use at least 495 daily bars (130-bar VFI warmup + 365-bar cycle context) and 100 weekly bars")
+    if args.top < 1 or args.daily_bars < 624 or args.weekly_bars < 100:
+        parser.error("--top must be positive; use at least 624 daily bars (259-bar VFI warmup + 365 valid daily VFI observations) and 100 weekly bars")
 
     service = BinanceMarketDataService()
     if args.symbols.strip().upper() == "AUTO":
@@ -204,6 +261,8 @@ def main() -> None:
         ))[:args.top]
     if not symbols:
         raise RuntimeError("No Binance Spot + USD-M perpetual symbols found")
+
+    liquidity_metadata = universe_liquidity_metadata(service, symbols)
 
     output = ROOT / args.output_dir
     output.mkdir(parents=True, exist_ok=True)
@@ -227,6 +286,7 @@ def main() -> None:
         try:
             row = analyze_symbol(symbol, daily, weekly)
             row["Universe_Liquidity_Rank"] = number
+            row.update(liquidity_metadata.get(symbol, {}))
             if fetch_errors:
                 row["Exclusion_Reason"] = "; ".join(
                     x for x in [str(row.get("Exclusion_Reason", "")), *fetch_errors] if x

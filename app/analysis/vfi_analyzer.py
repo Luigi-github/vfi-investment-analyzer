@@ -42,11 +42,18 @@ class VFIAnalyzer:
 
         df = data.copy()
 
+        # Prefer timeframe-neutral bar-based columns. Older indicator outputs
+        # used the misleading 4W/8W names even when the input was daily.
+        if "VFI_Slope_4B" not in df.columns and "VFI_Slope_4W" in df.columns:
+            df["VFI_Slope_4B"] = df["VFI_Slope_4W"]
+        if "VFI_Slope_8B" not in df.columns and "VFI_Slope_8W" in df.columns:
+            df["VFI_Slope_8B"] = df["VFI_Slope_8W"]
+
         required_columns = [
             "VFI",
             "VFI_Slope",
-            "VFI_Slope_4W",
-            "VFI_Slope_8W",
+            "VFI_Slope_4B",
+            "VFI_Slope_8B",
             "VFI_Distance_Zero",
             "VFI_Rolling_Min",
             "VFI_Rolling_Max"
@@ -83,10 +90,10 @@ class VFIAnalyzer:
         # ==========================================================
 
         sustained_recovery = (
-            (df["VFI_Slope_4W"]
+            (df["VFI_Slope_4B"]
              > self.recovery_4w_threshold)
             &
-            (df["VFI_Slope_8W"]
+            (df["VFI_Slope_8B"]
              > self.recovery_8w_threshold)
         )
 
@@ -95,10 +102,10 @@ class VFIAnalyzer:
         # ==========================================================
 
         sustained_weakening = (
-            (df["VFI_Slope_4W"]
+            (df["VFI_Slope_4B"]
              < self.weakening_4w_threshold)
             &
-            (df["VFI_Slope_8W"]
+            (df["VFI_Slope_8B"]
              < self.weakening_8w_threshold)
         )
 
