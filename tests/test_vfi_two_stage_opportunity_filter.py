@@ -48,6 +48,18 @@ class TwoStageOpportunityFilterTests(unittest.TestCase):
         self.assertEqual(result.loc["no_weekly_history", "Divergence_Cycle_Stage"], "NO_HISTORY")
         self.assertFalse(bool(result.loc["no_weekly_history", "Two_Stage_Opportunity"]))
 
+    def test_nullable_boolean_indicators_do_not_break_numpy_classifier(self):
+        frame = self.candidate_frame()
+        frame["VFI_Early_Setup"] = pd.Series(
+            [True, False, pd.NA, False, True], index=frame.index, dtype="boolean"
+        )
+        frame["Weekly_Div_Osc_Early_Setup"] = pd.Series(
+            [True, True, False, False, True], index=frame.index, dtype="boolean"
+        )
+        result = classify_two_stage_opportunities(frame)
+        self.assertTrue(bool(result.loc["both_pre_zero", "Two_Stage_Opportunity"]))
+        self.assertFalse(bool(result.loc["vfi_only", "Two_Stage_Opportunity"]))
+
     def test_weekly_oscillator_setup_requires_negative_near_zero_strong_recovery(self):
         idx = pd.date_range("2022-01-02", periods=130, freq="W-SUN")
         osc = np.concatenate([np.linspace(-15.0, -8.0, 110), np.linspace(-7.5, -0.3, 20)])
