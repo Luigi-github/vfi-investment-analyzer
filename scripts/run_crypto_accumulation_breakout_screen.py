@@ -137,20 +137,13 @@ def analyze_symbol(
             min_strength_4=0.10, min_strength_8=0.25,
         )
         vfi_stage = str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN"))
-        vfi_stage_eligible = vfi_stage in {
-            "EARLY_RECOVERY", "SUSTAINED_RECOVERY", "APPROACHING_ZERO",
-            "ZERO_CROSS_UP", "ACCUMULATION",
-        }
-        if not vfi_stage_eligible and vfi_setup["VFI_1D_Setup_Type"] in {
+        # The generic VFIAnalyzer stage uses fixed raw 4/8-bar thresholds and
+        # can contradict this screen's normalized 1D zero-approach criteria.
+        # Keep that stage as diagnostic metadata; eligibility is decided only
+        # by the explicit, timeframe-specific setup rules above.
+        vfi_stage_eligible = vfi_setup["VFI_1D_Setup_Type"] in {
             "PRE_ZERO_BREAK", "ZERO_CROSS_RECENT",
-        }:
-            vfi_setup["VFI_1D_Setup_Type"] = "NONE"
-            vfi_setup["VFI_1D_Setup_Reason"] = (
-                f"Rejected by VFI cycle-stage gate: current stage is {vfi_stage}"
-            )
-            vfi_setup["VFI_1D_Setup_Score"] = min(
-                float(vfi_setup["VFI_1D_Setup_Score"]), 59.9
-            )
+        }
     except Exception as exc:
         vfi_reason = repr(exc)
         vfi_stage = "UNKNOWN"
