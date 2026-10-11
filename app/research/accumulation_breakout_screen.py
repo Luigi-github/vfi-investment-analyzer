@@ -101,7 +101,7 @@ def score_zero_approach(
     max_cross_age = max(1, int(recent_cross_bars))
     for age in range(1, min(max_cross_age, len(series) - 1) + 1):
         if float(series.iloc[-age - 1]) < 0 <= float(series.iloc[-age]):
-            cross_bars_ago = age
+            cross_bars_ago = age - 1
             break
     crossed_recently = (
         cross_bars_ago is not None
