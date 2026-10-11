@@ -90,7 +90,7 @@ def main():
     p = argparse.ArgumentParser()
     p.add_argument("--symbols", default=",".join(US_LIQUID_UNIVERSE))
     p.add_argument("--period", default="max")
-    p.add_argument("--max-daily-candidates", type=int, default=30)
+    p.add_argument("--max-daily-candidates", type=int, default=50)
     p.add_argument("--output-dir", default="reports/us_weekly_then_daily")
     args = p.parse_args()
     symbols = list(dict.fromkeys(s.strip().upper() for s in args.symbols.split(",") if s.strip()))
@@ -128,9 +128,7 @@ def main():
             vfi_slope4 = dvfi.get("VFI_Slope_4B", np.nan)
             vfi_slope8 = dvfi.get("VFI_Slope_8B", np.nan)
             # Reward improving negative/near-zero VFI, penalize overextended prices.
-            early_vfi_score = 75 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0 and vfi_slope8 > 0) else (
-                65 if (np.isfinite(vfi) and abs(vfi) <= 2 and vfi_slope4 > 0) else (
-                50 if vfi_slope4 > 0 else 20))
+            early_vfi_score = 100 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0 and vfi_slope8 > 0) else (\n                85 if (np.isfinite(vfi) and abs(vfi) <= 2 and vfi_slope4 > 0) else (\n                65 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0) else (\n                45 if (vfi_slope4 > 0 and vfi_slope8 > 0) else 20)))
             extension_penalty = 20 if price_ret_20 > 0.20 else (10 if price_ret_20 > 0.12 else 0)
             final_score = max(0, min(100, 0.45 * float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Score"].iloc[0])
                                      + 0.35 * dscore + 0.20 * early_vfi_score - extension_penalty))
@@ -146,7 +144,7 @@ def main():
                 "Daily_VFI_Near_Zero": dvfi.get("VFI_Near_Zero"),
                 "Weekly_Price_Return_13W": float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Price_Return_13W"].iloc[0]),
                 "Weekly_Candle_Date": weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Candle_Date"].iloc[0],
-                "Setup_Interpretation": "EARLY_FLOW_IMPROVING" if (vfi_slope4 > 0 and vfi_slope8 > 0 and price_ret_20 <= 0.12 and dscore >= 50) else "WATCH / NEEDS_CONFIRMATION",
+                "Setup_Interpretation": "EARLY_ACCUMULATION_CANDIDATE" if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0 and vfi_slope8 > 0 and price_ret_20 <= 0.12 and dscore >= 45) else ("NEAR_ZERO_RECOVERY_WATCH" if (np.isfinite(vfi) and abs(vfi) <= 2 and vfi_slope4 > 0 and price_ret_20 <= 0.12) else "WATCH / NEEDS_CONFIRMATION"),
             })
         except Exception as exc:
             errors.append({"Symbol": symbol, "Stage": "DAILY", "Error": repr(exc)})
