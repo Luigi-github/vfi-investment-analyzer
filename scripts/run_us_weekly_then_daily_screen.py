@@ -27,7 +27,27 @@ def safe_slope(series, bars=4):
     if len(s) < bars: return float("nan")
     return float(np.polyfit(np.arange(len(s)), s.to_numpy(dtype=float), 1)[0])
 
-def vfi_snapshot(data):
+def vfi_linearity_metrics(series, bars=13):
+    """Score an approximately linear, low-noise upward VFI path over recent bars."""
+    values = pd.to_numeric(series, errors="coerce").dropna().tail(bars).to_numpy(dtype=float)
+    if len(values) < max(8, bars // 2):
+        return {"VFI_Linear_R2": float("nan"), "VFI_Up_Bar_Ratio": float("nan"),
+                "VFI_Smooth_Rising_Score": float("nan"), "VFI_Linear_Slope": float("nan")}
+    x = np.arange(len(values), dtype=float)
+    slope, intercept = np.polyfit(x, values, 1)
+    fitted = intercept + slope * x
+    ss_res = float(np.sum((values - fitted) ** 2))
+    ss_tot = float(np.sum((values - values.mean()) ** 2))
+    r2 = max(0.0, 1.0 - ss_res / ss_tot) if ss_tot > 1e-12 else 0.0
+    diffs = np.diff(values)
+    up_ratio = float(np.mean(diffs > 0)) if len(diffs) else 0.0
+    # R² alone would reward a straight decline too, so require a positive slope.
+    score = float(100.0 * r2 * up_ratio) if slope > 0 else 0.0
+    return {"VFI_Linear_R2": float(r2), "VFI_Up_Bar_Ratio": up_ratio,
+            "VFI_Smooth_Rising_Score": score, "VFI_Linear_Slope": float(slope)}
+
+
+def vfi_snapshot(data, smooth_window=13):
     try:
         v = VFIIndicator().calculate(data)
         valid = v.loc[v["VFI"].notna()]
@@ -43,8 +63,10 @@ def vfi_snapshot(data):
             len(recent4) >= 2 and
             ((recent4.shift(1) < 0) & (recent4 >= 0)).any()
         )
+        smooth = vfi_linearity_metrics(s, bars=smooth_window)
         return {
             "VFI": last_vfi,
+            **smooth,
             "VFI_Prev": prior_vfi,
             "VFI_Signal": float(latest.get("VFI_Signal", np.nan)),
             "VFI_Histogram": float(latest.get("VFI_Histogram", np.nan)),
@@ -105,10 +127,13 @@ def weekly_screen(symbol, daily):
         early_price_score = 55.0
     else:
         early_price_score = max(0.0, 55.0 - (price_ret_13w - 0.15) * 200.0)
+    smooth_score = vfi.get("VFI_Smooth_Rising_Score", np.nan)
+    if not np.isfinite(smooth_score):
+        smooth_score = 0.0
     weekly_rank_score = float(
-        0.30 * flow_score + 0.15 * flow_trend_score
-        + 0.30 * vfi_position_score + 0.20 * vfi_slope_score
-        + 0.05 * early_price_score
+        0.25 * flow_score + 0.10 * flow_trend_score
+        + 0.25 * vfi_position_score + 0.15 * vfi_slope_score
+        + 0.20 * smooth_score + 0.05 * early_price_score
     )
     # Strict weekly gate: VFI must still be below zero, close enough to be
     # approaching it, and accelerating over both short and medium windows.
@@ -119,9 +144,14 @@ def weekly_screen(symbol, daily):
         and np.isfinite(vfi_slope8) and vfi_slope8 > 0
         and flow_score >= 35
         and price_ret_13w <= 0.15
+        and smooth_score >= 45
     )
     return {
         "Symbol": symbol, "Weekly_Score": float(weekly_rank_score),
+        "Weekly_VFI_Smooth_Rising_Score": smooth_score,
+        "Weekly_VFI_Linear_R2": vfi.get("VFI_Linear_R2"),
+        "Weekly_VFI_Up_Bar_Ratio": vfi.get("VFI_Up_Bar_Ratio"),
+        "Weekly_VFI_Linear_Slope": vfi.get("VFI_Linear_Slope"),
         "Weekly_Early_Accumulation_Score": float(weekly_rank_score),
         "Weekly_VFI_Position_Score": float(vfi_position_score),
         "Weekly_VFI_Slope_Score": float(vfi_slope_score),
@@ -202,7 +232,10 @@ def main():
     vfi_num = pd.to_numeric(valid_weekly.get("Weekly_VFI", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
     slope4_num = pd.to_numeric(valid_weekly.get("Weekly_VFI_Slope_4B", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
     ret13_num = pd.to_numeric(valid_weekly.get("Weekly_Price_Return_13W", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
-    near_zero_mask = vfi_num.between(-5.0, 0.0) & (slope4_num > 0) & (ret13_num <= 0.15)
+    smooth_num = pd.to_numeric(valid_weekly.get("Weekly_VFI_Smooth_Rising_Score", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
+    slope8_num = pd.to_numeric(valid_weekly.get("Weekly_VFI_Slope_8B", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
+    near_zero_mask = (vfi_num.between(-15.0, 0.0) & (slope4_num > 0) &
+                      (slope8_num > 0) & (ret13_num <= 0.15) & (smooth_num >= 35))
     near_zero = valid_weekly.loc[near_zero_mask].copy()
     near_zero["_VFI_Abs"] = pd.to_numeric(near_zero["Weekly_VFI"], errors="coerce").abs()
     near_zero = near_zero.sort_values(["_VFI_Abs", "Weekly_Score"], ascending=[True, False])
@@ -220,7 +253,7 @@ def main():
         chosen = valid_weekly["Symbol"].head(min(30, args.max_daily_candidates)).tolist()
     print(f"Weekly universe={len(selected_symbols)}; strict weekly candidates={len(rankable)}; daily deep-dive={len(chosen)}; mode={daily_selection_mode}", flush=True)
     print("TOP WEEKLY EARLY-ACCUMULATION RANKING (not buy signals):", flush=True)
-    weekly_cols = [c for c in ["Liquidity_Rank", "Symbol", "Average_Dollar_Turnover_20D", "Weekly_Score", "Weekly_Early_Accumulation_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Prev", "Weekly_VFI_Signal", "Weekly_VFI_Histogram", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_VFI_Position_Score", "Weekly_VFI_Slope_Score", "Weekly_VFI_Near_Zero", "Weekly_VFI_Min_26B", "Weekly_VFI_Rebound_From_Min_26B", "Weekly_VFI_Bars_Below_Zero_26B", "Weekly_VFI_Zero_Cross_Recent_4B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
+    weekly_cols = [c for c in ["Liquidity_Rank", "Symbol", "Average_Dollar_Turnover_20D", "Weekly_Score", "Weekly_Early_Accumulation_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Prev", "Weekly_VFI_Signal", "Weekly_VFI_Histogram", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_VFI_Smooth_Rising_Score", "Weekly_VFI_Linear_R2", "Weekly_VFI_Up_Bar_Ratio", "Weekly_VFI_Position_Score", "Weekly_VFI_Slope_Score", "Weekly_VFI_Near_Zero", "Weekly_VFI_Min_26B", "Weekly_VFI_Rebound_From_Min_26B", "Weekly_VFI_Bars_Below_Zero_26B", "Weekly_VFI_Zero_Cross_Recent_4B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
     if not weekly_df.empty and "Weekly_Score" in weekly_df.columns:
         print(weekly_df.sort_values("Weekly_Score", ascending=False, na_position="last")[weekly_cols].head(20).to_string(index=False), flush=True)
     daily_rows = []
@@ -229,7 +262,7 @@ def main():
         daily, weekly = candidate_frames[symbol]
         try:
             dflow = calculate_indicators(daily, window=20)
-            dvfi = vfi_snapshot(daily)
+            dvfi = vfi_snapshot(daily, smooth_window=20)
             price_ret_20 = dflow.get("Price_Return_20B", np.nan)
             dscore = float(dflow["Accumulation_Distribution_Score"])
             vfi = dvfi.get("VFI", np.nan)
@@ -237,17 +270,21 @@ def main():
             vfi_slope8 = dvfi.get("VFI_Slope_8B", np.nan)
             # Strict daily gate: do not promote a signal if VFI has already
             # crossed zero or if only the shortest slope is positive.
+            smooth_daily = dvfi.get("VFI_Smooth_Rising_Score", np.nan)
             vfi_early = bool(
                 np.isfinite(vfi) and -15.0 <= vfi <= 0.0
                 and np.isfinite(vfi_slope4) and vfi_slope4 > 0
                 and np.isfinite(vfi_slope8) and vfi_slope8 > 0
                 and price_ret_20 <= 0.10
                 and dscore >= 45
+                and np.isfinite(smooth_daily) and smooth_daily >= 55
             )
             near_zero_watch = bool(
-                np.isfinite(vfi) and -2.0 <= vfi <= 0.0
+                np.isfinite(vfi) and -5.0 <= vfi <= 0.0
                 and np.isfinite(vfi_slope4) and vfi_slope4 > 0
+                and np.isfinite(vfi_slope8) and vfi_slope8 > 0
                 and price_ret_20 <= 0.10
+                and np.isfinite(smooth_daily) and smooth_daily >= 40
             )
             early_vfi_score = 100 if vfi_early else (75 if near_zero_watch else 20)
             extension_penalty = 20 if price_ret_20 > 0.20 else (10 if price_ret_20 > 0.12 else 0)
@@ -265,6 +302,10 @@ def main():
                 "Daily_VFI": vfi, "Daily_VFI_Prev": dvfi.get("VFI_Prev"),
                 "Daily_VFI_Signal": dvfi.get("VFI_Signal"), "Daily_VFI_Histogram": dvfi.get("VFI_Histogram"),
                 "Daily_VFI_Slope_4B": vfi_slope4, "Daily_VFI_Slope_8B": vfi_slope8,
+                "Daily_VFI_Smooth_Rising_Score": smooth_daily,
+                "Daily_VFI_Linear_R2": dvfi.get("VFI_Linear_R2"),
+                "Daily_VFI_Up_Bar_Ratio": dvfi.get("VFI_Up_Bar_Ratio"),
+                "Daily_VFI_Linear_Slope": dvfi.get("VFI_Linear_Slope"),
                 "Daily_VFI_Min_26B": dvfi.get("VFI_Min_26B"),
                 "Daily_VFI_Rebound_From_Min_26B": dvfi.get("VFI_Rebound_From_Min_26B"),
                 "Daily_VFI_Bars_Below_Zero_26B": dvfi.get("VFI_Bars_Below_Zero_26B"),
@@ -272,7 +313,7 @@ def main():
                 "Daily_VFI_Near_Zero": dvfi.get("VFI_Near_Zero"),
                 "Weekly_Price_Return_13W": float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Price_Return_13W"].iloc[0]),
                 "Weekly_Candle_Date": weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Candle_Date"].iloc[0],
-                "Setup_Interpretation": "EARLY_ACCUMULATION_CANDIDATE" if vfi_early else ("NEAR_ZERO_RECOVERY_WATCH" if near_zero_watch else "DOES_NOT_MEET_STRICT_VFI_FILTER"),
+                "Setup_Interpretation": "EARLY_ACCUMULATION_CANDIDATE" if vfi_early else ("SMOOTH_NEAR_ZERO_WATCH" if near_zero_watch else "DOES_NOT_MEET_STRICT_VFI_FILTER"),
             })
         except Exception as exc:
             errors.append({"Symbol": symbol, "Stage": "DAILY", "Error": repr(exc)})
