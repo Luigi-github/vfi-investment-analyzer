@@ -663,20 +663,25 @@ def main():
     current.to_csv(out / "current_opportunities.csv", index=False)
     pd.DataFrame(universe_records).to_csv(out / "crypto_universe_liquidity.csv", index=False)
     # Actionable shortlist strictly applies VFI first, then weekly divergence oscillator.
-    filtered = current[current["Two_Stage_Opportunity"]].copy() if not current.empty else current.copy()
-    filtered = filtered.sort_values(
-        ["Opportunity_Tier", "Setup_Score", "VFI_Estimated_Days_To_Zero",
-         "Weekly_Div_Osc_Estimated_Weeks_To_Zero"],
-        ascending=[True, False, True, True], na_position="last",
-    ).reset_index(drop=True)
-    filtered.insert(0, "Two_Stage_Rank", np.arange(1, len(filtered) + 1))
+    if not current.empty:
+        filtered = current[current["Two_Stage_Opportunity"]].copy()
+        filtered = filtered.sort_values(
+            ["Opportunity_Tier", "Setup_Score", "VFI_Estimated_Days_To_Zero",
+             "Weekly_Div_Osc_Estimated_Weeks_To_Zero"],
+            ascending=[True, False, True, True], na_position="last",
+        ).reset_index(drop=True)
+        filtered.insert(0, "Two_Stage_Rank", np.arange(1, len(filtered) + 1))
+        current[current["Candidate_Status"] == "VFI_READY_WAITING_FOR_DIVERGENCE"].to_csv(
+            out / "vfi_first_watchlist.csv", index=False
+        )
+        current[current["Candidate_Status"] == "DIVERGENCE_READY_WAITING_FOR_VFI"].to_csv(
+            out / "divergence_watchlist_waiting_for_vfi.csv", index=False
+        )
+    else:
+        filtered = pd.DataFrame(columns=["Two_Stage_Rank", "Asset", "Candidate_Status", "Selection_Reason"])
+        pd.DataFrame().to_csv(out / "vfi_first_watchlist.csv", index=False)
+        pd.DataFrame().to_csv(out / "divergence_watchlist_waiting_for_vfi.csv", index=False)
     filtered.to_csv(out / "filtered_opportunities.csv", index=False)
-    current[current["Candidate_Status"] == "VFI_READY_WAITING_FOR_DIVERGENCE"].to_csv(
-        out / "vfi_first_watchlist.csv", index=False
-    )
-    current[current["Candidate_Status"] == "DIVERGENCE_READY_WAITING_FOR_VFI"].to_csv(
-        out / "divergence_watchlist_waiting_for_vfi.csv", index=False
-    )
     events.to_csv(out / "historical_events.csv", index=False)
     summary.to_csv(out / "strategy_comparison.csv", index=False)
     per_asset.to_csv(out / "per_asset_strategy_counts.csv", index=False)
