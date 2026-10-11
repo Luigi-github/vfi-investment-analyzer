@@ -50,8 +50,16 @@ def universe_liquidity_metadata(
     symbols: list[str],
 ) -> dict[str, dict]:
     """Attach auditable 24-hour quote volume and full-universe ranks to selected symbols."""
-    spot_tickers = service._get(service.SPOT_BASE, "/api/v3/ticker/24hr", {})
-    perp_tickers = service._get(service.FUTURES_BASE, "/fapi/v1/ticker/24hr", {})
+    try:
+        spot_tickers = service._get(service.SPOT_BASE, "/api/v3/ticker/24hr", {})
+        spot_error = ""
+    except Exception as exc:
+        spot_tickers, spot_error = [], repr(exc)
+    try:
+        perp_tickers = service._get(service.FUTURES_BASE, "/fapi/v1/ticker/24hr", {})
+        perp_error = ""
+    except Exception as exc:
+        perp_tickers, perp_error = [], repr(exc)
 
     def volume_map(rows):
         result = {}
@@ -85,6 +93,15 @@ def universe_liquidity_metadata(
             "Combined_Liquidity_Rank_Sum": (
                 spot_rank[symbol] + perp_rank[symbol]
                 if symbol in spot_rank and symbol in perp_rank else np.nan
+            ),
+            "Spot_Liquidity_Metadata_Status": (
+                "AVAILABLE" if symbol in spot_volume else ("FETCH_ERROR" if spot_error else "MISSING_SYMBOL")
+            ),
+            "Perpetual_Liquidity_Metadata_Status": (
+                "AVAILABLE" if symbol in perp_volume else ("FETCH_ERROR" if perp_error else "MISSING_SYMBOL")
+            ),
+            "Liquidity_Metadata_Error": "; ".join(
+                error for error in [spot_error, perp_error] if error
             ),
         }
         for symbol in symbols
