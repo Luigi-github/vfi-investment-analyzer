@@ -82,12 +82,34 @@ def weekly_screen(symbol, daily):
     price_ret_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
     flow_score = flow["Accumulation_Distribution_Score"]
     flow_trend_score = np.nanmean([flow.get("OBV_Trend_Score", np.nan), flow.get("AD_Trend_Score", np.nan)])
-    vfi_slope = vfi.get("VFI_Slope_4B", np.nan)
-    weekly_rank_score = 0.65 * flow_score + 0.20 * flow_trend_score + 0.15 * (100 if vfi_slope > 0 else 0)
-    # Keep early setups: improving flow, price not excessively extended. A negative VFI can still qualify.
+    # Early-entry ranking rewards VFI below but approaching zero, improving
+    # short/medium slopes, and a price that has not already run up.
     vfi_value = vfi.get("VFI", np.nan)
     vfi_slope4 = vfi.get("VFI_Slope_4B", np.nan)
     vfi_slope8 = vfi.get("VFI_Slope_8B", np.nan)
+    if np.isfinite(vfi_value):
+        vfi_position_score = (max(0.0, 100.0 - abs(vfi_value) * 4.0) if vfi_value <= 0
+                              else max(0.0, 50.0 - vfi_value * 2.5))
+    else:
+        vfi_position_score = 50.0
+    if np.isfinite(vfi_slope4) and np.isfinite(vfi_slope8):
+        vfi_slope_score = 100.0 if vfi_slope4 > 0 and vfi_slope8 > 0 else (
+            60.0 if vfi_slope4 > 0 or vfi_slope8 > 0 else 0.0)
+    else:
+        vfi_slope_score = 50.0
+    if price_ret_13w <= 0:
+        early_price_score = 90.0
+    elif price_ret_13w <= 0.05:
+        early_price_score = 75.0
+    elif price_ret_13w <= 0.15:
+        early_price_score = 55.0
+    else:
+        early_price_score = max(0.0, 55.0 - (price_ret_13w - 0.15) * 200.0)
+    weekly_rank_score = float(
+        0.30 * flow_score + 0.15 * flow_trend_score
+        + 0.30 * vfi_position_score + 0.20 * vfi_slope_score
+        + 0.05 * early_price_score
+    )
     # Strict weekly gate: VFI must still be below zero, close enough to be
     # approaching it, and accelerating over both short and medium windows.
     qualifies = bool(
@@ -100,6 +122,9 @@ def weekly_screen(symbol, daily):
     )
     return {
         "Symbol": symbol, "Weekly_Score": float(weekly_rank_score),
+        "Weekly_Early_Accumulation_Score": float(weekly_rank_score),
+        "Weekly_VFI_Position_Score": float(vfi_position_score),
+        "Weekly_VFI_Slope_Score": float(vfi_slope_score),
         "Weekly_Flow_Score": float(flow_score),
         "Weekly_Price_Return_13W": price_ret_13w,
         "Weekly_Candle_Date": weekly.index[-1].strftime("%Y-%m-%d"),
@@ -170,20 +195,32 @@ def main():
     rankable = weekly_df[weekly_df["Weekly_Screen_Status"].eq("CANDIDATE")].copy() if "Weekly_Screen_Status" in weekly_df else pd.DataFrame()
     if not rankable.empty:
         rankable = rankable.sort_values("Weekly_Score", ascending=False)
-    # Only assets that passed the weekly gate proceed to the daily study.
-    # If none pass the strict VFI gate, inspect a small top-score diagnostic
-    # shortlist so the run still explains why no strict candidates qualified.
-    daily_selection_mode = "STRICT_WEEKLY_CANDIDATES"
-    if not rankable.empty:
-        chosen = rankable["Symbol"].head(args.max_daily_candidates).tolist()
+    # Daily analysis includes strict weekly candidates plus a near-zero watchlist:
+    # VFI in [-5, 0], positive 4-bar slope, and price not up more than 15% in 13 weeks.
+    strict_symbols = rankable.sort_values("Weekly_Score", ascending=False)["Symbol"].tolist() if not rankable.empty else []
+    valid_weekly = weekly_df[weekly_df["Weekly_Screen_Status"].ne("ERROR")].copy()
+    vfi_num = pd.to_numeric(valid_weekly.get("Weekly_VFI", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
+    slope4_num = pd.to_numeric(valid_weekly.get("Weekly_VFI_Slope_4B", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
+    ret13_num = pd.to_numeric(valid_weekly.get("Weekly_Price_Return_13W", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
+    near_zero_mask = vfi_num.between(-5.0, 0.0) & (slope4_num > 0) & (ret13_num <= 0.15)
+    near_zero = valid_weekly.loc[near_zero_mask].copy()
+    near_zero["_VFI_Abs"] = pd.to_numeric(near_zero["Weekly_VFI"], errors="coerce").abs()
+    near_zero = near_zero.sort_values(["_VFI_Abs", "Weekly_Score"], ascending=[True, False])
+    watchlist_symbols = near_zero["Symbol"].tolist()
+    chosen = list(dict.fromkeys(strict_symbols + watchlist_symbols))[:args.max_daily_candidates]
+    if strict_symbols and watchlist_symbols:
+        daily_selection_mode = "STRICT_PLUS_NEAR_ZERO_WATCHLIST"
+    elif strict_symbols:
+        daily_selection_mode = "STRICT_WEEKLY_CANDIDATES"
+    elif watchlist_symbols:
+        daily_selection_mode = "NEAR_ZERO_WATCHLIST_ONLY"
     else:
         daily_selection_mode = "TOP_WEEKLY_SCORE_DIAGNOSTIC_FALLBACK"
-        valid_weekly = weekly_df[weekly_df["Weekly_Screen_Status"].ne("ERROR")].copy()
         valid_weekly = valid_weekly.sort_values("Weekly_Score", ascending=False, na_position="last")
         chosen = valid_weekly["Symbol"].head(min(30, args.max_daily_candidates)).tolist()
     print(f"Weekly universe={len(selected_symbols)}; strict weekly candidates={len(rankable)}; daily deep-dive={len(chosen)}; mode={daily_selection_mode}", flush=True)
-    print("TOP WEEKLY RANKING (diagnostic scores, not buy signals):", flush=True)
-    weekly_cols = [c for c in ["Liquidity_Rank", "Symbol", "Average_Dollar_Turnover_20D", "Weekly_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Prev", "Weekly_VFI_Signal", "Weekly_VFI_Histogram", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_VFI_Min_26B", "Weekly_VFI_Rebound_From_Min_26B", "Weekly_VFI_Bars_Below_Zero_26B", "Weekly_VFI_Zero_Cross_Recent_4B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
+    print("TOP WEEKLY EARLY-ACCUMULATION RANKING (not buy signals):", flush=True)
+    weekly_cols = [c for c in ["Liquidity_Rank", "Symbol", "Average_Dollar_Turnover_20D", "Weekly_Score", "Weekly_Early_Accumulation_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Prev", "Weekly_VFI_Signal", "Weekly_VFI_Histogram", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_VFI_Position_Score", "Weekly_VFI_Slope_Score", "Weekly_VFI_Near_Zero", "Weekly_VFI_Min_26B", "Weekly_VFI_Rebound_From_Min_26B", "Weekly_VFI_Bars_Below_Zero_26B", "Weekly_VFI_Zero_Cross_Recent_4B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
     if not weekly_df.empty and "Weekly_Score" in weekly_df.columns:
         print(weekly_df.sort_values("Weekly_Score", ascending=False, na_position="last")[weekly_cols].head(20).to_string(index=False), flush=True)
     daily_rows = []
