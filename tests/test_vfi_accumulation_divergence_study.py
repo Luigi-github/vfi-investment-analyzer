@@ -61,7 +61,7 @@ class VfiDailyWeeklyStudyTests(unittest.TestCase):
             "Close": close,
             "Volume": 1000 + (np.arange(700) % 17) * 35,
         }, index=idx)
-        result = build_asset_events(
+        _, result = build_asset_events(
             "TEST", frame, True, VFIIndicator(), VolumeDivergenceMM()
         )
         self.assertLess(result["Weekly_Bars"], MIN_WEEKLY_BARS_FOR_DIVERGENCE)
