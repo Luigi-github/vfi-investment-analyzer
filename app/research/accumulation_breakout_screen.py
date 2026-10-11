@@ -103,11 +103,14 @@ def score_zero_approach(
         if float(series.iloc[-age - 1]) < 0 <= float(series.iloc[-age]):
             cross_bars_ago = age - 1
             break
+    recent_cross_limit = value_range * recent_cross_fraction
+    if max_abs_near_zero is not None:
+        recent_cross_limit = min(recent_cross_limit, max_abs_near_zero)
     crossed_recently = (
         cross_bars_ago is not None
         and value >= 0
         and value_range > 0
-        and value <= value_range * recent_cross_fraction
+        and value <= recent_cross_limit
         and slope_1 > 0
         and slope_4 > 0
         and slope_8 > 0
