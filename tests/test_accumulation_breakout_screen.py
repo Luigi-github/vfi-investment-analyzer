@@ -113,6 +113,40 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         self.assertFalse(bool(missing["Combined_Setup"]))
         self.assertEqual(int(missing["Universe_Liquidity_Rank"]), 200)
 
+    def test_full_52_week_context_is_required_for_divergence_cycle(self):
+        values = rising_negative_series(length=51)
+        result = score_zero_approach(
+            values,
+            "Divergence_1W",
+            lookback=52,
+            min_history=52,
+        )
+        self.assertEqual(result["Divergence_1W_Setup_Type"], "INSUFFICIENT_HISTORY")
+        self.assertFalse(result["Divergence_1W_Near_Zero"])
+        self.assertIn("need 52", result["Divergence_1W_Setup_Reason"])
+
+    def test_dual_pre_zero_setup_ranks_above_dual_recent_cross(self):
+        frame = pd.DataFrame([
+            {
+                "Symbol": "DUAL_CROSS_HIGH_SCORE",
+                "VFI_Setup_Type": "ZERO_CROSS_RECENT",
+                "Divergence_Setup_Type": "ZERO_CROSS_RECENT",
+                "VFI_Setup_Score": 99.0,
+                "Divergence_Setup_Score": 99.0,
+            },
+            {
+                "Symbol": "DUAL_PRE_ZERO",
+                "VFI_Setup_Type": "PRE_ZERO_BREAK",
+                "Divergence_Setup_Type": "PRE_ZERO_BREAK",
+                "VFI_Setup_Score": 75.0,
+                "Divergence_Setup_Score": 70.0,
+            },
+        ])
+        result = rank_accumulation_candidates(frame)
+        self.assertEqual(result.iloc[0]["Symbol"], "DUAL_PRE_ZERO")
+        self.assertEqual(int(result.iloc[0]["Setup_Tier"]), 1)
+        self.assertIn("both below zero", result.iloc[0]["Setup_Priority_Reason"])
+
     def test_combined_daily_vfi_weekly_divergence_setup_ranks_first(self):
         frame = pd.DataFrame(
             [
