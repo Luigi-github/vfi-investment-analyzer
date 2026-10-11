@@ -239,66 +239,76 @@ def get_crypto_daily(service: BinanceMarketDataService, symbol: str) -> pd.DataF
 
 
 def classify_two_stage_opportunities(frame: pd.DataFrame) -> pd.DataFrame:
-    """Apply the user's ordered screen: daily VFI first, completed-week divergence second."""
+    """Apply the ordered screen using NumPy boolean arrays (including nullable pandas booleans)."""
     joined = frame.copy()
+
+    def mask(values) -> np.ndarray:
+        if isinstance(values, pd.Series):
+            values = values.fillna(False).astype(bool)
+            return values.to_numpy(dtype=bool)
+        return np.asarray(values, dtype=bool)
+
+    vfi_early = mask(joined["VFI_Early_Setup"])
+    vfi_cross = mask(joined["VFI_Zero_Cross_Up_Recent_Near_Zero"])
+    vfi_positive = mask(joined["VFI"].ge(0))
+    vfi_negative = mask(joined["VFI"].lt(0))
+    weekly_history = mask(joined["Weekly_Divergence_History_Sufficient"])
+    div_early = mask(joined["Weekly_Div_Osc_Early_Setup"])
+    div_cross = mask(joined["Weekly_Div_Osc_Zero_Cross_Up_Recent"])
+    div_positive = mask(joined["Weekly_Div_Value"].ge(0))
+    div_negative = mask(joined["Weekly_Div_Value"].lt(0))
+
     joined["VFI_Stage"] = np.select(
-        [
-            joined["VFI_Early_Setup"].fillna(False),
-            joined["VFI_Zero_Cross_Up_Recent_Near_Zero"].fillna(False),
-            joined["VFI"].ge(0),
-            joined["VFI"].lt(0),
-        ],
+        [vfi_early, vfi_cross, vfi_positive, vfi_negative],
         ["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS", "POSITIVE_AFTER_CROSS_OR_LATE", "NEGATIVE_NOT_READY"],
         default="NO_DATA",
     )
     joined["VFI_Opportunity_Ready"] = joined["VFI_Stage"].isin(["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS"])
     joined["Divergence_Cycle_Stage"] = np.select(
-        [
-            ~joined["Weekly_Divergence_History_Sufficient"].fillna(False),
-            joined["Weekly_Div_Osc_Early_Setup"].fillna(False),
-            joined["Weekly_Div_Osc_Zero_Cross_Up_Recent"].fillna(False),
-            joined["Weekly_Div_Value"].ge(0),
-            joined["Weekly_Div_Value"].lt(0),
-        ],
+        [~weekly_history, div_early, div_cross, div_positive, div_negative],
         ["NO_HISTORY", "PRE_ZERO_SETUP", "FRESH_ZERO_CROSS", "POSITIVE_AFTER_CROSS_OR_LATE", "NEGATIVE_NOT_READY"],
         default="NO_HISTORY",
     )
     joined["Divergence_Cycle_Ready"] = joined["Divergence_Cycle_Stage"].isin(["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS"])
-    joined["Two_Stage_Opportunity"] = joined["VFI_Opportunity_Ready"] & joined["Divergence_Cycle_Ready"]
+
+    vfi_pre = mask(joined["VFI_Stage"].eq("PRE_ZERO_SETUP"))
+    vfi_fresh = mask(joined["VFI_Stage"].eq("FRESH_ZERO_CROSS"))
+    div_pre = mask(joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"))
+    div_fresh = mask(joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"))
+    vfi_ready = mask(joined["VFI_Opportunity_Ready"])
+    div_ready = mask(joined["Divergence_Cycle_Ready"])
+    both_ready = vfi_ready & div_ready
+    joined["Two_Stage_Opportunity"] = both_ready
     joined["Opportunity_Tier"] = np.select(
         [
-            joined["VFI_Stage"].eq("PRE_ZERO_SETUP") & joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"),
-            joined["VFI_Stage"].eq("PRE_ZERO_SETUP") & joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"),
-            joined["VFI_Stage"].eq("FRESH_ZERO_CROSS") & joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"),
-            joined["VFI_Stage"].eq("FRESH_ZERO_CROSS") & joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"),
-            joined["VFI_Opportunity_Ready"],
-            joined["Divergence_Cycle_Ready"],
+            vfi_pre & div_pre,
+            vfi_pre & div_fresh,
+            vfi_fresh & div_pre,
+            vfi_fresh & div_fresh,
+            vfi_ready,
+            div_ready,
         ],
         [1, 2, 3, 4, 5, 6],
         default=7,
     ).astype(int)
     joined["Candidate_Status"] = np.select(
-        [
-            joined["Two_Stage_Opportunity"],
-            joined["VFI_Opportunity_Ready"],
-            joined["Divergence_Cycle_Ready"],
-        ],
+        [both_ready, vfi_ready, div_ready],
         ["TWO_STAGE_CANDIDATE", "VFI_READY_WAITING_FOR_DIVERGENCE", "DIVERGENCE_READY_WAITING_FOR_VFI"],
         default="NO_EARLY_SETUP",
     )
     joined["Setup_Score"] = (
         pd.to_numeric(joined["VFI_Slope_10D_Normalized"], errors="coerce").clip(lower=0).fillna(0)
         + pd.to_numeric(joined["Weekly_Div_Osc_Slope_2W_Normalized"], errors="coerce").clip(lower=0).fillna(0)
-        + joined["Weekly_Bullish_Div_Recent"].fillna(False).astype(float) * 0.25
+        + mask(joined["Weekly_Bullish_Div_Recent"]).astype(float) * 0.25
     )
     joined["Selection_Reason"] = np.select(
         [
-            joined["Two_Stage_Opportunity"] & joined["VFI_Stage"].eq("PRE_ZERO_SETUP") & joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"),
-            joined["Two_Stage_Opportunity"] & joined["VFI_Stage"].eq("PRE_ZERO_SETUP") & joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"),
-            joined["Two_Stage_Opportunity"] & joined["VFI_Stage"].eq("FRESH_ZERO_CROSS") & joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"),
-            joined["Two_Stage_Opportunity"] & joined["VFI_Stage"].eq("FRESH_ZERO_CROSS") & joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"),
-            joined["VFI_Opportunity_Ready"],
-            joined["Divergence_Cycle_Ready"],
+            both_ready & vfi_pre & div_pre,
+            both_ready & vfi_pre & div_fresh,
+            both_ready & vfi_fresh & div_pre,
+            both_ready & vfi_fresh & div_fresh,
+            vfi_ready,
+            div_ready,
         ],
         [
             "Both oscillators negative, rising strongly, and projected to cross zero soon",
