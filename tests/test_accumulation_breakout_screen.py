@@ -47,7 +47,7 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
     def test_zero_cross_two_bars_ago_is_accepted_for_daily_window(self):
         values = -7.0 + np.sin(np.arange(60) / 3.0) * 2.0
         values[-9:] = np.linspace(-5.0, -0.5, 9)
-        values[-3:] = [-0.1, 0.05, 0.1]
+        values[-4:] = [-0.1, 0.05, 0.08, 0.1]
         result = score_zero_approach(
             pd.Series(values), "VFI_1D", recent_cross_bars=3
         )
