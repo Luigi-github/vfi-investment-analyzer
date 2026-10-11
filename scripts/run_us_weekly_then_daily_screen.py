@@ -146,6 +146,18 @@ def weekly_screen(symbol, daily):
         and price_ret_13w <= 0.15
         and smooth_score >= 45
     )
+    # A separate early-turn watchlist catches a weekly turn that has begun in
+    # the latest 4/8 bars but is not yet smooth over the full 13-bar window.
+    # These are investigated daily, but are not labelled strict candidates.
+    turn_watch = bool(
+        not qualifies
+        and np.isfinite(weekly_rank_score) and weekly_rank_score >= 48
+        and np.isfinite(vfi_value) and -15.0 <= vfi_value <= 0.0
+        and np.isfinite(vfi_slope4) and vfi_slope4 > 0
+        and np.isfinite(vfi_slope8) and vfi_slope8 > 0
+        and flow_score >= 35
+        and price_ret_13w <= 0.15
+    )
     return {
         "Symbol": symbol, "Weekly_Score": float(weekly_rank_score),
         "Weekly_VFI_Smooth_Rising_Score": smooth_score,
@@ -162,8 +174,8 @@ def weekly_screen(symbol, daily):
         "Weekly_AD_Score": flow.get("AD_Trend_Score"),
         "Weekly_CMF": flow.get("CMF_20"), "Weekly_MFI": flow.get("MFI_14"),
         **{f"Weekly_{k}": val for k, val in vfi.items()},
-        **div, "_qualifies": qualifies, "_weekly": weekly,
-        "_daily": daily,
+        **div, "_qualifies": qualifies, "_turn_watch": turn_watch,
+        "_weekly": weekly, "_daily": daily,
     }
 
 def main():
@@ -212,7 +224,13 @@ def main():
         try:
             row = weekly_screen(symbol, raw_data[symbol])
             candidate_frames[symbol] = (row.pop("_daily"), row.pop("_weekly"))
-            row["Weekly_Screen_Status"] = "CANDIDATE" if row.pop("_qualifies") else "NOT_SELECTED"
+            qualifies = row.pop("_qualifies")
+            turn_watch = row.pop("_turn_watch")
+            row["Weekly_Screen_Status"] = (
+                "CANDIDATE" if qualifies else
+                "EARLY_TURN_WATCH" if turn_watch else
+                "NOT_SELECTED"
+            )
             row["Liquidity_Rank"] = liquidity_rank[symbol][0]
             row["Average_Dollar_Turnover_20D"] = liquidity_rank[symbol][1]
             weekly_rows.append(row)
@@ -225,8 +243,9 @@ def main():
     rankable = weekly_df[weekly_df["Weekly_Screen_Status"].eq("CANDIDATE")].copy() if "Weekly_Screen_Status" in weekly_df else pd.DataFrame()
     if not rankable.empty:
         rankable = rankable.sort_values("Weekly_Score", ascending=False)
-    # Daily analysis includes strict weekly candidates plus a near-zero watchlist:
-    # VFI in [-5, 0], positive 4-bar slope, and price not up more than 15% in 13 weeks.
+    # Daily analysis follows the weekly screen: strict candidates first, then
+    # the near-zero watchlist, then early turns whose latest 4/8 weekly slopes
+    # are positive but whose full 13-week VFI path is not yet smooth.
     strict_symbols = rankable.sort_values("Weekly_Score", ascending=False)["Symbol"].tolist() if not rankable.empty else []
     valid_weekly = weekly_df[weekly_df["Weekly_Screen_Status"].ne("ERROR")].copy()
     vfi_num = pd.to_numeric(valid_weekly.get("Weekly_VFI", pd.Series(np.nan, index=valid_weekly.index)), errors="coerce")
@@ -240,18 +259,26 @@ def main():
     near_zero["_VFI_Abs"] = pd.to_numeric(near_zero["Weekly_VFI"], errors="coerce").abs()
     near_zero = near_zero.sort_values(["_VFI_Abs", "Weekly_Score"], ascending=[True, False])
     watchlist_symbols = near_zero["Symbol"].tolist()
-    chosen = list(dict.fromkeys(strict_symbols + watchlist_symbols))[:args.max_daily_candidates]
-    if strict_symbols and watchlist_symbols:
-        daily_selection_mode = "STRICT_PLUS_NEAR_ZERO_WATCHLIST"
+    turn_watch_symbols = weekly_df.loc[
+        weekly_df["Weekly_Screen_Status"].eq("EARLY_TURN_WATCH")
+    ].sort_values("Weekly_Score", ascending=False)["Symbol"].tolist()
+    chosen = list(dict.fromkeys(strict_symbols + watchlist_symbols + turn_watch_symbols))[:args.max_daily_candidates]
+    if strict_symbols and (watchlist_symbols or turn_watch_symbols):
+        daily_selection_mode = "STRICT_PLUS_WEEKLY_WATCHLIST"
     elif strict_symbols:
         daily_selection_mode = "STRICT_WEEKLY_CANDIDATES"
+    elif watchlist_symbols and turn_watch_symbols:
+        daily_selection_mode = "NEAR_ZERO_PLUS_EARLY_TURN_WATCHLIST"
     elif watchlist_symbols:
         daily_selection_mode = "NEAR_ZERO_WATCHLIST_ONLY"
+    elif turn_watch_symbols:
+        daily_selection_mode = "EARLY_TURN_WATCHLIST_ONLY"
     else:
-        daily_selection_mode = "TOP_WEEKLY_SCORE_DIAGNOSTIC_FALLBACK"
-        valid_weekly = valid_weekly.sort_values("Weekly_Score", ascending=False, na_position="last")
-        chosen = valid_weekly["Symbol"].head(min(30, args.max_daily_candidates)).tolist()
-    print(f"Weekly universe={len(selected_symbols)}; strict weekly candidates={len(rankable)}; daily deep-dive={len(chosen)}; mode={daily_selection_mode}", flush=True)
+        # Do not silently analyse arbitrary high-score assets when none passed
+        # the weekly gate; that would break the requested weekly-first process.
+        daily_selection_mode = "NO_WEEKLY_CANDIDATES"
+        chosen = []
+    print(f"Weekly universe={len(selected_symbols)}; strict weekly candidates={len(rankable)}; early-turn watchlist={len(turn_watch_symbols)}; daily deep-dive={len(chosen)}; mode={daily_selection_mode}", flush=True)
     print("TOP WEEKLY EARLY-ACCUMULATION RANKING (not buy signals):", flush=True)
     weekly_cols = [c for c in ["Liquidity_Rank", "Symbol", "Average_Dollar_Turnover_20D", "Weekly_Score", "Weekly_Early_Accumulation_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Prev", "Weekly_VFI_Signal", "Weekly_VFI_Histogram", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_VFI_Smooth_Rising_Score", "Weekly_VFI_Linear_R2", "Weekly_VFI_Up_Bar_Ratio", "Weekly_VFI_Position_Score", "Weekly_VFI_Slope_Score", "Weekly_VFI_Near_Zero", "Weekly_VFI_Min_26B", "Weekly_VFI_Rebound_From_Min_26B", "Weekly_VFI_Bars_Below_Zero_26B", "Weekly_VFI_Zero_Cross_Recent_4B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
     if not weekly_df.empty and "Weekly_Score" in weekly_df.columns:
@@ -334,8 +361,9 @@ def main():
         "seed_universe_size": len(seed_symbols), "requested_top_liquid": args.top,
         "selected_by_20_session_dollar_turnover": len(selected_symbols),
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
-        "weekly_candidates": len(rankable), "daily_analyzed": len(daily_df),
-        "daily_selection_mode": daily_selection_mode,
+        "weekly_candidates": len(rankable),
+        "weekly_early_turn_watchlist": int(weekly_df["Weekly_Screen_Status"].eq("EARLY_TURN_WATCH").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
+        "daily_analyzed": len(daily_df), "daily_selection_mode": daily_selection_mode,
         "strict_daily_vfi_candidates": int(len(strict_daily)),
         "weekly_candle_policy": "completed Friday candles only",
         "daily_candle_policy": "completed daily candles only",
@@ -345,6 +373,7 @@ def main():
         "errors": errors,
     }, indent=2, default=str), encoding="utf-8")
     print(json.dumps({"seed_universe": len(seed_symbols), "selected_by_liquidity": len(selected_symbols), "weekly_candidates": len(rankable),
+                      "weekly_early_turn_watchlist": int(weekly_df["Weekly_Screen_Status"].eq("EARLY_TURN_WATCH").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
                       "daily_analyzed": len(daily_df), "strict_daily_vfi_candidates": len(strict_daily),
                       "errors": len(errors)}, indent=2))
     if not strict_daily.empty:
