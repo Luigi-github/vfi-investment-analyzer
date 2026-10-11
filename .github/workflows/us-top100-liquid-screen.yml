@@ -35,7 +35,7 @@ jobs:
             python -m unittest tests/test_volume_accumulation_indicators.py
           fi
       - name: Analyze top 100 liquid US-listed candidates
-        run: python scripts/run_us_top100_liquid_screen.py --period 2y --top 100
+        run: python scripts/run_us_top100_liquid_screen.py --period max --top 100
       - name: Upload ranking and source universe
         if: always()
         uses: actions/upload-artifact@v4
