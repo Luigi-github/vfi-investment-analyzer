@@ -11,14 +11,16 @@ from app.data.market_data import MarketDataService
 from app.indicators.vfi import VFIIndicator
 from app.indicators.volume_divergence_mm import VolumeDivergenceMM
 from scripts.run_volume_accumulation_indicators import calculate_indicators, completed_daily, to_weekly
+from scripts.run_us_top100_liquid_screen import US_CANDIDATE_UNIVERSE
 
-# Curated universe of highly traded US-listed stocks and ETFs; liquidity is not a live-ranked top-100 feed.
-US_LIQUID_UNIVERSE = """
+# Combine a broad curated stock universe with heavily traded ETFs, then rank
+# the full seed universe by 20-session dollar turnover before weekly analysis.
+US_LIQUID_UNIVERSE = list(dict.fromkeys("""
 AAPL MSFT NVDA AMZN META GOOGL GOOG TSLA AVGO AMD INTC QCOM MU ORCL CRM PLTR NFLX
 JPM BAC WFC C GS MS V MA AXP XOM CVX COP SLB GE CAT BA HON RTX LMT UNH LLY JNJ ABBV MRK PFE AMGN COST WMT TGT HD LOW MCD KO PEP PG
 DIS CMCSA T VZ TMUS UBER ABNB SHOP COIN HOOD XYZ PYPL SOFI RIVN F FDX UPS NKE SBUX TSM ASML ARM SMCI LULU CRWD PANW NOW IBM CSCO TXN
 SPY QQQ IWM DIA TLT GLD SLV XLF XLK XLE XLV SMH SOXX HYG LQD EEM EFA IBIT
-""".split()
+""".split() + US_CANDIDATE_UNIVERSE))
 
 def safe_slope(series, bars=4):
     s = pd.to_numeric(series, errors="coerce").dropna().tail(bars)
@@ -168,7 +170,18 @@ def main():
     rankable = weekly_df[weekly_df["Weekly_Screen_Status"].eq("CANDIDATE")].copy() if "Weekly_Screen_Status" in weekly_df else pd.DataFrame()
     if not rankable.empty:
         rankable = rankable.sort_values("Weekly_Score", ascending=False)
-    print(f"Weekly universe={len(symbols)}; strict weekly candidates={len(rankable)}; daily deep-dive={len(chosen)}; mode={daily_selection_mode}", flush=True)
+    # Only assets that passed the weekly gate proceed to the daily study.
+    # If none pass the strict VFI gate, inspect a small top-score diagnostic
+    # shortlist so the run still explains why no strict candidates qualified.
+    daily_selection_mode = "STRICT_WEEKLY_CANDIDATES"
+    if not rankable.empty:
+        chosen = rankable["Symbol"].head(args.max_daily_candidates).tolist()
+    else:
+        daily_selection_mode = "TOP_WEEKLY_SCORE_DIAGNOSTIC_FALLBACK"
+        valid_weekly = weekly_df[weekly_df["Weekly_Screen_Status"].ne("ERROR")].copy()
+        valid_weekly = valid_weekly.sort_values("Weekly_Score", ascending=False, na_position="last")
+        chosen = valid_weekly["Symbol"].head(min(30, args.max_daily_candidates)).tolist()
+    print(f"Weekly universe={len(selected_symbols)}; strict weekly candidates={len(rankable)}; daily deep-dive={len(chosen)}; mode={daily_selection_mode}", flush=True)
     print("TOP WEEKLY RANKING (diagnostic scores, not buy signals):", flush=True)
     weekly_cols = [c for c in ["Liquidity_Rank", "Symbol", "Average_Dollar_Turnover_20D", "Weekly_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Prev", "Weekly_VFI_Signal", "Weekly_VFI_Histogram", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_VFI_Min_26B", "Weekly_VFI_Rebound_From_Min_26B", "Weekly_VFI_Bars_Below_Zero_26B", "Weekly_VFI_Zero_Cross_Recent_4B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
     if not weekly_df.empty and "Weekly_Score" in weekly_df.columns:
@@ -212,7 +225,13 @@ def main():
                 "Daily_Price_Return_20B": price_ret_20,
                 "Daily_OBV_Score": dflow.get("OBV_Trend_Score"), "Daily_AD_Score": dflow.get("AD_Trend_Score"),
                 "Daily_CMF": dflow.get("CMF_20"), "Daily_MFI": dflow.get("MFI_14"),
-                "Daily_VFI": vfi, "Daily_VFI_Slope_4B": vfi_slope4, "Daily_VFI_Slope_8B": vfi_slope8,
+                "Daily_VFI": vfi, "Daily_VFI_Prev": dvfi.get("VFI_Prev"),
+                "Daily_VFI_Signal": dvfi.get("VFI_Signal"), "Daily_VFI_Histogram": dvfi.get("VFI_Histogram"),
+                "Daily_VFI_Slope_4B": vfi_slope4, "Daily_VFI_Slope_8B": vfi_slope8,
+                "Daily_VFI_Min_26B": dvfi.get("VFI_Min_26B"),
+                "Daily_VFI_Rebound_From_Min_26B": dvfi.get("VFI_Rebound_From_Min_26B"),
+                "Daily_VFI_Bars_Below_Zero_26B": dvfi.get("VFI_Bars_Below_Zero_26B"),
+                "Daily_VFI_Zero_Cross_Recent_4B": dvfi.get("VFI_Zero_Cross_Recent_4B"),
                 "Daily_VFI_Near_Zero": dvfi.get("VFI_Near_Zero"),
                 "Weekly_Price_Return_13W": float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Price_Return_13W"].iloc[0]),
                 "Weekly_Candle_Date": weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Candle_Date"].iloc[0],
