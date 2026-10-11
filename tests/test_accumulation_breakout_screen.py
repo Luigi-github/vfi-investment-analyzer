@@ -44,6 +44,22 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         result = score_zero_approach(values, "VFI_1D", lookback=52, min_history=20)
         self.assertEqual(result["VFI_1D_Setup_Type"], "ZERO_CROSS_RECENT")
 
+    def test_recent_cross_above_absolute_vfi_near_zero_cap_is_rejected(self):
+        values = -50.0 + np.sin(np.arange(60) / 3.0) * 20.0
+        values[-9:] = np.linspace(-5.0, 1.5, 9)
+        values[-4:] = [-1.0, 0.5, 1.0, 1.5]
+        result = score_zero_approach(
+            pd.Series(values),
+            "VFI_1D",
+            lookback=52,
+            min_history=20,
+            max_abs_near_zero=1.0,
+            recent_cross_fraction=0.10,
+            recent_cross_bars=3,
+        )
+        self.assertEqual(result["VFI_1D_Setup_Type"], "NONE")
+        self.assertIn("not close enough to zero", result["VFI_1D_Setup_Reason"])
+
     def test_zero_cross_two_bars_ago_is_accepted_for_daily_window(self):
         values = -7.0 + np.sin(np.arange(60) / 3.0) * 2.0
         values[-9:] = np.linspace(-5.0, -0.5, 9)
