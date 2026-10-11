@@ -121,8 +121,21 @@ def main():
     rankable = weekly_df[weekly_df["Weekly_Screen_Status"].eq("CANDIDATE")].copy() if "Weekly_Screen_Status" in weekly_df else pd.DataFrame()
     if not rankable.empty:
         rankable = rankable.sort_values("Weekly_Score", ascending=False)
-    chosen = rankable["Symbol"].head(args.max_daily_candidates).tolist() if not rankable.empty else []
-    print(f"Weekly universe={len(symbols)}; candidates={len(rankable)}; daily deep-dive={len(chosen)}", flush=True)
+    # If the strict weekly gate yields no candidates, still inspect the highest-ranked
+    # valid weekly setups on daily candles. This is explicitly diagnostic, not a buy signal.
+    daily_selection_mode = "STRICT_WEEKLY_CANDIDATES"
+    if not rankable.empty:
+        chosen = rankable["Symbol"].head(args.max_daily_candidates).tolist()
+    else:
+        daily_selection_mode = "TOP_WEEKLY_SCORE_DIAGNOSTIC_FALLBACK"
+        valid_weekly = weekly_df[weekly_df["Weekly_Screen_Status"].ne("ERROR")].copy()
+        valid_weekly = valid_weekly.sort_values("Weekly_Score", ascending=False, na_position="last")
+        chosen = valid_weekly["Symbol"].head(min(30, args.max_daily_candidates)).tolist()
+    print(f"Weekly universe={len(symbols)}; strict weekly candidates={len(rankable)}; daily deep-dive={len(chosen)}; mode={daily_selection_mode}", flush=True)
+    print("TOP WEEKLY RANKING (diagnostic scores, not buy signals):", flush=True)
+    weekly_cols = [c for c in ["Symbol", "Weekly_Score", "Weekly_Flow_Score", "Weekly_Price_Return_13W", "Weekly_VFI", "Weekly_VFI_Slope_4B", "Weekly_VFI_Slope_8B", "Weekly_Candle_Date", "Weekly_Screen_Status"] if c in weekly_df.columns]
+    if not weekly_df.empty and "Weekly_Score" in weekly_df.columns:
+        print(weekly_df.sort_values("Weekly_Score", ascending=False, na_position="last")[weekly_cols].head(20).to_string(index=False), flush=True)
     daily_rows = []
     for i, symbol in enumerate(chosen, 1):
         print(f"[DAILY {i}/{len(chosen)}] {symbol}", flush=True)
@@ -185,6 +198,7 @@ def main():
     (out / "run_summary.json").write_text(json.dumps({
         "requested_symbols": len(symbols), "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if "Weekly_Screen_Status" in weekly_df else 0,
         "weekly_candidates": len(rankable), "daily_analyzed": len(daily_df),
+        "daily_selection_mode": daily_selection_mode,
         "strict_daily_vfi_candidates": int(len(strict_daily)),
         "weekly_candle_policy": "completed Friday candles only",
         "daily_candle_policy": "completed daily candles only",
