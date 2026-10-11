@@ -50,7 +50,7 @@ class TwoStageOpportunityFilterTests(unittest.TestCase):
 
     def test_weekly_oscillator_setup_requires_negative_near_zero_strong_recovery(self):
         idx = pd.date_range("2022-01-02", periods=130, freq="W-SUN")
-        osc = np.concatenate([np.linspace(-15.0, -10.0, 100), np.linspace(-9.5, -0.3, 30)])
+        osc = np.concatenate([np.linspace(-15.0, -8.0, 110), np.linspace(-7.5, -0.3, 20)])
         frame = pd.DataFrame({"Volume_Divergence_MM": osc}, index=idx)
         result = add_divergence_cycle_features(
             frame, periods=(1, 2, 4), suffix="W", scale_window=52, min_periods=20
