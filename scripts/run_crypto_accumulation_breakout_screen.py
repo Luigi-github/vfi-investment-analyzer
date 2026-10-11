@@ -154,13 +154,11 @@ def analyze_symbol(
             min_strength_4=0.10, min_strength_8=0.25,
         )
         vfi_stage = str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN"))
-        # The generic VFIAnalyzer stage uses fixed raw 4/8-bar thresholds and
-        # can contradict this screen's normalized 1D zero-approach criteria.
-        # Keep that stage as diagnostic metadata; eligibility is decided only
-        # by the explicit, timeframe-specific setup rules above.
-        vfi_stage_eligible = vfi_setup["VFI_1D_Setup_Type"] in {
-            "PRE_ZERO_BREAK", "ZERO_CROSS_RECENT",
-        }
+        # Preserve the analyzer state separately from this screen's explicit
+        # early-cycle rule. The old Stage_Eligible flag duplicated the setup
+        # filter, so it did not actually describe the VFI analyzer's state.
+        vfi_state = str(vfi_latest.get("VFI_State", "UNKNOWN"))
+        vfi_stage_eligible = vfi_state in {"EARLY_ACCUMULATION", "ACCUMULATION"}
     except Exception as exc:
         vfi_reason = repr(exc)
         vfi_stage = "UNKNOWN"
@@ -180,7 +178,7 @@ def analyze_symbol(
         div_latest = div_valid.iloc[-1]
         divergence_setup = score_zero_approach(
             div_valid["Volume_Divergence_MM"], "Divergence_1W",
-            lookback=52, min_history=20, near_zero_fraction=0.15,
+            lookback=52, min_history=52, near_zero_fraction=0.15,
             max_abs_near_zero=None, recent_cross_fraction=0.10,
             recent_cross_bars=2, min_strength_4=0.10, min_strength_8=0.25,
         )
@@ -189,6 +187,16 @@ def analyze_symbol(
 
     vfi_available = vfi_latest is not None
     div_available = div_latest is not None
+    vfi_valid_bars = int(vfi_valid["VFI"].notna().sum()) if not vfi_valid.empty else 0
+    divergence_valid_bars = int(div_valid["Volume_Divergence_MM"].notna().sum()) if not div_valid.empty else 0
+    vfi_cycle_history_status = (
+        "SUFFICIENT" if vfi_setup.get("VFI_1D_Setup_Type") != "INSUFFICIENT_HISTORY"
+        else "INSUFFICIENT_VALID_DAILY_BARS"
+    )
+    divergence_cycle_history_status = (
+        "SUFFICIENT" if divergence_setup.get("Divergence_1W_Setup_Type") != "INSUFFICIENT_HISTORY"
+        else "INSUFFICIENT_VALID_WEEKLY_BARS_FOR_52_WEEK_CYCLE"
+    )
     if vfi_available and div_available:
         status = "ANALYZED"
     elif vfi_available or div_available:
@@ -219,6 +227,11 @@ def analyze_symbol(
         "VFI_State_1D": str(vfi_latest.get("VFI_State", "UNKNOWN")) if vfi_available else "UNKNOWN",
         "VFI_Cycle_Stage_1D": str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN")) if vfi_available else "UNKNOWN",
         "VFI_Stage_Eligible_1D": bool(vfi_stage_eligible) if vfi_available else False,
+        "VFI_Early_Accumulation_Setup_1D": bool(vfi_setup.get("VFI_1D_Setup_Type") in {"PRE_ZERO_BREAK", "ZERO_CROSS_RECENT"}),
+        "VFI_Cycle_History_Status": vfi_cycle_history_status,
+        "Divergence_Cycle_History_Status": divergence_cycle_history_status,
+        "VFI_Valid_Bars_1D": vfi_valid_bars,
+        "Divergence_Valid_Bars_1W": divergence_valid_bars,
         "VFI_Recovery_Score_1D": float(vfi_latest.get("VFI_Recovery_Score", np.nan)) if vfi_available else np.nan,
         "VFI_Accumulation_Confirmed_1D": bool(vfi_latest.get("Accumulation_Confirmed", False)) if vfi_available else False,
         "Divergence_MM_Signal_1W": str(div_latest.get("Volume_Div_Signal", "")) if div_available else "",
@@ -249,8 +262,10 @@ def main() -> None:
     parser.add_argument("--output-dir", default="reports/crypto_accumulation_breakout")
     args = parser.parse_args()
 
-    if args.top < 1 or args.daily_bars < 624 or args.weekly_bars < 100:
-        parser.error("--top must be positive; use at least 624 daily bars (259-bar VFI warmup + 365 valid daily VFI observations) and 100 weekly bars")
+    # The chained weekly WMA divergence needs 77 bars to warm up, followed
+    # by 52 valid weekly observations to measure a complete annual cycle.
+    if args.top < 1 or args.daily_bars < 624 or args.weekly_bars < 129:
+        parser.error("--top must be positive; use at least 624 daily bars (259-bar VFI warmup + 365 valid daily VFI observations) and 129 weekly bars (77-bar divergence warmup + 52 valid weekly observations)")
 
     service = BinanceMarketDataService()
     if args.symbols.strip().upper() == "AUTO":
@@ -312,15 +327,23 @@ def main() -> None:
     if not result.empty:
         result.insert(0, "Rank", range(1, len(result) + 1))
         vfi_candidates = result[result["VFI_Setup"]].copy()
+        divergence_candidates = result[result["Divergence_Setup"]].copy()
         combined_candidates = result[result["Combined_Setup"]].copy()
+        divergence_waiting_for_vfi = divergence_candidates[~divergence_candidates["VFI_Setup"]].copy()
         result.to_csv(output / "all_assets.csv", index=False)
         vfi_candidates.to_csv(output / "vfi_daily_candidates.csv", index=False)
+        divergence_candidates.to_csv(output / "weekly_divergence_candidates.csv", index=False)
+        divergence_waiting_for_vfi.to_csv(output / "divergence_watchlist_waiting_for_vfi.csv", index=False)
         combined_candidates.to_csv(output / "combined_vfi_divergence_candidates.csv", index=False)
     else:
         vfi_candidates = result.copy()
+        divergence_candidates = result.copy()
         combined_candidates = result.copy()
+        divergence_waiting_for_vfi = result.copy()
         result.to_csv(output / "all_assets.csv", index=False)
         vfi_candidates.to_csv(output / "vfi_daily_candidates.csv", index=False)
+        divergence_candidates.to_csv(output / "weekly_divergence_candidates.csv", index=False)
+        divergence_waiting_for_vfi.to_csv(output / "divergence_watchlist_waiting_for_vfi.csv", index=False)
         combined_candidates.to_csv(output / "combined_vfi_divergence_candidates.csv", index=False)
 
     pd.DataFrame(errors, columns=["Symbol", "Error"]).to_csv(output / "errors.csv", index=False)
@@ -341,17 +364,20 @@ def main() -> None:
         "combined_daily_vfi_weekly_divergence_candidates": int(len(combined_candidates)),
         "vfi_cycle_history_insufficient": int((result["VFI_Setup_Type"] == "INSUFFICIENT_HISTORY").sum()) if "VFI_Setup_Type" in result else 0,
         "weekly_divergence_history_insufficient": int((result["Divergence_Setup_Type"] == "INSUFFICIENT_HISTORY").sum()) if "Divergence_Setup_Type" in result else 0,
+        "vfi_cycle_history_sufficient": int((result["VFI_Cycle_History_Status"] == "SUFFICIENT").sum()) if "VFI_Cycle_History_Status" in result else 0,
+        "weekly_divergence_cycle_history_sufficient": int((result["Divergence_Cycle_History_Status"] == "SUFFICIENT").sum()) if "Divergence_Cycle_History_Status" in result else 0,
         "timeframes": {"VFI": "1D", "Volume_Divergence_by_MM": "1W"},
         "intraday_timeframes_used": [],
         "ranking_logic": (
             "VFI uses completed daily candles with a 365-bar context and requires at least "
             "365 valid VFI values after indicator warm-up; weekly Volume Divergence by MM "
-            "uses completed weekly candles with a 52-bar context. A PRE_ZERO_BREAK requires "
+            "uses completed weekly candles and requires a full 52 valid weekly-bar cycle after its 77-bar WMA warm-up. A PRE_ZERO_BREAK requires "
             "negative oscillator value near zero, positive 1/4/8-bar slopes, normalized "
             "4-bar rise >= 0.10 and 8-bar rise >= 0.25 standard deviations. A recent zero "
             "cross is a separate setup only if it remains within 10% of the range and passes "
-            "the same slope tests. Tier 1 requires both setups; Tier 2 requires daily VFI; "
-            "Tier 3 retains near misses for audit. No intraday frames are used. The row-level "
+            "the same slope tests. Tier 1 is dual pre-zero, Tier 2 is dual-indicator with a recent "
+            "cross, Tier 3/4 prioritize VFI pre-zero/recent-cross setups awaiting divergence, "
+            "and later tiers retain divergence-only or near misses for audit. No intraday frames are used. The row-level "
             "Setup_Reason fields explain each accept/reject decision; recent bullish pivot "
             "divergence is only an additional confirmation bonus."
         ),

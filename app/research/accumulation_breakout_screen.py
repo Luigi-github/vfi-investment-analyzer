@@ -209,10 +209,32 @@ def rank_accumulation_candidates(results: pd.DataFrame) -> pd.DataFrame:
     result["VFI_Setup"] = vfi_setup
     result["Divergence_Setup"] = div_setup
     result["Combined_Setup"] = vfi_setup & div_setup
+
+    # The target is the setup BEFORE the zero break, not an oscillator that
+    # has already moved far into positive territory. Rank dual PRE_ZERO_BREAK
+    # first, other dual confirmations second, then VFI-first candidates.
+    vfi_type = result.get("VFI_Setup_Type", pd.Series("NONE", index=result.index)).fillna("NONE")
+    div_type = result.get("Divergence_Setup_Type", pd.Series("NONE", index=result.index)).fillna("NONE")
+    both_pre_zero = (vfi_type == "PRE_ZERO_BREAK") & (div_type == "PRE_ZERO_BREAK")
+    both_setups = vfi_setup & div_setup
+    vfi_pre_zero_only = (vfi_type == "PRE_ZERO_BREAK") & ~div_setup
+    vfi_cross_only = (vfi_type == "ZERO_CROSS_RECENT") & ~div_setup
+    divergence_only = div_setup & ~vfi_setup
     result["Setup_Tier"] = np.select(
-        [result["Combined_Setup"], vfi_setup],
-        [1, 2],
-        default=3,
+        [both_pre_zero, both_setups, vfi_pre_zero_only, vfi_cross_only, divergence_only],
+        [1, 2, 3, 4, 5],
+        default=6,
+    )
+    result["Setup_Priority_Reason"] = np.select(
+        [both_pre_zero, both_setups, vfi_pre_zero_only, vfi_cross_only, divergence_only],
+        [
+            "VFI daily and divergence weekly both below zero with rising slopes",
+            "Both indicators qualify, but at least one has crossed zero recently",
+            "VFI daily pre-zero setup; wait for weekly divergence confirmation",
+            "VFI daily crossed zero recently; monitor, lower priority than pre-zero",
+            "Weekly divergence qualifies but daily VFI does not; not an entry shortlist",
+        ],
+        default="Near miss or insufficient history; inspect per-indicator reasons",
     )
     if "VFI_Setup_Score" not in result:
         result["VFI_Setup_Score"] = 0.0
