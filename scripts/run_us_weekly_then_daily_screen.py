@@ -128,7 +128,10 @@ def main():
             vfi_slope4 = dvfi.get("VFI_Slope_4B", np.nan)
             vfi_slope8 = dvfi.get("VFI_Slope_8B", np.nan)
             # Reward improving negative/near-zero VFI, penalize overextended prices.
-            early_vfi_score = 100 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0 and vfi_slope8 > 0) else (\n                85 if (np.isfinite(vfi) and abs(vfi) <= 2 and vfi_slope4 > 0) else (\n                65 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0) else (\n                45 if (vfi_slope4 > 0 and vfi_slope8 > 0) else 20)))
+            early_vfi_score = 100 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0 and vfi_slope8 > 0) else (
+                85 if (np.isfinite(vfi) and abs(vfi) <= 2 and vfi_slope4 > 0) else (
+                65 if (np.isfinite(vfi) and vfi <= 0 and vfi_slope4 > 0) else (
+                45 if (vfi_slope4 > 0 and vfi_slope8 > 0) else 20)))
             extension_penalty = 20 if price_ret_20 > 0.20 else (10 if price_ret_20 > 0.12 else 0)
             final_score = max(0, min(100, 0.45 * float(weekly_df.loc[weekly_df["Symbol"].eq(symbol), "Weekly_Score"].iloc[0])
                                      + 0.35 * dscore + 0.20 * early_vfi_score - extension_penalty))
