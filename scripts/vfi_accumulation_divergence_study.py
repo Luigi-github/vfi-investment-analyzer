@@ -41,7 +41,7 @@ YAHOO_ASSETS = {
 HORIZONS_DAYS = (10, 20, 40, 60)
 CRYPTO_UNIVERSE_SIZE = 200
 MIN_DAILY_BARS = 260
-MIN_WEEKLY_BARS_FOR_DIVERGENCE = 100
+MIN_WEEKLY_BARS_FOR_DIVERGENCE = 129  # 77-bar WMA warmup + at least 52 valid weekly oscillator values
 WEEKLY_DIVERGENCE_FRESH_DAYS = 35
 DAILY_DIVERGENCE_FRESH_DAYS = 20
 COOLDOWN_DAILY_BARS = 20
@@ -331,10 +331,16 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
     daily_vfi = add_vfi_features(daily, vfi_indicator)
     daily_div = divergence.calculate(daily)
     weekly = to_weekly(daily, crypto)
-    weekly_history_sufficient = len(weekly) >= MIN_WEEKLY_BARS_FOR_DIVERGENCE
     weekly_div = divergence.calculate(weekly)
+    weekly_valid_divergence_bars = int(weekly_div["Volume_Divergence_MM"].notna().sum())
+    # Require the indicator's actual valid observations, not just raw candle
+    # count. The 52-week z-score and cycle classification must use a full year.
+    weekly_history_sufficient = (
+        len(weekly) >= MIN_WEEKLY_BARS_FOR_DIVERGENCE
+        and weekly_valid_divergence_bars >= 52
+    )
     weekly_div = add_divergence_cycle_features(
-        weekly_div, periods=(1, 2, 4), suffix="W", scale_window=52, min_periods=20
+        weekly_div, periods=(1, 2, 4), suffix="W", scale_window=52, min_periods=52
     )
 
     # A chained WMA warm-up plus confirmed pivots needs a long weekly sample.
@@ -572,6 +578,7 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Div_Osc_Estimated_Weeks_To_Zero": float(latest["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) if pd.notna(latest["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) else np.nan,
         "Weekly_Div_Age_Days": float(weekly_age) if pd.notna(weekly_age) else np.nan,
         "Weekly_Bars": int(len(weekly)),
+        "Weekly_Divergence_Valid_Bars": int(weekly_valid_divergence_bars),
         "Weekly_Divergence_History_Sufficient": bool(weekly_history_sufficient),
         "Daily_Div_Signal": str(latest.get("Daily_Div_Signal", "")),
         "Daily_Div_Age_Bars": float(latest["Daily_Div_Age_Bars"]) if pd.notna(latest["Daily_Div_Age_Bars"]) else np.nan,
@@ -709,6 +716,7 @@ def main():
         "horizons_trading_days": list(HORIZONS_DAYS),
         "minimum_daily_bars": MIN_DAILY_BARS,
         "minimum_weekly_bars_for_divergence": MIN_WEEKLY_BARS_FOR_DIVERGENCE,
+        "minimum_valid_weekly_divergence_values": 52,
         "weekly_divergence_fresh_days": WEEKLY_DIVERGENCE_FRESH_DAYS,
         "daily_divergence_fresh_days": DAILY_DIVERGENCE_FRESH_DAYS,
         "vfi_early_setup_rule": "VFI <0; VFI_Z_252 in [-0.75, 0); positive 5D/10D/20D slopes; normalized 10D change >=0.20; projected zero cross within 20 trading days.",
