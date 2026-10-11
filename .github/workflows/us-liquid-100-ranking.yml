@@ -32,7 +32,7 @@ jobs:
       - name: Compile project
         run: python -m compileall app scripts
       - name: Run unit tests
-        run: pytest -q tests/test_accumulation_breakout_screen.py tests/test_volume_accumulation_indicators.py tests/test_volume_divergence_mm.py tests/test_vfi_conformance.py tests/test_vfi_slope_units.py tests/test_vfi_two_stage_opportunity_filter.py
+        run: PYTHONPATH=. pytest -q tests/test_accumulation_breakout_screen.py tests/test_volume_accumulation_indicators.py tests/test_volume_divergence_mm.py tests/test_vfi_conformance.py tests/test_vfi_slope_units.py tests/test_vfi_two_stage_opportunity_filter.py
       - name: Analyze 100 US-listed liquid assets on daily and weekly timeframes
         run: python scripts/run_us_liquid_100_screen.py --period max
       - name: Upload ranking and detailed reports
