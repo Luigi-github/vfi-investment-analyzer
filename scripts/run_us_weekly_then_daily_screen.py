@@ -63,9 +63,9 @@ def weekly_screen(symbol, daily):
         div = {"Weekly_Divergence_Error": repr(exc)}
     price_ret_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
     flow_score = flow["Accumulation_Distribution_Score"]
-    flow_slope = np.nanmean([flow.get("OBV_Trend_Score", np.nan), flow.get("AD_Trend_Score", np.nan)]) - 50
+    flow_trend_score = np.nanmean([flow.get("OBV_Trend_Score", np.nan), flow.get("AD_Trend_Score", np.nan)])
     vfi_slope = vfi.get("VFI_Slope_4B", np.nan)
-    weekly_rank_score = 0.65 * flow_score + 0.20 * np.clip(50 + 10 * flow_slope, 0, 100) + 0.15 * (100 if vfi_slope > 0 else 0)
+    weekly_rank_score = 0.65 * flow_score + 0.20 * flow_trend_score + 0.15 * (100 if vfi_slope > 0 else 0)
     # Keep early setups: improving flow, price not excessively extended. A negative VFI can still qualify.
     qualifies = bool(
         np.isfinite(weekly_rank_score) and weekly_rank_score >= 48
