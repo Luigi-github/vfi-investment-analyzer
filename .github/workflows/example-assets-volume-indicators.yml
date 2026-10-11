@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/run_volume_accumulation_indicators.py"
+      - "scripts/run_us_weekly_then_daily_screen.py"
       - "tests/test_volume_accumulation_indicators.py"
       - ".github/workflows/example-assets-volume-indicators.yml"
   workflow_dispatch:
@@ -30,11 +31,13 @@ jobs:
         run: pytest -q tests/test_volume_accumulation_indicators.py
       - name: Run all example assets
         run: python scripts/run_volume_accumulation_indicators.py --period max
+      - name: Run US weekly-first screen, then daily shortlist
+        run: python scripts/run_us_weekly_then_daily_screen.py --period 10y --max-daily-candidates 30
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: example-assets-volume-accumulation-indicators
-          path: reports/volume_accumulation/
+          path: reports/volume_accumulation/\n            reports/us_weekly_then_daily/
           if-no-files-found: warn
           retention-days: 14
