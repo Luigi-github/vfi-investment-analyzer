@@ -44,6 +44,22 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         result = score_zero_approach(values, "VFI_1D", lookback=52, min_history=20)
         self.assertEqual(result["VFI_1D_Setup_Type"], "ZERO_CROSS_RECENT")
 
+    def test_recent_cross_above_absolute_vfi_near_zero_cap_is_rejected(self):
+        values = -50.0 + np.sin(np.arange(60) / 3.0) * 20.0
+        values[-9:] = np.linspace(-5.0, 1.5, 9)
+        values[-4:] = [-1.0, 0.5, 1.0, 1.5]
+        result = score_zero_approach(
+            pd.Series(values),
+            "VFI_1D",
+            lookback=52,
+            min_history=20,
+            max_abs_near_zero=1.0,
+            recent_cross_fraction=0.10,
+            recent_cross_bars=3,
+        )
+        self.assertEqual(result["VFI_1D_Setup_Type"], "NONE")
+        self.assertIn("not close enough to zero", result["VFI_1D_Setup_Reason"])
+
     def test_zero_cross_two_bars_ago_is_accepted_for_daily_window(self):
         values = -7.0 + np.sin(np.arange(60) / 3.0) * 2.0
         values[-9:] = np.linspace(-5.0, -0.5, 9)
@@ -146,6 +162,31 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         self.assertEqual(result.iloc[0]["Symbol"], "DUAL_PRE_ZERO")
         self.assertEqual(int(result.iloc[0]["Setup_Tier"]), 1)
         self.assertIn("both below zero", result.iloc[0]["Setup_Priority_Reason"])
+
+    def test_vfi_pre_zero_with_full_weekly_history_ranks_above_short_history(self):
+        frame = pd.DataFrame([
+            {
+                "Symbol": "SHORT_WEEKLY_HISTORY",
+                "VFI_Setup_Type": "PRE_ZERO_BREAK",
+                "Divergence_Setup_Type": "INSUFFICIENT_HISTORY",
+                "VFI_Setup_Score": 99.0,
+                "Divergence_Setup_Score": 0.0,
+                "Divergence_Cycle_History_Status": "INSUFFICIENT_VALID_WEEKLY_BARS_FOR_52_WEEK_CYCLE",
+            },
+            {
+                "Symbol": "FULL_WEEKLY_HISTORY",
+                "VFI_Setup_Type": "PRE_ZERO_BREAK",
+                "Divergence_Setup_Type": "NONE",
+                "VFI_Setup_Score": 60.0,
+                "Divergence_Setup_Score": 30.0,
+                "Divergence_Cycle_History_Status": "SUFFICIENT",
+            },
+        ])
+        result = rank_accumulation_candidates(frame)
+        self.assertEqual(result.iloc[0]["Symbol"], "FULL_WEEKLY_HISTORY")
+        self.assertEqual(int(result.iloc[0]["Setup_Tier"]), 3)
+        self.assertEqual(result.iloc[1]["Symbol"], "SHORT_WEEKLY_HISTORY")
+        self.assertEqual(int(result.iloc[1]["Setup_Tier"]), 4)
 
     def test_combined_daily_vfi_weekly_divergence_setup_ranks_first(self):
         frame = pd.DataFrame(

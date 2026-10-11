@@ -103,11 +103,14 @@ def score_zero_approach(
         if float(series.iloc[-age - 1]) < 0 <= float(series.iloc[-age]):
             cross_bars_ago = age - 1
             break
+    recent_cross_limit = value_range * recent_cross_fraction
+    if max_abs_near_zero is not None:
+        recent_cross_limit = min(recent_cross_limit, max_abs_near_zero)
     crossed_recently = (
         cross_bars_ago is not None
         and value >= 0
         and value_range > 0
-        and value <= value_range * recent_cross_fraction
+        and value <= recent_cross_limit
         and slope_1 > 0
         and slope_4 > 0
         and slope_8 > 0
@@ -220,18 +223,36 @@ def rank_accumulation_candidates(results: pd.DataFrame) -> pd.DataFrame:
     vfi_pre_zero_only = (vfi_type == "PRE_ZERO_BREAK") & ~div_setup
     vfi_cross_only = (vfi_type == "ZERO_CROSS_RECENT") & ~div_setup
     divergence_only = div_setup & ~vfi_setup
+    div_history_status = result.get(
+        "Divergence_Cycle_History_Status", pd.Series("SUFFICIENT", index=result.index)
+    ).fillna("UNKNOWN")
+    div_history_sufficient = div_history_status.eq("SUFFICIENT")
+    vfi_pre_zero_with_history = vfi_pre_zero_only & div_history_sufficient
+    vfi_pre_zero_without_history = vfi_pre_zero_only & ~div_history_sufficient
+    vfi_cross_with_history = vfi_cross_only & div_history_sufficient
+    vfi_cross_without_history = vfi_cross_only & ~div_history_sufficient
     result["Setup_Tier"] = np.select(
-        [both_pre_zero, both_setups, vfi_pre_zero_only, vfi_cross_only, divergence_only],
-        [1, 2, 3, 4, 5],
-        default=6,
+        [
+            both_pre_zero, both_setups, vfi_pre_zero_with_history,
+            vfi_pre_zero_without_history, vfi_cross_with_history,
+            vfi_cross_without_history, divergence_only,
+        ],
+        [1, 2, 3, 4, 5, 6, 7],
+        default=8,
     )
     result["Setup_Priority_Reason"] = np.select(
-        [both_pre_zero, both_setups, vfi_pre_zero_only, vfi_cross_only, divergence_only],
+        [
+            both_pre_zero, both_setups, vfi_pre_zero_with_history,
+            vfi_pre_zero_without_history, vfi_cross_with_history,
+            vfi_cross_without_history, divergence_only,
+        ],
         [
             "VFI daily and divergence weekly both below zero with rising slopes",
             "Both indicators qualify, but at least one has crossed zero recently",
-            "VFI daily pre-zero setup; wait for weekly divergence confirmation",
-            "VFI daily crossed zero recently; monitor, lower priority than pre-zero",
+            "VFI daily pre-zero setup; full weekly history available but divergence has not confirmed",
+            "VFI daily pre-zero setup; weekly divergence has insufficient valid history for a full cycle",
+            "VFI daily crossed zero recently; weekly history available, but lower priority than pre-zero",
+            "VFI daily crossed zero recently; weekly divergence history is insufficient",
             "Weekly divergence qualifies but daily VFI does not; not an entry shortlist",
         ],
         default="Near miss or insufficient history; inspect per-indicator reasons",
