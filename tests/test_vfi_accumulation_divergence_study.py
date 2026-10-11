@@ -44,7 +44,8 @@ class VfiDailyWeeklyStudyTests(unittest.TestCase):
         required = {
             "VFI_Z_252", "VFI_Slope_5D", "VFI_Slope_10D",
             "VFI_Slope_20D", "VFI_Strong_Rising_Slope", "VFI_Early_Setup",
-            "VFI_Zero_Cross_Up",
+            "VFI_Estimated_Days_To_Zero", "VFI_Zero_Cross_Up",
+            "VFI_Zero_Cross_Up_Recent_Near_Zero",
         }
         self.assertTrue(required.issubset(result.columns))
         self.assertTrue(result["VFI"].notna().any())
