@@ -375,8 +375,9 @@ def main() -> None:
             "negative oscillator value near zero, positive 1/4/8-bar slopes, normalized "
             "4-bar rise >= 0.10 and 8-bar rise >= 0.25 standard deviations. A recent zero "
             "cross is a separate setup only if it remains within 10% of the range and passes "
-            "the same slope tests. Tier 1 requires both setups; Tier 2 requires daily VFI; "
-            "Tier 3 retains near misses for audit. No intraday frames are used. The row-level "
+            "the same slope tests. Tier 1 is dual pre-zero, Tier 2 is dual-indicator with a recent "
+            "cross, Tier 3/4 prioritize VFI pre-zero/recent-cross setups awaiting divergence, "
+            "and later tiers retain divergence-only or near misses for audit. No intraday frames are used. The row-level "
             "Setup_Reason fields explain each accept/reject decision; recent bullish pivot "
             "divergence is only an additional confirmation bonus."
         ),
