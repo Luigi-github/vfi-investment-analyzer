@@ -52,11 +52,56 @@ YAHOO_ASSETS = {
 }
 
 HORIZONS_DAYS = (10, 20, 40, 60)
+CRYPTO_UNIVERSE_SIZE = 200
 MIN_DAILY_BARS = 260
 MIN_WEEKLY_BARS_FOR_DIVERGENCE = 100
 WEEKLY_DIVERGENCE_FRESH_DAYS = 35
 DAILY_DIVERGENCE_FRESH_DAYS = 20
 COOLDOWN_DAILY_BARS = 20
+VFI_MAX_ESTIMATED_DAYS_TO_ZERO = 20.0
+DIVERGENCE_MAX_ESTIMATED_WEEKS_TO_ZERO = 8.0
+ZERO_CROSS_MAX_NORMALIZED_DISTANCE = 0.25
+STRONG_SLOPE_MIN_NORMALIZED_CHANGE = 0.20
+
+
+def discover_crypto_universe(service: BinanceMarketDataService, limit: int = CRYPTO_UNIVERSE_SIZE) -> list[dict]:
+    """Return liquid Binance spot/perpetual intersections, ranked by both markets' 24h quote volume."""
+    spot = service.discover_spot_usdt(0)
+    perp = service.discover_usdt_perpetuals(0)
+    spot_rank = {symbol: i + 1 for i, symbol in enumerate(spot)}
+    perp_rank = {symbol: i + 1 for i, symbol in enumerate(perp)}
+    common = set(spot_rank) & set(perp_rank)
+    if len(common) < limit:
+        raise RuntimeError(f"Only {len(common)} Binance USDT spot/perpetual intersections found; need {limit}")
+
+    spot_tickers = service._get(service.SPOT_BASE, "/api/v3/ticker/24hr", {})
+    perp_tickers = service._get(service.FUTURES_BASE, "/fapi/v1/ticker/24hr", {})
+    spot_by_symbol = {row["symbol"]: row for row in spot_tickers if row.get("symbol") in common}
+    perp_by_symbol = {row["symbol"]: row for row in perp_tickers if row.get("symbol") in common}
+    records = []
+    for symbol in common:
+        srow, prow = spot_by_symbol.get(symbol), perp_by_symbol.get(symbol)
+        if srow is None or prow is None:
+            continue
+        sr, pr = spot_rank[symbol], perp_rank[symbol]
+        records.append({
+            "Symbol": symbol,
+            "Spot_Volume_Rank": sr,
+            "Perp_Volume_Rank": pr,
+            "Spot_24h_Quote_Volume_USDT": float(srow.get("quoteVolume", 0) or 0),
+            "Perp_24h_Quote_Volume_USDT": float(prow.get("quoteVolume", 0) or 0),
+            "Combined_Volume_Rank_Sum": sr + pr,
+            "Worst_Market_Volume_Rank": max(sr, pr),
+        })
+    records.sort(key=lambda row: (
+        row["Combined_Volume_Rank_Sum"], row["Worst_Market_Volume_Rank"], row["Symbol"]
+    ))
+    records = records[:limit]
+    if len(records) < limit:
+        raise RuntimeError(f"Only {len(records)} complete liquidity records found; need {limit}")
+    for rank, record in enumerate(records, 1):
+        record["Universe_Rank"] = rank
+    return records
 
 
 def closed_daily(frame: pd.DataFrame) -> pd.DataFrame:
@@ -106,15 +151,29 @@ def add_vfi_features(daily: pd.DataFrame, indicator: VFIIndicator) -> pd.DataFra
     data["VFI_Negative_Near_Zero"] = (vfi < 0) & (z >= -0.75)
     data["VFI_Positive_Slopes"] = (s5 > 0) & (s10 > 0) & (s20 > 0)
     data["VFI_Strong_Rising_Slope"] = (
-        data["VFI_Slope_10D_Normalized"].ge(0.20)
+        data["VFI_Slope_10D_Normalized"].ge(STRONG_SLOPE_MIN_NORMALIZED_CHANGE)
         & data["VFI_Slope_20D_Normalized"].gt(0)
         & data["VFI_Positive_Slopes"]
+    )
+    # Estimate time to zero using the raw 10-day slope (VFI units per day).
+    data["VFI_Estimated_Days_To_Zero"] = np.where(
+        (vfi < 0) & (s10 > 0), -vfi / s10, np.nan
     )
     data["VFI_Early_Setup"] = (
         data["VFI_Negative_Near_Zero"]
         & data["VFI_Strong_Rising_Slope"]
+        & data["VFI_Estimated_Days_To_Zero"].between(0, VFI_MAX_ESTIMATED_DAYS_TO_ZERO)
     )
     data["VFI_Zero_Cross_Up"] = (vfi.shift(1) < 0) & (vfi >= 0) & (s5 > 0)
+    data["VFI_Zero_Cross_Up_Near_Zero"] = (
+        data["VFI_Zero_Cross_Up"] & z.le(ZERO_CROSS_MAX_NORMALIZED_DISTANCE)
+    )
+    data["VFI_Zero_Cross_Up_Recent_Near_Zero"] = (
+        data["VFI_Zero_Cross_Up_Near_Zero"].rolling(4, min_periods=1).max().astype(bool)
+        & z.le(ZERO_CROSS_MAX_NORMALIZED_DISTANCE)
+        & data["VFI_Positive_Slopes"]
+        & data["VFI_Strong_Rising_Slope"]
+    )
     data["VFI_Recovery_From_Negative"] = (vfi < 0) & (s5 > 0) & (s10 > 0)
     return data
 
@@ -137,14 +196,31 @@ def add_divergence_cycle_features(
     fast_norm = data[f"Div_Osc_Slope_{periods[1]}{suffix}_Normalized"]
     slow_norm = data[f"Div_Osc_Slope_{periods[2]}{suffix}_Normalized"]
     data[f"Div_Osc_Strong_Rising_Slope_{suffix}"] = (
-        fast_norm.ge(0.20) & slow_norm.gt(0) & data[f"Div_Osc_Positive_Slopes_{suffix}"]
+        fast_norm.ge(STRONG_SLOPE_MIN_NORMALIZED_CHANGE)
+        & slow_norm.gt(0)
+        & data[f"Div_Osc_Positive_Slopes_{suffix}"]
+    )
+    raw_fast_slope = data[f"Div_Osc_Slope_{periods[1]}{suffix}"]
+    data[f"Div_Osc_Estimated_Weeks_To_Zero_{suffix}"] = np.where(
+        (osc < 0) & (raw_fast_slope > 0), -osc / raw_fast_slope, np.nan
     )
     data[f"Div_Osc_Early_Setup_{suffix}"] = (
         data[f"Div_Osc_Negative_Near_Zero_{suffix}"]
         & data[f"Div_Osc_Strong_Rising_Slope_{suffix}"]
+        & data[f"Div_Osc_Estimated_Weeks_To_Zero_{suffix}"].between(
+            0, DIVERGENCE_MAX_ESTIMATED_WEEKS_TO_ZERO
+        )
     )
     data[f"Div_Osc_Zero_Cross_Up_{suffix}"] = (
-        (osc.shift(1) < 0) & (osc >= 0) & data[slope_cols[0]].gt(0)
+        (osc.shift(1) < 0) & (osc >= 0)
+        & data[slope_cols[0]].gt(0)
+        & data[f"Div_Osc_Z_{suffix}"].le(ZERO_CROSS_MAX_NORMALIZED_DISTANCE)
+    )
+    data[f"Div_Osc_Zero_Cross_Up_Recent_{suffix}"] = (
+        data[f"Div_Osc_Zero_Cross_Up_{suffix}"].rolling(3, min_periods=1).max().astype(bool)
+        & data[f"Div_Osc_Z_{suffix}"].le(ZERO_CROSS_MAX_NORMALIZED_DISTANCE)
+        & data[f"Div_Osc_Positive_Slopes_{suffix}"]
+        & data[f"Div_Osc_Strong_Rising_Slope_{suffix}"]
     )
     return data
 
@@ -205,9 +281,11 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         weekly_bear_age = pd.Series(np.nan, index=weekly.index)
         weekly_div["Div_Osc_Early_Setup_W"] = False
         weekly_div["Div_Osc_Zero_Cross_Up_W"] = False
+        weekly_div["Div_Osc_Zero_Cross_Up_Recent_W"] = False
         weekly_div["Div_Osc_Negative_Near_Zero_W"] = False
         weekly_div["Div_Osc_Positive_Slopes_W"] = False
         weekly_div["Div_Osc_Strong_Rising_Slope_W"] = False
+        weekly_div["Div_Osc_Estimated_Weeks_To_Zero_W"] = np.nan
     weekly_signal = pd.DataFrame({
         "Weekly_Bullish_Div_Confirmed": wbull,
         "Weekly_Bearish_Div_Confirmed": wbear,
@@ -221,11 +299,13 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Div_Osc_Slope_1W": weekly_div["Div_Osc_Slope_1W"],
         "Weekly_Div_Osc_Slope_2W_Normalized": weekly_div["Div_Osc_Slope_2W_Normalized"],
         "Weekly_Div_Osc_Slope_4W_Normalized": weekly_div["Div_Osc_Slope_4W_Normalized"],
+        "Weekly_Div_Osc_Estimated_Weeks_To_Zero": weekly_div["Div_Osc_Estimated_Weeks_To_Zero_W"],
         "Weekly_Div_Osc_Negative_Near_Zero": weekly_div["Div_Osc_Negative_Near_Zero_W"],
         "Weekly_Div_Osc_Positive_Slopes": weekly_div["Div_Osc_Positive_Slopes_W"],
         "Weekly_Div_Osc_Strong_Rising_Slope": weekly_div["Div_Osc_Strong_Rising_Slope_W"],
         "Weekly_Div_Osc_Early_Setup": weekly_div["Div_Osc_Early_Setup_W"],
         "Weekly_Div_Osc_Zero_Cross_Up": weekly_div["Div_Osc_Zero_Cross_Up_W"],
+        "Weekly_Div_Osc_Zero_Cross_Up_Recent": weekly_div["Div_Osc_Zero_Cross_Up_Recent_W"],
     }).reset_index().rename(columns={weekly_div.index.name or "index": "Weekly_Date"})
     weekly_signal["Weekly_Date"] = pd.to_datetime(weekly_signal["Weekly_Date"])
     left = daily_vfi.reset_index().rename(columns={daily_vfi.index.name or "index": "Date"})
@@ -292,6 +372,74 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         weekly_history_sufficient, joined["Weekly_Div_Signal"], "INSUFFICIENT_WEEKLY_HISTORY"
     )
     joined["Weekly_Divergence_History_Sufficient"] = weekly_history_sufficient
+    joined["VFI_Stage"] = np.select(
+        [
+            joined["VFI_Early_Setup"].fillna(False),
+            joined["VFI_Zero_Cross_Up_Recent_Near_Zero"].fillna(False),
+            joined["VFI"].ge(0),
+            joined["VFI"].lt(0),
+        ],
+        ["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS", "POSITIVE_AFTER_CROSS_OR_LATE", "NEGATIVE_NOT_READY"],
+        default="NO_DATA",
+    )
+    joined["VFI_Opportunity_Ready"] = joined["VFI_Stage"].isin(["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS"])
+    joined["Divergence_Cycle_Stage"] = np.select(
+        [
+            joined["Weekly_Div_Osc_Early_Setup"].fillna(False),
+            joined["Weekly_Div_Osc_Zero_Cross_Up_Recent"].fillna(False),
+            joined["Weekly_Div_Value"].ge(0),
+            joined["Weekly_Div_Value"].lt(0),
+        ],
+        ["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS", "POSITIVE_AFTER_CROSS_OR_LATE", "NEGATIVE_NOT_READY"],
+        default="NO_HISTORY",
+    )
+    joined["Divergence_Cycle_Ready"] = joined["Divergence_Cycle_Stage"].isin(["PRE_ZERO_SETUP", "FRESH_ZERO_CROSS"])
+    joined["Two_Stage_Opportunity"] = joined["VFI_Opportunity_Ready"] & joined["Divergence_Cycle_Ready"]
+    joined["Opportunity_Tier"] = np.select(
+        [
+            joined["VFI_Stage"].eq("PRE_ZERO_SETUP") & joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"),
+            joined["VFI_Stage"].eq("PRE_ZERO_SETUP") & joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"),
+            joined["VFI_Stage"].eq("FRESH_ZERO_CROSS") & joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"),
+            joined["VFI_Stage"].eq("FRESH_ZERO_CROSS") & joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"),
+            joined["VFI_Opportunity_Ready"],
+            joined["Divergence_Cycle_Ready"],
+        ],
+        [1, 2, 3, 4, 5, 6],
+        default=7,
+    ).astype(int)
+    joined["Candidate_Status"] = np.select(
+        [
+            joined["Two_Stage_Opportunity"],
+            joined["VFI_Opportunity_Ready"],
+            joined["Divergence_Cycle_Ready"],
+        ],
+        ["TWO_STAGE_CANDIDATE", "VFI_READY_WAITING_FOR_DIVERGENCE", "DIVERGENCE_READY_WAITING_FOR_VFI"],
+        default="NO_EARLY_SETUP",
+    )
+    joined["Setup_Score"] = (
+        pd.to_numeric(joined["VFI_Slope_10D_Normalized"], errors="coerce").clip(lower=0).fillna(0)
+        + pd.to_numeric(joined["Weekly_Div_Osc_Slope_2W_Normalized"], errors="coerce").clip(lower=0).fillna(0)
+        + joined["Weekly_Bullish_Div_Recent"].fillna(False).astype(float) * 0.25
+    )
+    joined["Selection_Reason"] = np.select(
+        [
+            joined["Two_Stage_Opportunity"] & joined["VFI_Stage"].eq("PRE_ZERO_SETUP") & joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"),
+            joined["Two_Stage_Opportunity"] & joined["VFI_Stage"].eq("PRE_ZERO_SETUP") & joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"),
+            joined["Two_Stage_Opportunity"] & joined["VFI_Stage"].eq("FRESH_ZERO_CROSS") & joined["Divergence_Cycle_Stage"].eq("PRE_ZERO_SETUP"),
+            joined["Two_Stage_Opportunity"] & joined["VFI_Stage"].eq("FRESH_ZERO_CROSS") & joined["Divergence_Cycle_Stage"].eq("FRESH_ZERO_CROSS"),
+            joined["VFI_Opportunity_Ready"],
+            joined["Divergence_Cycle_Ready"],
+        ],
+        [
+            "Both oscillators negative, rising strongly, and projected to cross zero soon",
+            "VFI is still in early negative recovery; divergence oscillator has just crossed zero",
+            "VFI has just crossed zero; divergence oscillator is still in early negative recovery",
+            "Both oscillators have freshly crossed zero and remain close to it",
+            "Stage 1 passed: waiting for weekly divergence oscillator confirmation",
+            "Stage 2 is promising, but VFI Stage 1 has not passed; not an investment candidate yet",
+        ],
+        default="No qualifying early-cycle setup",
+    )
 
     conditions = {
         "VFI_EARLY_SETUP": joined["VFI_Early_Setup"],
@@ -338,6 +486,8 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
                 "Weekly_Div_Osc_Strong_Rising_Slope": bool(row["Weekly_Div_Osc_Strong_Rising_Slope"]),
                 "Weekly_Div_Osc_Early_Setup": bool(row["Weekly_Div_Osc_Early_Setup"]),
                 "Weekly_Div_Osc_Zero_Cross_Up": bool(row["Weekly_Div_Osc_Zero_Cross_Up"]),
+        "Weekly_Div_Osc_Zero_Cross_Up_Recent": bool(row["Weekly_Div_Osc_Zero_Cross_Up_Recent"]),
+        "Weekly_Div_Osc_Estimated_Weeks_To_Zero": float(row["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) if pd.notna(row["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) else np.nan,
                 "Daily_Div_Signal": str(row.get("Daily_Div_Signal", "")),
                 "Daily_Div_Age_Bars": float(row["Daily_Div_Age_Bars"]) if pd.notna(row["Daily_Div_Age_Bars"]) else np.nan,
                 "VFI_Negative_Near_Zero": bool(row["VFI_Negative_Near_Zero"]),
@@ -345,6 +495,8 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
                 "VFI_Strong_Rising_Slope": bool(row["VFI_Strong_Rising_Slope"]),
                 "VFI_Early_Setup": bool(row["VFI_Early_Setup"]),
                 "VFI_Zero_Cross_Up": bool(row["VFI_Zero_Cross_Up"]),
+                "VFI_Zero_Cross_Up_Recent_Near_Zero": bool(row["VFI_Zero_Cross_Up_Recent_Near_Zero"]),
+                "VFI_Estimated_Days_To_Zero": float(row["VFI_Estimated_Days_To_Zero"]) if pd.notna(row["VFI_Estimated_Days_To_Zero"]) else np.nan,
                 "Weekly_Bullish_Div_Recent": bool(row["Weekly_Bullish_Div_Recent"]),
                 "Daily_Bullish_Div_Recent": bool(row["Daily_Bullish_Div_Recent"]),
                 "Bars_History": len(joined),
@@ -396,6 +548,8 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "VFI_Slope_20D_Normalized": float(latest["VFI_Slope_20D_Normalized"]) if pd.notna(latest["VFI_Slope_20D_Normalized"]) else np.nan,
         "VFI_Early_Setup": bool(latest["VFI_Early_Setup"]),
         "VFI_Zero_Cross_Up": bool(latest["VFI_Zero_Cross_Up"]),
+        "VFI_Zero_Cross_Up_Recent_Near_Zero": bool(latest["VFI_Zero_Cross_Up_Recent_Near_Zero"]),
+        "VFI_Estimated_Days_To_Zero": float(latest["VFI_Estimated_Days_To_Zero"]) if pd.notna(latest["VFI_Estimated_Days_To_Zero"]) else np.nan,
         "Weekly_Bullish_Div_Recent": bool(latest["Weekly_Bullish_Div_Recent"]),
         "Weekly_Bearish_Div_Recent": bool(latest["Weekly_Bearish_Div_Recent"]),
         "Weekly_Div_Signal": str(latest.get("Weekly_Div_Signal", "")),
@@ -410,6 +564,8 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Weekly_Div_Osc_Strong_Rising_Slope": bool(latest["Weekly_Div_Osc_Strong_Rising_Slope"]),
         "Weekly_Div_Osc_Early_Setup": bool(latest["Weekly_Div_Osc_Early_Setup"]),
         "Weekly_Div_Osc_Zero_Cross_Up": bool(latest["Weekly_Div_Osc_Zero_Cross_Up"]),
+        "Weekly_Div_Osc_Zero_Cross_Up_Recent": bool(latest["Weekly_Div_Osc_Zero_Cross_Up_Recent"]),
+        "Weekly_Div_Osc_Estimated_Weeks_To_Zero": float(latest["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) if pd.notna(latest["Weekly_Div_Osc_Estimated_Weeks_To_Zero"]) else np.nan,
         "Weekly_Div_Age_Days": float(weekly_age) if pd.notna(weekly_age) else np.nan,
         "Weekly_Bars": int(len(weekly)),
         "Weekly_Divergence_History_Sufficient": bool(weekly_history_sufficient),
@@ -417,6 +573,15 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
         "Daily_Div_Age_Bars": float(latest["Daily_Div_Age_Bars"]) if pd.notna(latest["Daily_Div_Age_Bars"]) else np.nan,
         "Daily_Bullish_Div_Recent": bool(latest["Daily_Bullish_Div_Recent"]),
         "Signal_Type": signal_type,
+        "VFI_Stage": str(latest["VFI_Stage"]),
+        "Divergence_Cycle_Stage": str(latest["Divergence_Cycle_Stage"]),
+        "VFI_Opportunity_Ready": bool(latest["VFI_Opportunity_Ready"]),
+        "Divergence_Cycle_Ready": bool(latest["Divergence_Cycle_Ready"]),
+        "Two_Stage_Opportunity": bool(latest["Two_Stage_Opportunity"]),
+        "Opportunity_Tier": int(latest["Opportunity_Tier"]),
+        "Candidate_Status": str(latest["Candidate_Status"]),
+        "Selection_Reason": str(latest["Selection_Reason"]),
+        "Setup_Score": float(latest["Setup_Score"]),
         "Bars_History": len(joined),
         "Last_Weekly_Bar": str(weekly.index[-1].date()),
     }
@@ -447,16 +612,25 @@ def main():
     vfi_indicator = VFIIndicator()
     divergence = VolumeDivergenceMM()
     events_all, current_all, errors = [], [], []
+    universe_records = discover_crypto_universe(binance, CRYPTO_UNIVERSE_SIZE)
+    universe_by_symbol = {row["Symbol"]: row for row in universe_records}
+    crypto_symbols = [row["Symbol"] for row in universe_records]
+    print(f"Discovered {len(crypto_symbols)} liquid Binance spot/perpetual assets.", flush=True)
 
-    for symbol in CRYPTO_SYMBOLS:
+    for symbol in crypto_symbols:
         print(f"[BINANCE] {symbol}", flush=True)
         try:
             daily = get_crypto_daily(binance, symbol)
             events, current = build_asset_events(symbol, daily, True, vfi_indicator, divergence)
+            current.update(universe_by_symbol[symbol])
+            current["Universe_Selection_Method"] = (
+                "Top-200 intersection of active USDT spot and USD-M perpetual markets; "
+                "ranked by sum of 24h quote-volume ranks, then worst market rank, then symbol"
+            )
             events_all.extend(events)
             current_all.append(current)
         except Exception as exc:
-            errors.append({"Asset": symbol, "Source": "BINANCE_SPOT", "Error": str(exc)})
+            errors.append({"Asset": symbol, "Source": "BINANCE_SPOT", **universe_by_symbol[symbol], "Error": str(exc)})
             print(f"ERROR {symbol}: {exc}", flush=True)
 
     for asset, ticker in YAHOO_ASSETS.items():
@@ -505,14 +679,32 @@ def main():
     )
 
     current.to_csv(out / "current_opportunities.csv", index=False)
+    # Actionable shortlist strictly applies VFI first, then weekly divergence oscillator.
+    filtered = current[current["Two_Stage_Opportunity"]].copy()
+    filtered = filtered.sort_values(
+        ["Opportunity_Tier", "Setup_Score", "VFI_Estimated_Days_To_Zero",
+         "Weekly_Div_Osc_Estimated_Weeks_To_Zero"],
+        ascending=[True, False, True, True], na_position="last",
+    ).reset_index(drop=True)
+    filtered.insert(0, "Two_Stage_Rank", np.arange(1, len(filtered) + 1))
+    filtered.to_csv(out / "filtered_opportunities.csv", index=False)
+    current[current["Candidate_Status"] == "VFI_READY_WAITING_FOR_DIVERGENCE"].to_csv(
+        out / "vfi_first_watchlist.csv", index=False
+    )
+    current[current["Candidate_Status"] == "DIVERGENCE_READY_WAITING_FOR_VFI"].to_csv(
+        out / "divergence_watchlist_waiting_for_vfi.csv", index=False
+    )
     events.to_csv(out / "historical_events.csv", index=False)
     summary.to_csv(out / "strategy_comparison.csv", index=False)
     per_asset.to_csv(out / "per_asset_strategy_counts.csv", index=False)
     errors_df.to_csv(out / "data_errors.csv", index=False)
     (out / "study_metadata.json").write_text(json.dumps({
-        "crypto_assets_requested": len(CRYPTO_SYMBOLS),
+        "crypto_assets_requested": len(crypto_symbols),
+        "crypto_universe_size": CRYPTO_UNIVERSE_SIZE,
+        "crypto_symbols": crypto_symbols,
+        "crypto_universe_records": universe_records,
+        "universe_selection_method": "Intersection of active Binance USDT spot and USD-M perpetual markets; ranked by sum of 24h quote-volume ranks, then worse market rank, then symbol. Current liquidity snapshot only.",
         "non_crypto_assets_requested": len(YAHOO_ASSETS),
-        "crypto_symbols": CRYPTO_SYMBOLS,
         "yahoo_assets": YAHOO_ASSETS,
         "bar_intervals_used": ["1d", "1w"],
         "intraday_used": False,
@@ -520,23 +712,43 @@ def main():
         "minimum_daily_bars": MIN_DAILY_BARS,
         "minimum_weekly_bars_for_divergence": MIN_WEEKLY_BARS_FOR_DIVERGENCE,
         "weekly_divergence_fresh_days": WEEKLY_DIVERGENCE_FRESH_DAYS,
-        "weekly_divergence_oscillator_setup_rule": "Volume Divergence by MM oscillator <0 and within 0.75 trailing-52-week standard deviations of zero; 1W/2W/4W slopes positive; 2W change >=0.20 trailing oscillator standard deviations; separately record upward zero-cross.",
         "daily_divergence_fresh_days": DAILY_DIVERGENCE_FRESH_DAYS,
-        "vfi_early_setup_rule": "VFI<0; VFI within 0.75 trailing-252-bar standard deviations of zero; 5D/10D/20D slopes positive; 10D change >=0.20 trailing VFI standard deviations.",
+        "vfi_early_setup_rule": "VFI <0; VFI_Z_252 in [-0.75, 0); positive 5D/10D/20D slopes; normalized 10D change >=0.20; projected zero cross within 20 trading days.",
+        "vfi_fresh_cross_rule": "VFI crossed upward within the last 3 daily bars, VFI_Z_252 <=0.25, and 5D/10D/20D slopes remain positive with a strong normalized 10D change.",
+        "weekly_divergence_oscillator_setup_rule": "Weekly Volume Divergence by MM oscillator <0; within 0.75 trailing-52-week standard deviations of zero; 1W/2W/4W slopes positive; normalized 2W change >=0.20; projected zero cross within 8 weeks.",
+        "weekly_divergence_fresh_cross_rule": "Weekly oscillator crossed upward within the last 2 completed weekly bars, normalized distance from zero <=0.25, and slopes remain positive/strong.",
+        "zero_cross_max_normalized_distance": ZERO_CROSS_MAX_NORMALIZED_DISTANCE,
+        "strong_slope_min_normalized_change": STRONG_SLOPE_MIN_NORMALIZED_CHANGE,
+        "max_estimated_days_to_vfi_zero": VFI_MAX_ESTIMATED_DAYS_TO_ZERO,
+        "max_estimated_weeks_to_divergence_zero": DIVERGENCE_MAX_ESTIMATED_WEEKS_TO_ZERO,
+        "divergence": "Causal Volume Divergence by MM implementation; pivot signal recorded on confirmation bar, not backdated.",
         "divergence": "Causal Volume Divergence by MM implementation; pivot signal recorded on confirmation bar, not backdated.",
         "completed_assets": int(len(current)),
         "errors": int(len(errors_df)),
+        "two_stage_candidates": int(current["Two_Stage_Opportunity"].sum()) if not current.empty else 0,
+        "vfi_ready_waiting_for_divergence": int((current["Candidate_Status"] == "VFI_READY_WAITING_FOR_DIVERGENCE").sum()) if not current.empty else 0,
+        "divergence_ready_waiting_for_vfi": int((current["Candidate_Status"] == "DIVERGENCE_READY_WAITING_FOR_VFI").sum()) if not current.empty else 0,
     }, indent=2), encoding="utf-8")
 
     print("\n=== CURRENT OPPORTUNITIES ===")
     if not current.empty:
-        cols = [c for c in ["Rank", "Asset", "Date", "Price", "VFI_Daily", "VFI_Z_252",
-                            "VFI_Slope_10D_Normalized", "VFI_Early_Setup",
+        cols = [c for c in ["Rank", "Asset", "Universe_Rank", "Date", "Price",
+                            "VFI_Daily", "VFI_Z_252", "VFI_Slope_10D_Normalized",
+                            "VFI_Estimated_Days_To_Zero", "VFI_Stage",
                             "Weekly_Div_Oscillator", "Weekly_Div_Osc_Z_52",
-                            "Weekly_Div_Osc_Early_Setup", "Weekly_Div_Osc_Zero_Cross_Up",
-                            "Weekly_Bullish_Div_Recent", "Weekly_Div_Signal", "Weekly_Div_Age_Days",
-                            "Signal_Type"] if c in current.columns]
+                            "Weekly_Div_Osc_Slope_2W_Normalized",
+                            "Weekly_Div_Osc_Estimated_Weeks_To_Zero",
+                            "Divergence_Cycle_Stage", "Two_Stage_Opportunity",
+                            "Opportunity_Tier", "Weekly_Bullish_Div_Recent",
+                            "Candidate_Status", "Selection_Reason"] if c in current.columns]
         print(current[cols].head(30).to_string(index=False))
+        print("\n=== FILTERED TWO-STAGE OPPORTUNITIES ===")
+        if not filtered.empty:
+            print(filtered[["Two_Stage_Rank", "Asset", "VFI_Daily", "VFI_Estimated_Days_To_Zero",
+                            "Weekly_Div_Oscillator", "Weekly_Div_Osc_Estimated_Weeks_To_Zero",
+                            "Opportunity_Tier", "Setup_Score", "Selection_Reason"]].head(30).to_string(index=False))
+        else:
+            print("No assets currently pass both stages. This is a valid result; do not relax filters merely to force picks.")
     print("\n=== STRATEGY COMPARISON ===")
     if not summary.empty:
         print(summary.to_string(index=False))
