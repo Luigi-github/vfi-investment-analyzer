@@ -16,7 +16,7 @@ permissions:
 jobs:
   volume-indicator-screen:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -29,7 +29,7 @@ jobs:
         run: python -m compileall app scripts
       - name: Run indicator unit tests
         run: pytest -q tests/test_volume_accumulation_indicators.py
-      - name: Run all example assets
+      - name: Run example assets volume indicators
         run: python scripts/run_volume_accumulation_indicators.py --period max
       - name: Run US weekly-first screen, then daily shortlist
         run: python scripts/run_us_weekly_then_daily_screen.py --period 10y --max-daily-candidates 30
@@ -37,7 +37,9 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: example-assets-volume-accumulation-indicators
-          path: reports/volume_accumulation/\n            reports/us_weekly_then_daily/
+          name: us-weekly-daily-accumulation-screen
+          path: |
+            reports/volume_accumulation/
+            reports/us_weekly_then_daily/
           if-no-files-found: warn
           retention-days: 14
