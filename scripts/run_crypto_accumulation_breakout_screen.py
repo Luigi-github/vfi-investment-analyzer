@@ -133,7 +133,8 @@ def analyze_symbol(
         vfi_setup = score_zero_approach(
             vfi_valid["VFI"], "VFI_1D", lookback=365, min_history=365,
             near_zero_fraction=0.15, max_abs_near_zero=2.0,
-            recent_cross_fraction=0.10, min_strength_4=0.10, min_strength_8=0.25,
+            recent_cross_fraction=0.10, recent_cross_bars=3,
+            min_strength_4=0.10, min_strength_8=0.25,
         )
         vfi_stage = str(vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN"))
         vfi_stage_eligible = vfi_stage in {
@@ -171,7 +172,7 @@ def analyze_symbol(
             div_valid["Volume_Divergence_MM"], "Divergence_1W",
             lookback=52, min_history=20, near_zero_fraction=0.15,
             max_abs_near_zero=None, recent_cross_fraction=0.10,
-            min_strength_4=0.10, min_strength_8=0.25,
+            recent_cross_bars=2, min_strength_4=0.10, min_strength_8=0.25,
         )
     except Exception as exc:
         div_reason = repr(exc)
