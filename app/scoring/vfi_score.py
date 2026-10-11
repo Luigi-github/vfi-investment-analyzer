@@ -15,10 +15,10 @@ class VFIScore:
         df = data.copy()
 
         # Prefer timeframe-neutral bar names; accept legacy columns from older callers.
-        if "VFI_Slope_4B" not in df.columns and "VFI_Slope_4B" in df.columns:
-            df["VFI_Slope_4B"] = df["VFI_Slope_4B"]
-        if "VFI_Slope_8B" not in df.columns and "VFI_Slope_8B" in df.columns:
-            df["VFI_Slope_8B"] = df["VFI_Slope_8B"]
+        if "VFI_Slope_4B" not in df.columns and "VFI_Slope_4W" in df.columns:
+            df["VFI_Slope_4B"] = df["VFI_Slope_4W"]
+        if "VFI_Slope_8B" not in df.columns and "VFI_Slope_8W" in df.columns:
+            df["VFI_Slope_8B"] = df["VFI_Slope_8W"]
 
         required_columns = [
             "VFI",
