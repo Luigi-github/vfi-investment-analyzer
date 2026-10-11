@@ -4,6 +4,7 @@ import numpy as np
 import pandas as pd
 
 from app.indicators.vfi import VFIIndicator
+from app.indicators.volume_divergence_mm import VolumeDivergenceMM
 from scripts.vfi_accumulation_divergence_study import (
     MIN_WEEKLY_BARS_FOR_DIVERGENCE,
     add_divergence_cycle_features,
