@@ -117,6 +117,8 @@ def main() -> None:
         weekly = completed_weekly(daily)
         row = {"Symbol": symbol, "Analysis_Status": "WEEKLY_SCREENED",
                "Weekly_Bars": int(len(weekly))}
+        vfi_setup = {}
+        div_setup = {}
         try:
             weekly_vfi = VFIIndicator().calculate(weekly)
             weekly_vfi = VFIScore().calculate(VFIAnalyzer().analyze(weekly_vfi))
@@ -170,8 +172,8 @@ def main() -> None:
             print(f"[daily follow-up] {symbol}", flush=True)
             daily_row = analyze_vfi_divergence(symbol, daily, weekly)
             row.update(daily_row)
-            row.update(vfi_setup if "vfi_setup" in locals() else {})
-            row.update(div_setup if "div_setup" in locals() else {})
+            row.update(vfi_setup)
+            row.update(div_setup)
             try:
                 vol = calculate_indicators(daily)
                 row.update({f"Flow_{k}": v for k, v in vol.items()})
