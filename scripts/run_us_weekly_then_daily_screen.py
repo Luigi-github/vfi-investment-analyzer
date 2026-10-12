@@ -68,22 +68,27 @@ def weekly_screen(symbol, daily):
     value = vfi["VFI"]
     slope20 = vfi["VFI_Slope_20B"]
     slope50 = vfi["VFI_Slope_50B"]
-    # Demand an uninterrupted rise in the latest 8 completed weekly VFI bars.
+    # Require a clean recent rise, but avoid demanding eight flawless weeks,
+    # which produced zero candidates in the first 100-liquid-asset run.
     vfi_series = pd.to_numeric(VFIIndicator().calculate(weekly)["VFI"], errors="coerce").dropna()
-    recent8 = vfi_series.tail(8).to_numpy(dtype=float)
-    deltas8 = np.diff(recent8)
-    monotonic8 = bool(len(recent8) == 8 and np.all(deltas8 > 0))
-    x8 = np.arange(len(recent8), dtype=float)
-    fit8 = np.polyval(np.polyfit(x8, recent8, 1), x8) if len(recent8) == 8 else np.array([])
-    ss_total8 = float(np.sum((recent8 - recent8.mean()) ** 2)) if len(recent8) == 8 else 0.0
-    r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
-    # Early accumulation: VFI still below zero, positive 20/50W slopes,
-    # and strictly rising each week with a reasonably straight 8-week path.
+    recent4 = vfi_series.tail(4).to_numpy(dtype=float)
+    deltas4 = np.diff(recent4)
+    monotonic4 = bool(len(recent4) == 4 and np.all(deltas4 > 0))
+    x4 = np.arange(len(recent4), dtype=float)
+    fit4 = np.polyval(np.polyfit(x4, recent4, 1), x4) if len(recent4) == 4 else np.array([])
+    ss_total4 = float(np.sum((recent4 - recent4.mean()) ** 2)) if len(recent4) == 4 else 0.0
+    r2_4 = float(1 - np.sum((recent4 - fit4) ** 2) / ss_total4) if ss_total4 > 0 else 0.0
+    slope8 = vfi["VFI_Slope_8B"]
+    price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
+    # Early accumulation: VFI remains below zero, recent VFI rises each of the
+    # last 4 completed weeks in a line-like path, the 8W/20W trends rise, and
+    # price has not already advanced more than 10% over 13 weeks.
     qualifies = bool(
         np.isfinite(value) and value < 0
+        and np.isfinite(slope8) and slope8 > 0
         and np.isfinite(slope20) and slope20 > 0
-        and np.isfinite(slope50) and slope50 > 0
-        and monotonic8 and r2_8 >= 0.65
+        and monotonic4 and r2_4 >= 0.65
+        and np.isfinite(price_return_13w) and price_return_13w <= 0.10
     )
     # Rank qualifying names by closeness to zero, then by longer/shorter slope.
     score = float(100.0 / (1.0 + abs(value))) if np.isfinite(value) else 0.0
@@ -195,7 +200,7 @@ def main():
         "selected_by_20_session_dollar_turnover": len(selected_symbols),
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if not weekly_df.empty else 0,
         "weekly_vfi_candidates": int(len(candidates)),
-        "weekly_rule": "completed weekly VFI < 0; 20W and 50W slopes > 0; each of latest 8 weekly VFI observations strictly increases; 8W linear-fit R² >= 0.65",
+        "weekly_rule": "completed weekly VFI < 0; 8W and 20W slopes > 0; last 4 weekly VFI values strictly increase; 4W linear-fit R² >= 0.65; 13W price return <= +10%",
         "daily_rule": "not calculated; daily OHLCV is used only to rank dollar liquidity",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
