@@ -68,12 +68,22 @@ def weekly_screen(symbol, daily):
     value = vfi["VFI"]
     slope20 = vfi["VFI_Slope_20B"]
     slope50 = vfi["VFI_Slope_50B"]
-    # The only weekly selection rule: VFI is below zero and both 20- and
-    # 50-week linear-regression slopes are positive. No other indicators gate.
+    # Demand an uninterrupted rise in the latest 8 completed weekly VFI bars.
+    vfi_series = pd.to_numeric(VFIIndicator().calculate(weekly)["VFI"], errors="coerce").dropna()
+    recent8 = vfi_series.tail(8).to_numpy(dtype=float)
+    deltas8 = np.diff(recent8)
+    monotonic8 = bool(len(recent8) == 8 and np.all(deltas8 > 0))
+    x8 = np.arange(len(recent8), dtype=float)
+    fit8 = np.polyval(np.polyfit(x8, recent8, 1), x8) if len(recent8) == 8 else np.array([])
+    ss_total8 = float(np.sum((recent8 - recent8.mean()) ** 2)) if len(recent8) == 8 else 0.0
+    r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
+    # Early accumulation: VFI still below zero, positive 20/50W slopes,
+    # and strictly rising each week with a reasonably straight 8-week path.
     qualifies = bool(
         np.isfinite(value) and value < 0
         and np.isfinite(slope20) and slope20 > 0
         and np.isfinite(slope50) and slope50 > 0
+        and monotonic8 and r2_8 >= 0.65
     )
     # Rank qualifying names by closeness to zero, then by longer/shorter slope.
     score = float(100.0 / (1.0 + abs(value))) if np.isfinite(value) else 0.0
@@ -85,7 +95,7 @@ def weekly_screen(symbol, daily):
         "Weekly_VFI_Prev": vfi.get("VFI_Prev"),
         "Weekly_VFI_Signal": vfi.get("VFI_Signal"),
         "Weekly_VFI_Histogram": vfi.get("VFI_Histogram"),
-        "Weekly_VFI_Slope_20W": slope20,
+        "Weekly_VFI_Last8_Monotonic_Rise": monotonic8,\n        "Weekly_VFI_R2_8W": r2_8,\n        "Weekly_VFI_Slope_20W": slope20,
         "Weekly_VFI_Slope_50W": slope50,
         "Weekly_VFI_Slope_4W": vfi.get("VFI_Slope_4B"),
         "Weekly_VFI_Slope_8W": vfi.get("VFI_Slope_8B"),
@@ -100,7 +110,7 @@ def weekly_screen(symbol, daily):
 
 def main():
     import argparse
-    p = argparse.ArgumentParser(description="Screen top-liquid US assets by weekly VFI below zero and positive 20/50-week slopes, then inspect daily VFI.")
+    p = argparse.ArgumentParser(description="Weekly-only screen for early accumulation using a smooth rising VFI.")
     p.add_argument("--symbols", default=",".join(US_LIQUID_UNIVERSE))
     p.add_argument("--period", default="10y")
     p.add_argument("--top", type=int, default=100)
@@ -168,64 +178,22 @@ def main():
         candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
     candidates["VFI_Distance_To_Zero"] = candidates["Weekly_VFI"].abs()
     candidates = candidates.sort_values(
-        ["VFI_Distance_To_Zero", "Weekly_VFI_Slope_50W", "Weekly_VFI_Slope_20W"],
-        ascending=[True, False, False],
+        ["VFI_Distance_To_Zero", "Weekly_VFI_R2_8W", "Weekly_VFI_Slope_50W", "Weekly_VFI_Slope_20W"],
+        ascending=[True, False, False, False],
     ).reset_index(drop=True)
     candidates.insert(0, "Rank", range(1, len(candidates) + 1))
     candidates.to_csv(out / "us_weekly_vfi_candidates.csv", index=False)
     print("\nWEEKLY VFI CANDIDATES: VFI < 0 and positive 20W + 50W slopes", flush=True)
     print(candidates.to_string(index=False) if not candidates.empty else "No assets passed the exact weekly VFI filter.", flush=True)
 
-    chosen = candidates["Symbol"].head(args.max_daily_candidates).tolist()
-    daily_rows = []
-    for i, symbol in enumerate(chosen, 1):
-        print(f"[DAILY VFI {i}/{len(chosen)}] {symbol}", flush=True)
-        daily, weekly = frames[symbol]
-        try:
-            dvfi = vfi_snapshot(daily)
-            if "VFI" not in dvfi:
-                raise ValueError(dvfi.get("VFI_Error", "Daily VFI unavailable"))
-            daily_rows.append({
-                "Symbol": symbol,
-                "Weekly_Rank": int(candidates.loc[candidates["Symbol"].eq(symbol), "Rank"].iloc[0]),
-                "Weekly_VFI": float(candidates.loc[candidates["Symbol"].eq(symbol), "Weekly_VFI"].iloc[0]),
-                "Weekly_VFI_Slope_20W": float(candidates.loc[candidates["Symbol"].eq(symbol), "Weekly_VFI_Slope_20W"].iloc[0]),
-                "Weekly_VFI_Slope_50W": float(candidates.loc[candidates["Symbol"].eq(symbol), "Weekly_VFI_Slope_50W"].iloc[0]),
-                "Weekly_Candle_Date": weekly.index[-1].strftime("%Y-%m-%d"),
-                "Daily_Candle_Date": daily.index[-1].strftime("%Y-%m-%d"),
-                "Daily_Price": float(daily["Close"].iloc[-1]),
-                "Daily_Price_Return_20B": float(daily["Close"].iloc[-1] / daily["Close"].iloc[-21] - 1) if len(daily) >= 21 else float("nan"),
-                "Daily_VFI": dvfi["VFI"],
-                "Daily_VFI_Slope_20D": dvfi["VFI_Slope_20B"],
-                "Daily_VFI_Slope_50D": dvfi["VFI_Slope_50B"],
-                "Daily_VFI_Slope_4D": dvfi["VFI_Slope_4B"],
-                "Daily_VFI_Slope_8D": dvfi["VFI_Slope_8B"],
-                "Daily_VFI_Zero_Cross_Recent_4D": dvfi["VFI_Zero_Cross_Recent_4B"],
-                "Daily_Interpretation": (
-                    "DAILY_VFI_ALSO_BELOW_ZERO_AND_RISING_20_50D"
-                    if dvfi["VFI"] < 0 and dvfi["VFI_Slope_20B"] > 0 and dvfi["VFI_Slope_50B"] > 0
-                    else "WEEKLY_FILTER_PASSED_DAILY_VFI_NEEDS_REVIEW"
-                ),
-            })
-        except Exception as exc:
-            errors.append({"Symbol": symbol, "Stage": "DAILY_VFI", "Error": repr(exc)})
-    daily_df = pd.DataFrame(daily_rows)
-    if not daily_df.empty:
-        daily_df = daily_df.sort_values(
-            ["Daily_Interpretation", "Weekly_Rank"], ascending=[True, True]
-        ).reset_index(drop=True)
-        daily_df.insert(0, "Daily_Rank", range(1, len(daily_df) + 1))
-    daily_df.to_csv(out / "us_daily_shortlist_ranking.csv", index=False)
-    strict_daily = daily_df[daily_df["Daily_Interpretation"].eq("DAILY_VFI_ALSO_BELOW_ZERO_AND_RISING_20_50D")].copy() if not daily_df.empty else daily_df.copy()
-    strict_daily.to_csv(out / "us_daily_strict_vfi_candidates.csv", index=False)
-    summary = {
+    # Deliberately no daily technical-indicator calculations; stop after weekly ranking.\n\n    summary = {
         "seed_universe_size": len(symbols), "requested_top_liquid": args.top,
         "selected_by_20_session_dollar_turnover": len(selected_symbols),
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if not weekly_df.empty else 0,
         "weekly_vfi_candidates": int(len(candidates)), "daily_analyzed": int(len(daily_df)),
         "daily_also_meets_vfi_20_50_slope_filter": int(len(strict_daily)),
-        "weekly_rule": "completed weekly VFI < 0; linear-regression slopes over the latest 20 and 50 completed weekly VFI values both > 0",
-        "daily_rule": "daily review only for weekly-qualified assets; separately flags daily VFI < 0 with positive 20- and 50-day slopes",
+        "weekly_rule": "completed weekly VFI < 0; 20W and 50W slopes > 0; each of latest 8 weekly VFI observations strictly increases; 8W linear-fit R² >= 0.65",
+        "daily_rule": "not calculated; daily OHLCV is used only to rank dollar liquidity",
         "weekly_candle_policy": "completed weekly candles only",
         "daily_candle_policy": "completed daily candles only",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
