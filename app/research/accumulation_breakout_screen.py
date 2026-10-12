@@ -38,6 +38,12 @@ def score_zero_approach(
             f"{prefix}_Slope_1B": float("nan"),
             f"{prefix}_Slope_4B": float("nan"),
             f"{prefix}_Slope_8B": float("nan"),
+            f"{prefix}_Slope_20B": float("nan"),
+            f"{prefix}_Slope_50B": float("nan"),
+            f"{prefix}_Normalized_Slope_20B": float("nan"),
+            f"{prefix}_Normalized_Slope_50B": float("nan"),
+            f"{prefix}_Long_Trend_20B_Positive": False,
+            f"{prefix}_Long_Trend_50B_Positive": False,
             f"{prefix}_Range_{lookback}B": float("nan"),
             f"{prefix}_Near_Zero": False,
             f"{prefix}_Strong_Positive_Slope": False,
@@ -53,6 +59,11 @@ def score_zero_approach(
     slope_1 = value - float(series.iloc[-2])
     slope_4 = (value - float(series.iloc[-5])) / 4.0
     slope_8 = (value - float(series.iloc[-9])) / 8.0
+    # On a weekly series, 20B and 50B mean 20 and 50 completed weeks.
+    # Keep long slopes separate from short slopes to distinguish early turns
+    # from mature trends.
+    slope_20 = (value - float(series.iloc[-21])) / 20.0 if len(series) >= 21 else float("nan")
+    slope_50 = (value - float(series.iloc[-51])) / 50.0 if len(series) >= 51 else float("nan")
 
     if len(series) < min_history:
         return {
@@ -60,6 +71,12 @@ def score_zero_approach(
             f"{prefix}_Slope_1B": slope_1,
             f"{prefix}_Slope_4B": slope_4,
             f"{prefix}_Slope_8B": slope_8,
+            f"{prefix}_Slope_20B": slope_20,
+            f"{prefix}_Slope_50B": slope_50,
+            f"{prefix}_Normalized_Slope_20B": float("nan"),
+            f"{prefix}_Normalized_Slope_50B": float("nan"),
+            f"{prefix}_Long_Trend_20B_Positive": bool(np.isfinite(slope_20) and slope_20 > 0),
+            f"{prefix}_Long_Trend_50B_Positive": bool(np.isfinite(slope_50) and slope_50 > 0),
             # Do not label a partial-sample range as a full cycle range.
             f"{prefix}_Range_{lookback}B": float("nan"),
             f"{prefix}_Near_Zero": False,
@@ -84,6 +101,8 @@ def score_zero_approach(
 
     norm_4 = ((value - float(series.iloc[-5])) / scale) if scale else 0.0
     norm_8 = ((value - float(series.iloc[-9])) / scale) if scale else 0.0
+    norm_20 = ((value - float(series.iloc[-21])) / scale) if scale and len(series) >= 21 else float("nan")
+    norm_50 = ((value - float(series.iloc[-51])) / scale) if scale and len(series) >= 51 else float("nan")
 
     near_limit = value_range * near_zero_fraction
     if max_abs_near_zero is not None:
@@ -164,6 +183,12 @@ def score_zero_approach(
         f"{prefix}_Slope_1B": slope_1,
         f"{prefix}_Slope_4B": slope_4,
         f"{prefix}_Slope_8B": slope_8,
+        f"{prefix}_Slope_20B": slope_20,
+        f"{prefix}_Slope_50B": slope_50,
+        f"{prefix}_Normalized_Slope_20B": float(norm_20),
+        f"{prefix}_Normalized_Slope_50B": float(norm_50),
+        f"{prefix}_Long_Trend_20B_Positive": bool(np.isfinite(slope_20) and slope_20 > 0),
+        f"{prefix}_Long_Trend_50B_Positive": bool(np.isfinite(slope_50) and slope_50 > 0),
         f"{prefix}_Range_{lookback}B": value_range,
         f"{prefix}_Near_Zero": bool(near_zero),
         f"{prefix}_Strong_Positive_Slope": bool(strong_slope),
