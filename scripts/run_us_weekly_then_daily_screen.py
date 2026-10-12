@@ -78,6 +78,11 @@ def weekly_screen(symbol, daily):
     fit4 = np.polyval(np.polyfit(x4, recent4, 1), x4) if len(recent4) == 4 else np.array([])
     ss_total4 = float(np.sum((recent4 - recent4.mean()) ** 2)) if len(recent4) == 4 else 0.0
     r2_4 = float(1 - np.sum((recent4 - fit4) ** 2) / ss_total4) if ss_total4 > 0 else 0.0
+    recent8 = vfi_series.tail(8).to_numpy(dtype=float)
+    x8 = np.arange(len(recent8), dtype=float)
+    fit8 = np.polyval(np.polyfit(x8, recent8, 1), x8) if len(recent8) == 8 else np.array([])
+    ss_total8 = float(np.sum((recent8 - recent8.mean()) ** 2)) if len(recent8) == 8 else 0.0
+    r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
     slope8 = vfi["VFI_Slope_8B"]
     price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
     # Early accumulation: VFI remains below zero, recent VFI rises each of the
@@ -100,7 +105,8 @@ def weekly_screen(symbol, daily):
         "Weekly_VFI_Prev": vfi.get("VFI_Prev"),
         "Weekly_VFI_Signal": vfi.get("VFI_Signal"),
         "Weekly_VFI_Histogram": vfi.get("VFI_Histogram"),
-        "Weekly_VFI_Last8_Monotonic_Rise": monotonic8,
+        "Weekly_VFI_Last4_Monotonic_Rise": monotonic4,
+        "Weekly_VFI_R2_4W": r2_4,
         "Weekly_VFI_R2_8W": r2_8,
         "Weekly_VFI_Slope_20W": slope20,
         "Weekly_VFI_Slope_50W": slope50,
@@ -185,12 +191,12 @@ def main():
         candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
     candidates["VFI_Distance_To_Zero"] = candidates["Weekly_VFI"].abs()
     candidates = candidates.sort_values(
-        ["VFI_Distance_To_Zero", "Weekly_VFI_R2_8W", "Weekly_VFI_Slope_50W", "Weekly_VFI_Slope_20W"],
+        ["VFI_Distance_To_Zero", "Weekly_VFI_R2_4W", "Weekly_VFI_Slope_8W", "Weekly_VFI_Slope_20W"],
         ascending=[True, False, False, False],
     ).reset_index(drop=True)
     candidates.insert(0, "Rank", range(1, len(candidates) + 1))
     candidates.to_csv(out / "us_weekly_vfi_candidates.csv", index=False)
-    print("\nWEEKLY VFI CANDIDATES: VFI < 0 and positive 20W + 50W slopes", flush=True)
+    print("\nWEEKLY VFI CANDIDATES: VFI < 0, rising 8W/20W trend, straight last 4 weeks, price not extended", flush=True)
     print(candidates.to_string(index=False) if not candidates.empty else "No assets passed the exact weekly VFI filter.", flush=True)
 
     # Deliberately no daily technical-indicator calculations; stop after weekly ranking.
