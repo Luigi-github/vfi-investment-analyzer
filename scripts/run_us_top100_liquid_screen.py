@@ -155,9 +155,26 @@ def main() -> None:
 
         vfi_weekly_type = str(row.get("VFI_1W_Setup_Type", ""))
         div_weekly_type = str(row.get("Divergence_1W_Setup_Type", ""))
-        long_slopes_positive = bool(row.get("VFI_1W_Long_Trend_20B_Positive", False)) and bool(row.get("VFI_1W_Long_Trend_50B_Positive", False))
-        near_negative_turn = bool(row.get("VFI_1W_Value", 1) < 0) and bool(row.get("VFI_1W_Near_Zero", False)) and long_slopes_positive
-        weekly_candidate = vfi_weekly_type in early_types or div_weekly_type in early_types or near_negative_turn
+        slope_20w = float(row.get("VFI_1W_Slope_20B", np.nan))
+        slope_50w = float(row.get("VFI_1W_Slope_50B", np.nan))
+        vfi_value = float(row.get("VFI_1W_Value", np.nan))
+        # Include early turns where the 20-week slope has turned up even if
+        # the 50-week slope remains negative; this is often the earliest phase.
+        near_zero_turn = (
+            bool(row.get("VFI_1W_Near_Zero", False))
+            and np.isfinite(slope_20w) and slope_20w > 0
+            and np.isfinite(vfi_value) and abs(vfi_value) <= 2.0
+        )
+        long_trend_confirmation = (
+            bool(row.get("VFI_1W_Near_Zero", False))
+            and np.isfinite(slope_20w) and slope_20w > 0
+            and np.isfinite(slope_50w) and slope_50w > 0
+            and np.isfinite(vfi_value) and abs(vfi_value) <= 5.0
+        )
+        weekly_candidate = (
+            vfi_weekly_type in early_types or div_weekly_type in early_types
+            or near_zero_turn or long_trend_confirmation
+        )
         row["Weekly_Screen_Candidate"] = bool(weekly_candidate)
         row["Price"] = float(daily["Close"].iloc[-1]) if not daily.empty else np.nan
         row["Daily_Candle_Date"] = daily.index[-1].strftime("%Y-%m-%d") if not daily.empty else ""
@@ -226,6 +243,7 @@ def main() -> None:
         "requested_top": args.top,
         "selected_by_liquidity": len(selected_symbols),
         "weekly_screen_candidates": int(result.get("Weekly_Screen_Candidate", pd.Series(dtype=bool)).fillna(False).sum()),
+        "weekly_prefilter_rule": "Weekly VFI/divergence early setup OR VFI near zero with positive 20-week slope; the 50-week slope is retained as longer-trend context, not a hard exclusion for early turns.",
         "daily_followup_analyzed": int((result.get("Daily_Followup_Status", pd.Series("", index=result.index)) != "NOT_RUN_WEEKLY_FILTER").sum()),
         "selected_and_analyzed": len(result),
         "analysis_status_counts": result.get("Analysis_Status", pd.Series(dtype=str)).value_counts().to_dict(),
