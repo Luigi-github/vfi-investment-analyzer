@@ -32,8 +32,8 @@ jobs:
         run: pytest -q tests/test_volume_accumulation_indicators.py
       - name: Run example assets volume indicators
         run: python scripts/run_volume_accumulation_indicators.py --period max
-      - name: Run US weekly-first screen, then daily shortlist
-        run: python scripts/run_us_weekly_then_daily_screen.py --period 10y --max-daily-candidates 50
+      - name: Run US weekly-only VFI accumulation screen
+        run: python scripts/run_us_weekly_then_daily_screen.py --period 10y --top 100
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
