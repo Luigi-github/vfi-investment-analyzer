@@ -271,3 +271,5 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+# Trigger full weekly-first then daily shortlist execution on GitHub Actions.
