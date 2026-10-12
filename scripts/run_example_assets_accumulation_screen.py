@@ -98,6 +98,35 @@ def analyze_symbol(symbol: str, daily: pd.DataFrame, weekly: pd.DataFrame) -> di
         row["VFI_Setup_Type"] = "ERROR"
         row["VFI_Setup_Score"] = 0.0
 
+    # Stage 1 signal: weekly VFI, with long 20/50-week slopes.
+    try:
+        if weekly.empty:
+            raise ValueError("No completed weekly data")
+        weekly_vfi = VFIIndicator().calculate(weekly)
+        weekly_vfi = VFIScore().calculate(VFIAnalyzer().analyze(weekly_vfi))
+        weekly_vfi_valid = weekly_vfi.loc[weekly_vfi["VFI"].notna()]
+        if weekly_vfi_valid.empty:
+            raise ValueError(f"No valid weekly VFI after warm-up ({len(weekly)} weekly bars)")
+        weekly_vfi_latest = weekly_vfi_valid.iloc[-1]
+        weekly_vfi_setup = score_zero_approach(
+            weekly_vfi_valid["VFI"], "VFI_1W",
+            lookback=260, min_history=100, near_zero_fraction=0.15,
+            max_abs_near_zero=2.0, recent_cross_fraction=0.10,
+            recent_cross_bars=3, min_strength_4=0.10, min_strength_8=0.25,
+        )
+        row.update({
+            "VFI_1W_Value": float(weekly_vfi_latest["VFI"]),
+            "VFI_1W_Candle_Date": weekly_vfi_valid.index[-1].strftime("%Y-%m-%d"),
+            "VFI_1W_State": str(weekly_vfi_latest.get("VFI_State", "UNKNOWN")),
+            "VFI_1W_Cycle_Stage": str(weekly_vfi_latest.get("VFI_Cycle_Stage", "UNKNOWN")),
+            "VFI_1W_Analysis_Status": "ANALYZED",
+        })
+        row.update(weekly_vfi_setup)
+    except Exception as exc:
+        errors.append(f"Weekly VFI: {exc!r}")
+        row["VFI_1W_Analysis_Status"] = "ERROR"
+        row.update(score_zero_approach(pd.Series(dtype=float), "VFI_1W", lookback=260, min_history=100))
+
     try:
         if weekly.empty:
             raise ValueError("No completed weekly data")
