@@ -159,15 +159,15 @@ def main():
                 row.update(weekly_div_setup)
                 flow_row = analyze_volume_indicators(symbol, daily)
                 flow_keys = [
-                "Accumulation_Distribution_Score", "Distribution_Pressure_Score",
-                "Pressure_Classification", "Potential_Stealth_Accumulation",
-                "OBV_Trend_Score", "AD_Trend_Score", "CMF_20", "MFI_14",
-                "Relative_Volume_20D", "Price_Return_20B", "Price_Return_60B",
-                "Weekly_Accumulation_Distribution_Score",
-                "Weekly_Distribution_Pressure_Score", "Weekly_Pressure_Classification",
-                "Weekly_OBV_Trend_Score", "Weekly_AD_Trend_Score",
-                "Weekly_CMF_20", "Weekly_MFI_14",
-            ]
+                    "Accumulation_Distribution_Score", "Distribution_Pressure_Score",
+                    "Pressure_Classification", "Potential_Stealth_Accumulation",
+                    "OBV_Trend_Score", "AD_Trend_Score", "CMF_20", "MFI_14",
+                    "Relative_Volume_20D", "Price_Return_20B", "Price_Return_60B",
+                    "Weekly_Accumulation_Distribution_Score",
+                    "Weekly_Distribution_Pressure_Score", "Weekly_Pressure_Classification",
+                    "Weekly_OBV_Trend_Score", "Weekly_AD_Trend_Score",
+                    "Weekly_CMF_20", "Weekly_MFI_14",
+                ]
                 for key in flow_keys:
                     if key in flow_row:
                         row[key] = flow_row[key]
@@ -227,6 +227,9 @@ def main():
     result.insert(0, "Rank", range(1, len(result) + 1))
 
     result.to_csv(output_dir / "us_liquid_100_daily_weekly_ranking.csv", index=False)
+    result[result.get("Weekly_Screen_Candidate", pd.Series(False, index=result.index)).fillna(False)].to_csv(
+        output_dir / "weekly_screen_candidates.csv", index=False
+    )
     result[result.get("Early_Accumulation_Candidate", pd.Series(False, index=result.index)).fillna(False)].to_csv(
         output_dir / "early_accumulation_candidates.csv", index=False
     )
