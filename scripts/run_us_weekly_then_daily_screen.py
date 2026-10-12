@@ -188,7 +188,9 @@ def main():
     print("\nWEEKLY VFI CANDIDATES: VFI < 0 and positive 20W + 50W slopes", flush=True)
     print(candidates.to_string(index=False) if not candidates.empty else "No assets passed the exact weekly VFI filter.", flush=True)
 
-    # Deliberately no daily technical-indicator calculations; stop after weekly ranking.\n\n    summary = {
+    # Deliberately no daily technical-indicator calculations; stop after weekly ranking.
+
+    summary = {
         "seed_universe_size": len(symbols), "requested_top_liquid": args.top,
         "selected_by_20_session_dollar_turnover": len(selected_symbols),
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if not weekly_df.empty else 0,
