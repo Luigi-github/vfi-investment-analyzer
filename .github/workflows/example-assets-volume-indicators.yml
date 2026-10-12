@@ -1,3 +1,4 @@
+# Weekly-first workflow: rank liquid US assets on completed weekly candles, then analyze the daily shortlist.
 name: Example assets volume accumulation indicators
 
 on:
