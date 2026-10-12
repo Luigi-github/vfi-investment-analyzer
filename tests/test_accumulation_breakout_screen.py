@@ -34,6 +34,17 @@ class TestAccumulationBreakoutScreen(unittest.TestCase):
         self.assertGreater(result["VFI_1D_Slope_4B"], 0)
         self.assertGreater(result["VFI_1D_Slope_8B"], 0)
 
+    def test_long_horizon_slopes_are_reported_for_20_and_50_weeks(self):
+        # With a linear series, both net-change-per-bar slopes should match.
+        values = pd.Series(np.linspace(-10.0, 0.0, 80))
+        result = score_zero_approach(values, "VFI_1W", lookback=52, min_history=20)
+        self.assertAlmostEqual(result["VFI_1W_Slope_20B"], 10.0 / 79.0, places=6)
+        self.assertAlmostEqual(result["VFI_1W_Slope_50B"], 10.0 / 79.0, places=6)
+        self.assertTrue(result["VFI_1W_Long_Trend_20B_Positive"])
+        self.assertTrue(result["VFI_1W_Long_Trend_50B_Positive"])
+        self.assertTrue(np.isfinite(result["VFI_1W_Normalized_Slope_20B"]))
+        self.assertTrue(np.isfinite(result["VFI_1W_Normalized_Slope_50B"]))
+
     def test_high_positive_oscillator_is_not_an_early_breakout_candidate(self):
         values = pd.Series(np.linspace(-8.0, 6.0, 60))
         result = score_zero_approach(values, "Divergence_1W", lookback=52, min_history=20)
