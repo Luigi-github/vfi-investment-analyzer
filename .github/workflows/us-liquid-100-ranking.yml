@@ -43,3 +43,5 @@ jobs:
           path: reports/us_liquid_100/
           if-no-files-found: warn
           retention-days: 14
+
+# Manual refresh trigger: rerun the 100-asset weekly-first, daily-follow-up ranking.
