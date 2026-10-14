@@ -68,9 +68,13 @@ def weekly_screen(symbol, daily):
     value = vfi["VFI"]
     slope20 = vfi["VFI_Slope_20B"]
     slope50 = vfi["VFI_Slope_50B"]
-    # Require a clean recent rise, but avoid demanding eight flawless weeks,
-    # which produced zero candidates in the first 100-liquid-asset run.
+    # Explicitly match the user's weekly setup: VFI has spent weeks below zero
+    # (negative 5W and 20W means), while the last four completed weekly values
+    # rise in a near-linear path and current VFI is still close to zero or has
+    # only just crossed it.
     vfi_series = pd.to_numeric(VFIIndicator().calculate(weekly)["VFI"], errors="coerce").dropna()
+    vfi_ma5 = float(vfi_series.tail(5).mean()) if len(vfi_series) >= 5 else float("nan")
+    vfi_ma20 = float(vfi_series.tail(20).mean()) if len(vfi_series) >= 20 else float("nan")
     recent4 = vfi_series.tail(4).to_numpy(dtype=float)
     deltas4 = np.diff(recent4)
     monotonic4 = bool(len(recent4) == 4 and np.all(deltas4 > 0))
@@ -85,16 +89,18 @@ def weekly_screen(symbol, daily):
     r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
     slope8 = vfi["VFI_Slope_8B"]
     price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
-    # Early accumulation: VFI remains below zero, recent VFI rises each of the
-    # last 4 completed weeks in a line-like path, the 8W/20W trends rise, and
-    # price has not already advanced more than 10% over 13 weeks.
-    # Use a permissive weekly gate and rank quality rather than demanding a
-    # perfectly monotonic VFI path. Strict monotonicity/R² filters previously
-    # produced zero names in the live 100-liquid-asset run. Daily follow-up
-    # will decide which weekly candidates merit attention.
+    # Strict weekly gate: negative 5W and 20W VFI averages confirm a sustained
+    # negative regime; current VFI must be within +/-2 points of zero; the last
+    # four completed weeks must rise monotonically with a linear fit R² >= 0.65.
+    # A small positive current VFI is allowed if both averages remain negative,
+    # capturing a recent zero-cross without admitting an extended move.
     qualifies = bool(
-        np.isfinite(value) and value < 0
+        np.isfinite(value) and abs(value) <= 2.0
+        and np.isfinite(vfi_ma5) and vfi_ma5 < 0
+        and np.isfinite(vfi_ma20) and vfi_ma20 < 0
+        and np.isfinite(vfi.get("VFI_Slope_4B", np.nan)) and vfi["VFI_Slope_4B"] > 0
         and np.isfinite(slope8) and slope8 > 0
+        and monotonic4 and np.isfinite(r2_4) and r2_4 >= 0.65
         and np.isfinite(price_return_13w) and price_return_13w <= 0.10
     )
     # Rank qualifying names by closeness to zero, then by longer/shorter slope.
@@ -104,6 +110,8 @@ def weekly_screen(symbol, daily):
         "Weekly_Screen_Status": "CANDIDATE" if qualifies else "NOT_SELECTED",
         "Weekly_Score": score,
         "Weekly_VFI": value,
+        "Weekly_VFI_MA5": vfi_ma5,
+        "Weekly_VFI_MA20": vfi_ma20,
         "Weekly_VFI_Prev": vfi.get("VFI_Prev"),
         "Weekly_VFI_Signal": vfi.get("VFI_Signal"),
         "Weekly_VFI_Histogram": vfi.get("VFI_Histogram"),
@@ -226,7 +234,7 @@ def main():
             # Daily early-accumulation filter: flow improving below zero,
             # accumulation indicators not bearish, and price not already extended.
             early = bool(
-                daily_vfi < 0 and np.isfinite(slope4) and slope4 > 0
+                abs(daily_vfi) <= 2.0 and np.isfinite(slope4) and slope4 > 0
                 and np.isfinite(slope8) and slope8 > 0
                 and np.isfinite(flow["Accumulation_Distribution_Score"])
                 and flow["Accumulation_Distribution_Score"] >= 50
@@ -289,8 +297,8 @@ def main():
         "weekly_vfi_candidates": int(len(candidates)),
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly VFI < 0; positive 8W VFI slope; 13W price return <= +10%; 20W slope, 4W monotonicity and fit quality are retained as ranking context rather than hard gates to avoid empty shortlists",
-        "daily_rule": "only weekly VFI candidates are followed up on completed daily candles; ranks daily VFI below zero with positive 4D/8D slopes, OBV/A-D/CMF/MFI composite, recent bullish volume divergence and price extension; score is a heuristic, not a probability",
+        "weekly_rule": "completed weekly candles; VFI within +/-2 of zero; VFI 5W and 20W averages both negative; positive 4W and 8W slopes; last 4 weekly VFI points strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%",
+        "daily_rule": "only strict weekly candidates are followed up on completed daily candles; daily VFI within +/-2 of zero with positive 4D/8D slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; bullish divergence contributes to ranking; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
