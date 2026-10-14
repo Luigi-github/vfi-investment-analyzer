@@ -29,6 +29,45 @@ def safe_slope(series, bars=4):
     return float(np.polyfit(np.arange(len(s), dtype=float), s.to_numpy(dtype=float), 1)[0])
 
 
+def vfi_ma_state(series):
+    """VFI 20/50-bar moving-average state, using completed bars only."""
+    s = pd.to_numeric(series, errors="coerce").dropna()
+    if len(s) < 51:
+        return {
+            "VFI_MA20": float("nan"), "VFI_MA50": float("nan"),
+            "VFI_MA20_Prev": float("nan"), "VFI_MA50_Prev": float("nan"),
+            "VFI_MA20_Above_MA50": False, "VFI_MA_Bullish_Cross": False,
+            "VFI_MA20_Zero_Cross_Recent": False, "VFI_MA50_Zero_Cross_Recent": False,
+            "VFI_MA_Phase": "INSUFFICIENT_HISTORY",
+        }
+    ma20 = s.rolling(20, min_periods=20).mean()
+    ma50 = s.rolling(50, min_periods=50).mean()
+    m20, m50 = float(ma20.iloc[-1]), float(ma50.iloc[-1])
+    p20, p50 = float(ma20.iloc[-2]), float(ma50.iloc[-2])
+    ma20_zero = bool(p20 < 0 <= m20)
+    ma50_zero = bool(p50 < 0 <= m50)
+    cross_20_50 = bool(p20 <= p50 and m20 > m50)
+    if m20 < 0 and m50 < 0 and m20 > m50:
+        phase = "EARLY_SETUP_BOTH_NEGATIVE_MA20_ABOVE_MA50"
+    elif m20 < 0 and m50 < 0:
+        phase = "NEGATIVE_REGIME_WAITING_FOR_MA_CROSS"
+    elif m20 >= 0 and m50 < 0:
+        phase = "MA20_CROSSED_ZERO_MA50_STILL_NEGATIVE"
+    elif m20 >= 0 and m50 >= 0:
+        phase = "BOTH_MAS_ABOVE_ZERO"
+    else:
+        phase = "MIXED_OR_TURNING_DOWN"
+    return {
+        "VFI_MA20": m20, "VFI_MA50": m50,
+        "VFI_MA20_Prev": p20, "VFI_MA50_Prev": p50,
+        "VFI_MA20_Above_MA50": bool(m20 > m50),
+        "VFI_MA_Bullish_Cross": cross_20_50,
+        "VFI_MA20_Zero_Cross_Recent": ma20_zero,
+        "VFI_MA50_Zero_Cross_Recent": ma50_zero,
+        "VFI_MA_Phase": phase,
+    }
+
+
 def vfi_snapshot(data):
     """VFI-only snapshot; slopes are linear-regression slopes over completed bars."""
     try:
@@ -68,13 +107,12 @@ def weekly_screen(symbol, daily):
     value = vfi["VFI"]
     slope20 = vfi["VFI_Slope_20B"]
     slope50 = vfi["VFI_Slope_50B"]
-    # Explicitly match the user's weekly setup: VFI has spent weeks below zero
-    # (negative 20W and 50W means), while the last four completed weekly values
-    # rise in a near-linear path and current VFI is still close to zero or has
-    # only just crossed it.
+    # User's sequence: both VFI moving averages are negative, MA20 rises above
+    # MA50 first, then zero-crosses are tracked as later confirmation.
     vfi_series = pd.to_numeric(VFIIndicator().calculate(weekly)["VFI"], errors="coerce").dropna()
-    vfi_ma50 = float(vfi_series.tail(50).mean()) if len(vfi_series) >= 50 else float("nan")
-    vfi_ma20 = float(vfi_series.tail(20).mean()) if len(vfi_series) >= 20 else float("nan")
+    ma_state = vfi_ma_state(vfi_series)
+    vfi_ma20 = ma_state["VFI_MA20"]
+    vfi_ma50 = ma_state["VFI_MA50"]
     recent4 = vfi_series.tail(4).to_numpy(dtype=float)
     deltas4 = np.diff(recent4)
     monotonic4 = bool(len(recent4) == 4 and np.all(deltas4 > 0))
@@ -89,22 +127,21 @@ def weekly_screen(symbol, daily):
     r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
     slope8 = vfi["VFI_Slope_8B"]
     price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
-    # Strict weekly gate: negative 20W and 50W VFI averages confirm a sustained
-    # negative regime; current VFI must be within +/-2 points of zero; the last
-    # four completed weeks must rise monotonically with a linear fit R² >= 0.65.
-    # A small positive current VFI is allowed if both averages remain negative,
-    # capturing a recent zero-cross without admitting an extended move.
+    # Early weekly setup: MA20 is above MA50 while BOTH remain below zero.
+    # Do not wait for the current VFI or its averages to cross zero; track those
+    # crosses as subsequent events so the scan can catch the move earlier.
     qualifies = bool(
-        np.isfinite(value) and abs(value) <= 2.0
-        and np.isfinite(vfi_ma50) and vfi_ma50 < 0
+        np.isfinite(vfi_ma50) and vfi_ma50 < 0
         and np.isfinite(vfi_ma20) and vfi_ma20 < 0
+        and ma_state["VFI_MA20_Above_MA50"]
         and np.isfinite(vfi.get("VFI_Slope_4B", np.nan)) and vfi["VFI_Slope_4B"] > 0
         and np.isfinite(slope8) and slope8 > 0
         and monotonic4 and np.isfinite(r2_4) and r2_4 >= 0.65
         and np.isfinite(price_return_13w) and price_return_13w <= 0.10
     )
-    # Rank qualifying names by closeness to zero, then by longer/shorter slope.
-    score = float(100.0 / (1.0 + abs(value))) if np.isfinite(value) else 0.0
+    # Rank by MA20 proximity to zero, positive MA spread, then slope quality.
+    ma_spread = vfi_ma20 - vfi_ma50 if np.isfinite(vfi_ma20) and np.isfinite(vfi_ma50) else float("nan")
+    score = float(100.0 / (1.0 + abs(vfi_ma20)) + max(0.0, ma_spread)) if np.isfinite(vfi_ma20) else 0.0
     return {
         "Symbol": symbol,
         "Weekly_Screen_Status": "CANDIDATE" if qualifies else "NOT_SELECTED",
@@ -112,6 +149,12 @@ def weekly_screen(symbol, daily):
         "Weekly_VFI": value,
         "Weekly_VFI_MA50": vfi_ma50,
         "Weekly_VFI_MA20": vfi_ma20,
+        "Weekly_VFI_MA20_Above_MA50": ma_state["VFI_MA20_Above_MA50"],
+        "Weekly_VFI_MA_Bullish_Cross": ma_state["VFI_MA_Bullish_Cross"],
+        "Weekly_VFI_MA20_Zero_Cross_Recent": ma_state["VFI_MA20_Zero_Cross_Recent"],
+        "Weekly_VFI_MA50_Zero_Cross_Recent": ma_state["VFI_MA50_Zero_Cross_Recent"],
+        "Weekly_VFI_MA_Phase": ma_state["VFI_MA_Phase"],
+        "Weekly_VFI_MA_Spread": ma_spread,
         "Weekly_VFI_Prev": vfi.get("VFI_Prev"),
         "Weekly_VFI_Signal": vfi.get("VFI_Signal"),
         "Weekly_VFI_Histogram": vfi.get("VFI_Histogram"),
@@ -201,12 +244,12 @@ def main():
         candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
     candidates["VFI_Distance_To_Zero"] = candidates["Weekly_VFI"].abs()
     candidates = candidates.sort_values(
-        ["VFI_Distance_To_Zero", "Weekly_VFI_R2_4W", "Weekly_VFI_Slope_8W", "Weekly_VFI_Slope_20W"],
-        ascending=[True, False, False, False],
+        ["Weekly_VFI_MA20", "Weekly_VFI_MA_Spread", "Weekly_VFI_R2_4W", "Weekly_VFI_Slope_8W"],
+        ascending=[False, False, False, False],
     ).reset_index(drop=True)
     candidates.insert(0, "Rank", range(1, len(candidates) + 1))
     candidates.to_csv(out / "us_weekly_vfi_candidates.csv", index=False)
-    print("\nWEEKLY VFI CANDIDATES: VFI < 0, rising 8W/20W trend, straight last 4 weeks, price not extended", flush=True)
+    print("\nWEEKLY VFI CANDIDATES: VFI MA20 > MA50, both averages below zero, rising VFI, price not extended", flush=True)
     print(candidates.to_string(index=False) if not candidates.empty else "No assets passed the exact weekly VFI filter.", flush=True)
 
     # Stage 2: only weekly candidates are examined on completed daily candles.
@@ -231,10 +274,14 @@ def main():
             daily_vfi = float(vfi["VFI"])
             slope4 = float(vfi.get("VFI_Slope_4B", np.nan))
             slope8 = float(vfi.get("VFI_Slope_8B", np.nan))
-            # Daily early-accumulation filter: flow improving below zero,
-            # accumulation indicators not bearish, and price not already extended.
+            daily_series = pd.to_numeric(VFIIndicator().calculate(daily)["VFI"], errors="coerce").dropna()
+            daily_ma = vfi_ma_state(daily_series)
+            # Daily confirmation is only run on the weekly shortlist. Prefer the
+            # same early setup: MA20 > MA50 while both are negative, before zero-cross.
             early = bool(
-                abs(daily_vfi) <= 2.0 and np.isfinite(slope4) and slope4 > 0
+                daily_ma["VFI_MA20"] < 0 and daily_ma["VFI_MA50"] < 0
+                and daily_ma["VFI_MA20_Above_MA50"]
+                and np.isfinite(slope4) and slope4 > 0
                 and np.isfinite(slope8) and slope8 > 0
                 and np.isfinite(flow["Accumulation_Distribution_Score"])
                 and flow["Accumulation_Distribution_Score"] >= 50
@@ -258,6 +305,14 @@ def main():
                 "Daily_Price": float(close.iloc[-1]),
                 "Daily_Price_Return_20B": ret20,
                 "Daily_VFI": daily_vfi,
+                "Daily_VFI_MA20": daily_ma["VFI_MA20"],
+                "Daily_VFI_MA50": daily_ma["VFI_MA50"],
+                "Daily_VFI_MA20_Above_MA50": daily_ma["VFI_MA20_Above_MA50"],
+                "Daily_VFI_MA_Bullish_Cross": daily_ma["VFI_MA_Bullish_Cross"],
+                "Daily_VFI_MA20_Zero_Cross_Recent": daily_ma["VFI_MA20_Zero_Cross_Recent"],
+                "Daily_VFI_MA50_Zero_Cross_Recent": daily_ma["VFI_MA50_Zero_Cross_Recent"],
+                "Daily_VFI_MA_Phase": daily_ma["VFI_MA_Phase"],
+                "Daily_VFI_MA_Spread": daily_ma["VFI_MA20"] - daily_ma["VFI_MA50"],
                 "Daily_VFI_Slope_4D": slope4,
                 "Daily_VFI_Slope_8D": slope8,
                 "Daily_VFI_Slope_20D": vfi.get("VFI_Slope_20B"),
@@ -297,8 +352,8 @@ def main():
         "weekly_vfi_candidates": int(len(candidates)),
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; VFI within +/-2 of zero; VFI 20W and 50W averages both negative; positive 4W and 8W slopes; last 4 weekly VFI points strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%",
-        "daily_rule": "only strict weekly candidates are followed up on completed daily candles; daily VFI within +/-2 of zero with positive 4D/8D slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; bullish divergence contributes to ranking; score is a heuristic, not a probability",
+        "weekly_rule": "completed weekly candles; VFI MA20 > MA50 while BOTH averages remain below zero; positive 4W/8W VFI slopes; last 4 weekly VFI values strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%; zero-crosses are tracked as subsequent confirmation",
+        "daily_rule": "only weekly candidates are followed up on completed daily candles; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
