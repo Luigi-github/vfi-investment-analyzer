@@ -199,15 +199,96 @@ def main():
     print("\nWEEKLY VFI CANDIDATES: VFI < 0, rising 8W/20W trend, straight last 4 weeks, price not extended", flush=True)
     print(candidates.to_string(index=False) if not candidates.empty else "No assets passed the exact weekly VFI filter.", flush=True)
 
-    # Deliberately no daily technical-indicator calculations; stop after weekly ranking.
+    # Stage 2: only weekly candidates are examined on completed daily candles.
+    # Daily data is never used to admit an asset into the weekly shortlist.
+    daily_rows = []
+    followup_symbols = candidates["Symbol"].head(max(0, args.max_daily_candidates)).tolist()
+    print(f"\\nDAILY FOLLOW-UP for {len(followup_symbols)} weekly candidates", flush=True)
+    for i, symbol in enumerate(followup_symbols, 1):
+        print(f"[DAILY {i}/{len(followup_symbols)}] {symbol}", flush=True)
+        try:
+            daily = completed_daily(raw_data[symbol])
+            vfi = vfi_snapshot(daily)
+            if "VFI" not in vfi:
+                raise ValueError(f"Unable to calculate daily VFI: {vfi.get('VFI_Error', 'insufficient data')}")
+            flow = calculate_indicators(daily, window=20)
+            close = pd.to_numeric(daily["Close"], errors="coerce").dropna()
+            ret20 = float(close.iloc[-1] / close.iloc[-21] - 1.0) if len(close) >= 21 else float("nan")
+            divergence = VolumeDivergenceMM().calculate(daily)
+            recent_div = divergence.tail(20)
+            bull_div = bool(recent_div["Volume_Div_Bullish"].fillna(False).any())
+            last_bull_age = pd.to_numeric(divergence["Volume_Div_Bullish_Age_Bars"], errors="coerce").iloc[-1]
+            daily_vfi = float(vfi["VFI"])
+            slope4 = float(vfi.get("VFI_Slope_4B", np.nan))
+            slope8 = float(vfi.get("VFI_Slope_8B", np.nan))
+            # Daily early-accumulation filter: flow improving below zero,
+            # accumulation indicators not bearish, and price not already extended.
+            early = bool(
+                daily_vfi < 0 and np.isfinite(slope4) and slope4 > 0
+                and np.isfinite(slope8) and slope8 > 0
+                and np.isfinite(flow["Accumulation_Distribution_Score"])
+                and flow["Accumulation_Distribution_Score"] >= 50
+                and np.isfinite(ret20) and ret20 <= 0.10
+            )
+            vfi_proximity = 100.0 / (1.0 + abs(daily_vfi))
+            slope_points = 100.0 if slope4 > 0 and slope8 > 0 else (50.0 if slope4 > 0 or slope8 > 0 else 0.0)
+            divergence_points = 100.0 if bull_div else 0.0
+            daily_score = (
+                0.40 * float(flow["Accumulation_Distribution_Score"])
+                + 0.20 * vfi_proximity
+                + 0.20 * slope_points
+                + 0.20 * divergence_points
+            )
+            daily_rows.append({
+                "Symbol": symbol,
+                "Weekly_Rank": int(candidates.loc[candidates["Symbol"].eq(symbol), "Rank"].iloc[0]),
+                "Daily_Early_Accumulation_Candidate": early,
+                "Daily_Score": daily_score,
+                "Daily_Candle_Date": daily.index[-1].strftime("%Y-%m-%d"),
+                "Daily_Price": float(close.iloc[-1]),
+                "Daily_Price_Return_20B": ret20,
+                "Daily_VFI": daily_vfi,
+                "Daily_VFI_Slope_4D": slope4,
+                "Daily_VFI_Slope_8D": slope8,
+                "Daily_VFI_Slope_20D": vfi.get("VFI_Slope_20B"),
+                "Daily_VFI_Zero_Cross_Recent_4D": vfi.get("VFI_Zero_Cross_Recent_4B"),
+                "Daily_Bullish_Volume_Divergence_20D": bull_div,
+                "Daily_Last_Bullish_Divergence_Age_D": float(last_bull_age) if np.isfinite(last_bull_age) else np.nan,
+                "Daily_Accumulation_Distribution_Score": flow["Accumulation_Distribution_Score"],
+                "Daily_OBV_Trend_Score": flow["OBV_Trend_Score"],
+                "Daily_AD_Trend_Score": flow["AD_Trend_Score"],
+                "Daily_CMF_20": flow["CMF_20"],
+                "Daily_MFI_14": flow["MFI_14"],
+                "Daily_Relative_Volume_20D": flow["Relative_Volume_20D"],
+            })
+        except Exception as exc:
+            errors.append({"Symbol": symbol, "Stage": "DAILY_FOLLOWUP", "Error": repr(exc)})
+            daily_rows.append({"Symbol": symbol, "Weekly_Rank": int(candidates.loc[candidates["Symbol"].eq(symbol), "Rank"].iloc[0]),
+                               "Daily_Early_Accumulation_Candidate": False, "Daily_Status": f"ERROR: {exc!r}"})
+
+    daily_df = pd.DataFrame(daily_rows)
+    if not daily_df.empty:
+        daily_df = daily_df.sort_values(
+            ["Daily_Early_Accumulation_Candidate", "Daily_Score", "Weekly_Rank"],
+            ascending=[False, False, True], na_position="last"
+        ).reset_index(drop=True)
+        daily_df.insert(0, "Daily_Rank", range(1, len(daily_df) + 1))
+    daily_df.to_csv(out / "us_daily_followup_ranking.csv", index=False)
+    daily_df[daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(index=daily_df.index, dtype=bool)).eq(True)].to_csv(
+        out / "us_daily_early_accumulation_candidates.csv", index=False
+    )
+    print("\\nDAILY FOLLOW-UP RANKING (only weekly candidates)", flush=True)
+    print(daily_df.to_string(index=False) if not daily_df.empty else "No weekly candidates to follow up daily.", flush=True)
 
     summary = {
         "seed_universe_size": len(symbols), "requested_top_liquid": args.top,
         "selected_by_20_session_dollar_turnover": len(selected_symbols),
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if not weekly_df.empty else 0,
         "weekly_vfi_candidates": int(len(candidates)),
+        "daily_followup_analyzed": int(len(daily_df)),
+        "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
         "weekly_rule": "completed weekly VFI < 0; 8W and 20W slopes > 0; last 4 weekly VFI values strictly increase; 4W linear-fit R² >= 0.65; 13W price return <= +10%",
-        "daily_rule": "not calculated; daily OHLCV is used only to rank dollar liquidity",
+        "daily_rule": "only weekly VFI candidates are followed up on completed daily candles; ranks daily VFI below zero with positive 4D/8D slopes, OBV/A-D/CMF/MFI composite, recent bullish volume divergence and price extension; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
