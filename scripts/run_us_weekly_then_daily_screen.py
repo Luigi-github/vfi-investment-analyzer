@@ -69,11 +69,11 @@ def weekly_screen(symbol, daily):
     slope20 = vfi["VFI_Slope_20B"]
     slope50 = vfi["VFI_Slope_50B"]
     # Explicitly match the user's weekly setup: VFI has spent weeks below zero
-    # (negative 5W and 20W means), while the last four completed weekly values
+    # (negative 20W and 50W means), while the last four completed weekly values
     # rise in a near-linear path and current VFI is still close to zero or has
     # only just crossed it.
     vfi_series = pd.to_numeric(VFIIndicator().calculate(weekly)["VFI"], errors="coerce").dropna()
-    vfi_ma5 = float(vfi_series.tail(5).mean()) if len(vfi_series) >= 5 else float("nan")
+    vfi_ma50 = float(vfi_series.tail(50).mean()) if len(vfi_series) >= 50 else float("nan")
     vfi_ma20 = float(vfi_series.tail(20).mean()) if len(vfi_series) >= 20 else float("nan")
     recent4 = vfi_series.tail(4).to_numpy(dtype=float)
     deltas4 = np.diff(recent4)
@@ -89,14 +89,14 @@ def weekly_screen(symbol, daily):
     r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
     slope8 = vfi["VFI_Slope_8B"]
     price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
-    # Strict weekly gate: negative 5W and 20W VFI averages confirm a sustained
+    # Strict weekly gate: negative 20W and 50W VFI averages confirm a sustained
     # negative regime; current VFI must be within +/-2 points of zero; the last
     # four completed weeks must rise monotonically with a linear fit R² >= 0.65.
     # A small positive current VFI is allowed if both averages remain negative,
     # capturing a recent zero-cross without admitting an extended move.
     qualifies = bool(
         np.isfinite(value) and abs(value) <= 2.0
-        and np.isfinite(vfi_ma5) and vfi_ma5 < 0
+        and np.isfinite(vfi_ma50) and vfi_ma50 < 0
         and np.isfinite(vfi_ma20) and vfi_ma20 < 0
         and np.isfinite(vfi.get("VFI_Slope_4B", np.nan)) and vfi["VFI_Slope_4B"] > 0
         and np.isfinite(slope8) and slope8 > 0
@@ -110,7 +110,7 @@ def weekly_screen(symbol, daily):
         "Weekly_Screen_Status": "CANDIDATE" if qualifies else "NOT_SELECTED",
         "Weekly_Score": score,
         "Weekly_VFI": value,
-        "Weekly_VFI_MA5": vfi_ma5,
+        "Weekly_VFI_MA50": vfi_ma50,
         "Weekly_VFI_MA20": vfi_ma20,
         "Weekly_VFI_Prev": vfi.get("VFI_Prev"),
         "Weekly_VFI_Signal": vfi.get("VFI_Signal"),
@@ -297,7 +297,7 @@ def main():
         "weekly_vfi_candidates": int(len(candidates)),
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; VFI within +/-2 of zero; VFI 5W and 20W averages both negative; positive 4W and 8W slopes; last 4 weekly VFI points strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%",
+        "weekly_rule": "completed weekly candles; VFI within +/-2 of zero; VFI 20W and 50W averages both negative; positive 4W and 8W slopes; last 4 weekly VFI points strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%",
         "daily_rule": "only strict weekly candidates are followed up on completed daily candles; daily VFI within +/-2 of zero with positive 4D/8D slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; bullish divergence contributes to ranking; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
