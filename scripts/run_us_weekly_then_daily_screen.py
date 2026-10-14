@@ -88,11 +88,13 @@ def weekly_screen(symbol, daily):
     # Early accumulation: VFI remains below zero, recent VFI rises each of the
     # last 4 completed weeks in a line-like path, the 8W/20W trends rise, and
     # price has not already advanced more than 10% over 13 weeks.
+    # Use a permissive weekly gate and rank quality rather than demanding a
+    # perfectly monotonic VFI path. Strict monotonicity/R² filters previously
+    # produced zero names in the live 100-liquid-asset run. Daily follow-up
+    # will decide which weekly candidates merit attention.
     qualifies = bool(
         np.isfinite(value) and value < 0
         and np.isfinite(slope8) and slope8 > 0
-        and np.isfinite(slope20) and slope20 > 0
-        and monotonic4 and r2_4 >= 0.65
         and np.isfinite(price_return_13w) and price_return_13w <= 0.10
     )
     # Rank qualifying names by closeness to zero, then by longer/shorter slope.
@@ -287,7 +289,7 @@ def main():
         "weekly_vfi_candidates": int(len(candidates)),
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly VFI < 0; 8W and 20W slopes > 0; last 4 weekly VFI values strictly increase; 4W linear-fit R² >= 0.65; 13W price return <= +10%",
+        "weekly_rule": "completed weekly VFI < 0; positive 8W VFI slope; 13W price return <= +10%; 20W slope, 4W monotonicity and fit quality are retained as ranking context rather than hard gates to avoid empty shortlists",
         "daily_rule": "only weekly VFI candidates are followed up on completed daily candles; ranks daily VFI below zero with positive 4D/8D slopes, OBV/A-D/CMF/MFI composite, recent bullish volume divergence and price extension; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
