@@ -30,7 +30,7 @@ def safe_slope(series, bars=4):
 
 
 def vfi_ma_state(series):
-    """VFI 20/50-bar moving-average state, using completed bars only."""
+    """VFI 20/50-bar moving-average state and the timing of crossover events."""
     s = pd.to_numeric(series, errors="coerce").dropna()
     if len(s) < 51:
         return {
@@ -38,15 +38,29 @@ def vfi_ma_state(series):
             "VFI_MA20_Prev": float("nan"), "VFI_MA50_Prev": float("nan"),
             "VFI_MA20_Above_MA50": False, "VFI_MA_Bullish_Cross": False,
             "VFI_MA20_Zero_Cross_Recent": False, "VFI_MA50_Zero_Cross_Recent": False,
+            "VFI_MA20_Zero_Cross_Bars_Ago": None, "VFI_MA50_Zero_Cross_Bars_Ago": None,
+            "VFI_MA_Bullish_Cross_Bars_Ago": None,
+            "VFI_MA20_Zero_Cross_Date": None, "VFI_MA50_Zero_Cross_Date": None,
+            "VFI_MA_Bullish_Cross_Date": None,
             "VFI_MA_Phase": "INSUFFICIENT_HISTORY",
         }
     ma20 = s.rolling(20, min_periods=20).mean()
     ma50 = s.rolling(50, min_periods=50).mean()
     m20, m50 = float(ma20.iloc[-1]), float(ma50.iloc[-1])
     p20, p50 = float(ma20.iloc[-2]), float(ma50.iloc[-2])
-    ma20_zero = bool(p20 < 0 <= m20)
-    ma50_zero = bool(p50 < 0 <= m50)
-    cross_20_50 = bool(p20 <= p50 and m20 > m50)
+    cross20 = (ma20.shift(1) < 0) & (ma20 >= 0)
+    cross50 = (ma50.shift(1) < 0) & (ma50 >= 0)
+    bullish_cross = (ma20.shift(1) <= ma50.shift(1)) & (ma20 > ma50)
+    def last_event_age(events):
+        positions = np.flatnonzero(events.fillna(False).to_numpy(dtype=bool))
+        return int(len(s) - 1 - positions[-1]) if len(positions) else None
+    def last_event_date(events):
+        positions = np.flatnonzero(events.fillna(False).to_numpy(dtype=bool))
+        return s.index[positions[-1]].strftime("%Y-%m-%d") if len(positions) else None
+    age20, age50, age_cross = last_event_age(cross20), last_event_age(cross50), last_event_age(bullish_cross)
+    ma20_zero = age20 == 0
+    ma50_zero = age50 == 0
+    cross_20_50 = age_cross == 0
     if m20 < 0 and m50 < 0 and m20 > m50:
         phase = "EARLY_SETUP_BOTH_NEGATIVE_MA20_ABOVE_MA50"
     elif m20 < 0 and m50 < 0:
@@ -64,6 +78,12 @@ def vfi_ma_state(series):
         "VFI_MA_Bullish_Cross": cross_20_50,
         "VFI_MA20_Zero_Cross_Recent": ma20_zero,
         "VFI_MA50_Zero_Cross_Recent": ma50_zero,
+        "VFI_MA20_Zero_Cross_Bars_Ago": age20,
+        "VFI_MA50_Zero_Cross_Bars_Ago": age50,
+        "VFI_MA_Bullish_Cross_Bars_Ago": age_cross,
+        "VFI_MA20_Zero_Cross_Date": last_event_date(cross20),
+        "VFI_MA50_Zero_Cross_Date": last_event_date(cross50),
+        "VFI_MA_Bullish_Cross_Date": last_event_date(bullish_cross),
         "VFI_MA_Phase": phase,
     }
 
@@ -153,6 +173,12 @@ def weekly_screen(symbol, daily):
         "Weekly_VFI_MA_Bullish_Cross": ma_state["VFI_MA_Bullish_Cross"],
         "Weekly_VFI_MA20_Zero_Cross_Recent": ma_state["VFI_MA20_Zero_Cross_Recent"],
         "Weekly_VFI_MA50_Zero_Cross_Recent": ma_state["VFI_MA50_Zero_Cross_Recent"],
+        "Weekly_VFI_MA20_Zero_Cross_Bars_Ago": ma_state["VFI_MA20_Zero_Cross_Bars_Ago"],
+        "Weekly_VFI_MA50_Zero_Cross_Bars_Ago": ma_state["VFI_MA50_Zero_Cross_Bars_Ago"],
+        "Weekly_VFI_MA_Bullish_Cross_Bars_Ago": ma_state["VFI_MA_Bullish_Cross_Bars_Ago"],
+        "Weekly_VFI_MA20_Zero_Cross_Date": ma_state["VFI_MA20_Zero_Cross_Date"],
+        "Weekly_VFI_MA50_Zero_Cross_Date": ma_state["VFI_MA50_Zero_Cross_Date"],
+        "Weekly_VFI_MA_Bullish_Cross_Date": ma_state["VFI_MA_Bullish_Cross_Date"],
         "Weekly_VFI_MA_Phase": ma_state["VFI_MA_Phase"],
         "Weekly_VFI_MA_Spread": ma_spread,
         "Weekly_VFI_Prev": vfi.get("VFI_Prev"),
@@ -311,6 +337,12 @@ def main():
                 "Daily_VFI_MA_Bullish_Cross": daily_ma["VFI_MA_Bullish_Cross"],
                 "Daily_VFI_MA20_Zero_Cross_Recent": daily_ma["VFI_MA20_Zero_Cross_Recent"],
                 "Daily_VFI_MA50_Zero_Cross_Recent": daily_ma["VFI_MA50_Zero_Cross_Recent"],
+                "Daily_VFI_MA20_Zero_Cross_Bars_Ago": daily_ma["VFI_MA20_Zero_Cross_Bars_Ago"],
+                "Daily_VFI_MA50_Zero_Cross_Bars_Ago": daily_ma["VFI_MA50_Zero_Cross_Bars_Ago"],
+                "Daily_VFI_MA_Bullish_Cross_Bars_Ago": daily_ma["VFI_MA_Bullish_Cross_Bars_Ago"],
+                "Daily_VFI_MA20_Zero_Cross_Date": daily_ma["VFI_MA20_Zero_Cross_Date"],
+                "Daily_VFI_MA50_Zero_Cross_Date": daily_ma["VFI_MA50_Zero_Cross_Date"],
+                "Daily_VFI_MA_Bullish_Cross_Date": daily_ma["VFI_MA_Bullish_Cross_Date"],
                 "Daily_VFI_MA_Phase": daily_ma["VFI_MA_Phase"],
                 "Daily_VFI_MA_Spread": daily_ma["VFI_MA20"] - daily_ma["VFI_MA50"],
                 "Daily_VFI_Slope_4D": slope4,
