@@ -37,7 +37,7 @@ jobs:
         run: |
           PYTHONPATH=. pytest -q tests/test_volume_accumulation_indicators.py tests/test_volume_divergence_mm.py tests/test_vfi_conformance.py tests/test_vfi_slope_units.py
       - name: Rank liquidity and screen completed weekly VFI only
-        run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 100
+        run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 100 --max-daily-candidates 20
       - name: Upload weekly-only VFI ranking and run summary
         if: always()
         uses: actions/upload-artifact@v4
