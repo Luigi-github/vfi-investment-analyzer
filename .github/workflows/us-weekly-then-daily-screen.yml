@@ -1,4 +1,4 @@
-name: US top-liquid-100 weekly-first early accumulation screen
+name: US top-20-liquid weekly-first early accumulation screen
 
 on:
   push:
@@ -38,7 +38,7 @@ jobs:
         run: |
           PYTHONPATH=. pytest -q tests/test_vfi_signal_lengths.py tests/test_volume_accumulation_indicators.py tests/test_volume_divergence_mm.py tests/test_vfi_conformance.py tests/test_vfi_slope_units.py
       - name: Rank liquidity and screen completed weekly VFI only
-        run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 100 --max-daily-candidates 20
+        run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 20 --max-daily-candidates 20
       - name: Upload weekly-only VFI ranking and run summary
         if: always()
         uses: actions/upload-artifact@v4
@@ -48,6 +48,6 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-# Weekly-first design: rank the curated US universe by 20-session dollar turnover, select the top 100,
-# analyze all 100 on completed weekly candles, then follow up daily on up to 20 weekly candidates/watchlist assets.
+# Weekly-first design: rank the curated US universe by 20-session dollar turnover, select the top 20,
+# analyze all 20 on completed weekly candles, then follow up daily on up to 20 weekly candidates/watchlist assets.
 # Weekly VFI slopes use 20 and 50 completed weekly bars; the 50-week slope is context, not a hard early-entry filter.
