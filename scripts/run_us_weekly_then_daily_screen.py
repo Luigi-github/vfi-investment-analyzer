@@ -278,11 +278,41 @@ def main():
     print("\nWEEKLY VFI CANDIDATES: VFI MA20 > MA50, both averages below zero, rising VFI, price not extended", flush=True)
     print(candidates.to_string(index=False) if not candidates.empty else "No assets passed the exact weekly VFI filter.", flush=True)
 
-    # Stage 2: only weekly candidates are examined on completed daily candles.
-    # Daily data is never used to admit an asset into the weekly shortlist.
+    # Stage 2: weekly candidates are always prioritized. If the strict weekly
+    # filter returns zero, run a clearly-labelled near-miss watchlist so tests
+    # can still evaluate daily confirmation without pretending these passed.
     daily_rows = []
+    weekly_rank_map = {}
     followup_symbols = candidates["Symbol"].head(max(0, args.max_daily_candidates)).tolist()
-    print(f"\\nDAILY FOLLOW-UP for {len(followup_symbols)} weekly candidates", flush=True)
+    followup_mode = "STRICT_WEEKLY_CANDIDATES"
+    if followup_symbols:
+        weekly_rank_map = {
+            row.Symbol: int(row.Rank)
+            for row in candidates[["Symbol", "Rank"]].itertuples(index=False)
+        }
+    else:
+        watch = weekly_df[weekly_df["Weekly_Screen_Status"].eq("NOT_SELECTED")].copy()
+        for col in ["Weekly_VFI_MA20", "Weekly_VFI_MA50", "Weekly_VFI_Slope_4W",
+                    "Weekly_VFI_Slope_8W", "Weekly_VFI_R2_4W", "Weekly_Price_Return_13W",
+                    "Weekly_VFI_MA_Spread"]:
+            watch[col] = pd.to_numeric(watch[col], errors="coerce")
+        # Keep price from being already extended; then prefer improving slopes,
+        # smoother recent flow and an MA20 closer to zero.
+        watch = watch[watch["Weekly_Price_Return_13W"].le(0.10)].copy()
+        watch["_positive_slope_count"] = (
+            watch["Weekly_VFI_Slope_4W"].gt(0).astype(int)
+            + watch["Weekly_VFI_Slope_8W"].gt(0).astype(int)
+        )
+        watch["_ma20_distance"] = watch["Weekly_VFI_MA20"].abs()
+        watch = watch.sort_values(
+            ["_positive_slope_count", "Weekly_VFI_R2_4W", "_ma20_distance",
+             "Weekly_VFI_MA_Spread"],
+            ascending=[False, False, True, False], na_position="last"
+        ).head(max(0, args.max_daily_candidates)).reset_index(drop=True)
+        followup_symbols = watch["Symbol"].tolist()
+        weekly_rank_map = {symbol: i for i, symbol in enumerate(followup_symbols, 1)}
+        followup_mode = "NEAR_MISS_WATCHLIST_NO_STRICT_WEEKLY_PASSES"
+    print(f"\\nDAILY FOLLOW-UP for {len(followup_symbols)} assets ({followup_mode})", flush=True)
     for i, symbol in enumerate(followup_symbols, 1):
         print(f"[DAILY {i}/{len(followup_symbols)}] {symbol}", flush=True)
         try:
@@ -324,7 +354,7 @@ def main():
             )
             daily_rows.append({
                 "Symbol": symbol,
-                "Weekly_Rank": int(candidates.loc[candidates["Symbol"].eq(symbol), "Rank"].iloc[0]),
+                "Weekly_Rank": int(weekly_rank_map[symbol]),
                 "Daily_Early_Accumulation_Candidate": early,
                 "Daily_Score": daily_score,
                 "Daily_Candle_Date": daily.index[-1].strftime("%Y-%m-%d"),
@@ -383,9 +413,10 @@ def main():
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if not weekly_df.empty else 0,
         "weekly_vfi_candidates": int(len(candidates)),
         "daily_followup_analyzed": int(len(daily_df)),
+        "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
         "weekly_rule": "completed weekly candles; VFI MA20 > MA50 while BOTH averages remain below zero; positive 4W/8W VFI slopes; last 4 weekly VFI values strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%; zero-crosses are tracked as subsequent confirmation",
-        "daily_rule": "only weekly candidates are followed up on completed daily candles; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
+        "daily_rule": "strict weekly candidates are followed up on completed daily candles; if there are none, a clearly labelled near-miss watchlist (not strict candidates) is followed up for testing; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
