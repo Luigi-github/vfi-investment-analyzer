@@ -47,4 +47,5 @@ jobs:
           if-no-files-found: warn
           retention-days: 14
 
-# Weekly-only screen: daily OHLCV is used only for the liquidity ranking.
+# Weekly-first design: rank the 100 most liquid US assets, analyze completed weekly candles first,
+# then run daily analysis only for the best 20 weekly candidates. Daily data is also used to rank liquidity.
