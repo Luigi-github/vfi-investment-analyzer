@@ -205,7 +205,7 @@ def main():
     p = argparse.ArgumentParser(description="Weekly-only screen for early accumulation using a smooth rising VFI.")
     p.add_argument("--symbols", default=",".join(US_LIQUID_UNIVERSE))
     p.add_argument("--period", default="10y")
-    p.add_argument("--top", type=int, default=100)
+    p.add_argument("--top", type=int, default=20)
     p.add_argument("--max-daily-candidates", type=int, default=5)
     p.add_argument("--output-dir", default="reports/us_weekly_then_daily")
     args = p.parse_args()
@@ -262,8 +262,8 @@ def main():
     weekly_df = pd.DataFrame(weekly_rows)
     if "_qualifies" in weekly_df:
         weekly_df = weekly_df.drop(columns=["_qualifies"])
-    weekly_df.to_csv(out / "us_100_weekly_screen.csv", index=False)
-    liquidity_df.sort_values("Average_Dollar_Turnover_20D", ascending=False).to_csv(out / "us_liquidity_universe.csv", index=False)
+    weekly_df.to_csv(out / f"us_top_{args.top}_weekly_screen.csv", index=False)
+    liquidity_df.sort_values("Average_Dollar_Turnover_20D", ascending=False).to_csv(out / f"us_top_{args.top}_liquidity_universe.csv", index=False)
 
     candidates = weekly_df[weekly_df["Weekly_Screen_Status"].eq("CANDIDATE")].copy()
     for col in ["Weekly_VFI", "Weekly_VFI_Slope_20W", "Weekly_VFI_Slope_50W", "Weekly_Score"]:
