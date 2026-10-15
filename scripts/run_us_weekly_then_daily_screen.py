@@ -443,3 +443,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+# Execution trigger: run the weekly-first US liquidity and early-accumulation screen.
