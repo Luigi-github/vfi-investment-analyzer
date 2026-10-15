@@ -156,6 +156,7 @@ def weekly_screen(symbol, daily):
         and ma_state["VFI_MA20_Above_MA50"]
         and np.isfinite(vfi.get("VFI_Slope_4B", np.nan)) and vfi["VFI_Slope_4B"] > 0
         and np.isfinite(slope8) and slope8 > 0
+        and np.isfinite(slope20) and slope20 > 0
         and monotonic4 and np.isfinite(r2_4) and r2_4 >= 0.65
         and np.isfinite(price_return_13w) and price_return_13w <= 0.10
     )
@@ -270,8 +271,9 @@ def main():
         candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
     candidates["VFI_Distance_To_Zero"] = candidates["Weekly_VFI"].abs()
     candidates = candidates.sort_values(
-        ["Weekly_VFI_MA20", "Weekly_VFI_MA_Spread", "Weekly_VFI_R2_4W", "Weekly_VFI_Slope_8W"],
-        ascending=[False, False, False, False],
+        ["Weekly_VFI_MA20", "Weekly_VFI_MA_Spread", "Weekly_VFI_Slope_20W",
+         "Weekly_VFI_Slope_50W", "Weekly_VFI_R2_4W", "Weekly_VFI_Slope_8W"],
+        ascending=[False, False, False, False, False, False],
     ).reset_index(drop=True)
     candidates.insert(0, "Rank", range(1, len(candidates) + 1))
     candidates.to_csv(out / "us_weekly_vfi_candidates.csv", index=False)
@@ -410,15 +412,16 @@ def main():
     summary = {
         "seed_universe_size": len(symbols), "requested_top_liquid": args.top,
         "selected_by_20_session_dollar_turnover": len(selected_symbols),
+        "weekly_selected_for_analysis": len(selected_symbols),
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if not weekly_df.empty else 0,
         "weekly_vfi_candidates": int(len(candidates)),
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; VFI MA20 > MA50 while BOTH averages remain below zero; positive 4W/8W VFI slopes; last 4 weekly VFI values strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%; zero-crosses are tracked as subsequent confirmation",
+        "weekly_rule": "completed weekly candles; VFI MA20 > MA50 while BOTH averages remain below zero; positive 4W/8W/20W VFI slopes; 50W VFI slope is calculated and used as longer-trend ranking context (not a hard positive filter, to retain early turns); last 4 weekly VFI values strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%; zero-crosses are tracked as subsequent confirmation",
         "daily_rule": "strict weekly candidates are followed up on completed daily candles; if there are none, a clearly labelled near-miss watchlist (not strict candidates) is followed up for testing; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
-        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; not all US listings.",
+        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; default N=20; not all US listings.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
         "errors": errors,
     }
