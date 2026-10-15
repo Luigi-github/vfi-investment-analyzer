@@ -10,6 +10,7 @@ class VFIIndicator:
         coef: float = 0.2,
         vcoef: float = 2.5,
         signal_length: int = 20,
+        signal_length_50: int = 50,
         smooth_vfi: bool = False,
         context_window: int = 52
     ):
@@ -17,6 +18,7 @@ class VFIIndicator:
         self.coef = coef
         self.vcoef = vcoef
         self.signal_length = signal_length
+        self.signal_length_50 = signal_length_50
         self.smooth_vfi = smooth_vfi
         self.context_window = context_window
 
@@ -193,7 +195,7 @@ class VFIIndicator:
         # 14. VFI Signal
         # ==========================================================
 
-        df["VFI_Signal"] = (
+        df["VFI_Signal_20"] = (
             df["VFI"]
             .ewm(
                 span=self.signal_length,
@@ -202,14 +204,22 @@ class VFIIndicator:
             .mean()
         )
 
-        # ==========================================================
-        # 15. VFI Histogram
-        # ==========================================================
-
-        df["VFI_Histogram"] = (
+        df["VFI_Signal_50"] = (
             df["VFI"]
-            - df["VFI_Signal"]
+            .ewm(
+                span=self.signal_length_50,
+                adjust=False
+            )
+            .mean()
         )
+
+        # Backward compatibility: VFI_Signal continues to refer to the 20-bar line.
+        df["VFI_Signal"] = df["VFI_Signal_20"]
+
+        # Histograms relative to both signal lengths.
+        df["VFI_Histogram_20"] = df["VFI"] - df["VFI_Signal_20"]
+        df["VFI_Histogram_50"] = df["VFI"] - df["VFI_Signal_50"]
+        df["VFI_Histogram"] = df["VFI_Histogram_20"]
 
         # ==========================================================
         # 16. Weekly VFI slope
