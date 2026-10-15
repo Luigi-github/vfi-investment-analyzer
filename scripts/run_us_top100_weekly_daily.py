@@ -107,8 +107,16 @@ def main():
             if median_dollar_volume <= 0:
                 errors.append({"Symbol": symbol, "Error": "NO_RECENT_DOLLAR_VOLUME"})
                 continue
+            weekly = market.convert_to_weekly(daily)
+            weekly_snapshot = latest_snapshot(weekly, indicator, "WEEKLY")
+            if weekly_snapshot is None:
+                errors.append({"Symbol": symbol, "Error": "INSUFFICIENT_WEEKLY_VFI_HISTORY"})
+                print(f"[{i}/{len(CANDIDATES)}] EXCLUDED {symbol}: insufficient completed weekly VFI history")
+                continue
             downloaded[symbol] = {
                 "daily": daily,
+                "weekly": weekly,
+                "weekly_snapshot": weekly_snapshot,
                 "median_dollar_volume": median_dollar_volume,
                 "latest_daily_date": daily.index[-1].date().isoformat(),
             }
@@ -135,12 +143,8 @@ def main():
 
     weekly_rows = []
     for i, symbol in enumerate(top_symbols, 1):
-        daily = downloaded[symbol]["daily"]
-        weekly = market.convert_to_weekly(daily)
-        snap = latest_snapshot(weekly, indicator, "WEEKLY")
-        if snap is None:
-            errors.append({"Symbol": symbol, "Error": "INSUFFICIENT_WEEKLY_VFI_HISTORY"})
-            continue
+        weekly = downloaded[symbol]["weekly"]
+        snap = downloaded[symbol]["weekly_snapshot"]
         weekly_rows.append({
             "Symbol": symbol,
             "Liquidity_Rank": int(top.loc[top["Symbol"] == symbol, "Liquidity_Rank"].iloc[0]),
