@@ -206,7 +206,7 @@ def main():
     p.add_argument("--symbols", default=",".join(US_LIQUID_UNIVERSE))
     p.add_argument("--period", default="10y")
     p.add_argument("--top", type=int, default=100)
-    p.add_argument("--max-daily-candidates", type=int, default=20)
+    p.add_argument("--max-daily-candidates", type=int, default=5)
     p.add_argument("--output-dir", default="reports/us_weekly_then_daily")
     args = p.parse_args()
     symbols = list(dict.fromkeys(s.strip().upper() for s in args.symbols.split(",") if s.strip()))

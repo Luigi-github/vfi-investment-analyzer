@@ -9,7 +9,7 @@ class VFIIndicator:
         length: int = 130,
         coef: float = 0.2,
         vcoef: float = 2.5,
-        signal_length: int = 5,
+        signal_length: int = 20,
         smooth_vfi: bool = False,
         context_window: int = 52
     ):

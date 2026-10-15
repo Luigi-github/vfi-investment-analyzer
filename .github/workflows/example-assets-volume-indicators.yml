@@ -31,7 +31,7 @@ jobs:
       - name: Run indicator unit tests
         run: pytest -q tests/test_volume_accumulation_indicators.py
       - name: Run US weekly-only VFI accumulation screen
-        run: python scripts/run_us_weekly_then_daily_screen.py --period 10y --top 100
+        run: python scripts/run_us_weekly_then_daily_screen.py --period 10y --top 100 --max-daily-candidates 5
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
