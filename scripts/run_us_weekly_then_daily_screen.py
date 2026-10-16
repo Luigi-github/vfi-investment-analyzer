@@ -182,7 +182,6 @@ def weekly_screen(symbol, daily):
         and ma_state["VFI_MA20_Above_MA50"]
         and np.isfinite(vfi.get("VFI_Slope_4B", np.nan)) and vfi["VFI_Slope_4B"] > 0
         and np.isfinite(slope8) and slope8 > 0
-        and np.isfinite(slope20) and slope20 > 0
         and monotonic4 and np.isfinite(r2_4) and r2_4 >= 0.65
         and np.isfinite(price_return_13w) and price_return_13w <= 0.10
     )
@@ -442,7 +441,7 @@ def main():
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; VFI MA20 > MA50 while BOTH averages remain below zero; positive 4W/8W/20W VFI slopes; 50W VFI slope is calculated and used as longer-trend ranking context (not a hard positive filter, to retain early turns); last 4 weekly VFI values strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%; zero-crosses are tracked as subsequent confirmation",
+        "weekly_rule": "completed weekly candles; VFI MA20 > MA50 while BOTH averages remain below zero; positive 4W/8W VFI slopes; 20W and 50W slopes are contextual ranking information rather than hard positive filters, so early turns are not discarded just because the longer slope remains negative; last 4 weekly VFI values strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%; zero-crosses are tracked as subsequent confirmation",
         "daily_rule": "only strict weekly candidates are followed up on completed daily candles; if there are none, no daily analysis is performed; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; default N=20; not all US listings.",
