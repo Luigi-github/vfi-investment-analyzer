@@ -26,12 +26,27 @@ jobs:
           cache: "pip"
       - name: Install dependencies
         run: python -m pip install pandas numpy yfinance requests python-dotenv pytest
+      - name: Restore cached OHLCV history
+        uses: actions/cache@v4
+        with:
+          path: data/market_cache/us_equities
+          key: us-ohlcv-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            us-ohlcv-${{ runner.os }}-
       - name: Compile project
         run: python -m compileall app scripts
       - name: Run indicator unit tests
         run: pytest -q tests/test_volume_accumulation_indicators.py
       - name: Run US weekly-only VFI accumulation screen
         run: python scripts/run_us_weekly_then_daily_screen.py --period 10y --top 20 --max-daily-candidates 20
+      - name: Upload reusable OHLCV cache and reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: us-market-data-cache
+          path: data/market_cache/us_equities/
+          if-no-files-found: warn
+          retention-days: 90
       - name: Upload reports
         if: always()
         uses: actions/upload-artifact@v4
