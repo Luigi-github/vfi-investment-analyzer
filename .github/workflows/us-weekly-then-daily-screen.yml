@@ -1,4 +1,4 @@
-name: US top-20-liquid weekly-first early accumulation screen
+name: US top-100-liquid weekly-first early accumulation screen
 
 on:
   push:
@@ -18,7 +18,7 @@ permissions:
 jobs:
   weekly-only-screen:
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -32,22 +32,30 @@ jobs:
           python -m pip install --upgrade pip
           python -m pip install -r requirements.txt
           python -m pip install pytest
+      - name: Restore cached OHLCV history
+        uses: actions/cache@v4
+        with:
+          path: data/market_cache/us_equities
+          key: us-ohlcv-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            us-ohlcv-${{ runner.os }}-
       - name: Compile project
         run: python -m compileall app scripts
       - name: Run relevant tests
         run: |
           PYTHONPATH=. pytest -q tests/test_vfi_signal_lengths.py tests/test_volume_accumulation_indicators.py tests/test_volume_divergence_mm.py tests/test_vfi_conformance.py tests/test_vfi_slope_units.py
       - name: Rank liquidity and screen completed weekly VFI only
-        run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 20 --max-daily-candidates 20
-      - name: Upload weekly-only VFI ranking and run summary
+        run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 100 --max-daily-candidates 100
+      - name: Upload weekly VFI ranking, daily follow-up and run summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: us-top20-weekly-vfi-daily-followup
+          name: us-top100-weekly-vfi-daily-followup
           path: reports/us_weekly_then_daily/
           if-no-files-found: warn
           retention-days: 14
 
-# Weekly-first design: rank the curated US universe by 20-session dollar turnover, select the top 20,
-# analyze all 20 on completed weekly candles, then follow up daily on up to 20 weekly candidates/watchlist assets.
-# Weekly VFI slopes use 20 and 50 completed weekly bars; the 50-week slope is context, not a hard early-entry filter.
+# Weekly-first design: rank the curated US-listed universe by mean Close*Volume over 20 completed sessions,
+# select the top 100, analyze all selected assets on completed weekly candles, and only then analyze daily
+# the assets passing the weekly early-accumulation filter. Daily analysis never runs on non-qualifiers.
+# Uses completed candles only; cache can be refreshed by adding --refresh-cache to the script command.
