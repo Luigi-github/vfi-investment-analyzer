@@ -22,6 +22,28 @@ DIS CMCSA T VZ TMUS UBER ABNB SHOP COIN HOOD XYZ PYPL SOFI RIVN F FDX UPS NKE SB
 SPY QQQ IWM DIA TLT GLD SLV XLF XLK XLE XLV SMH SOXX HYG LQD EEM EFA IBIT
 """.split() + US_CANDIDATE_UNIVERSE))
 
+def safe_cache_name(symbol: str) -> str:
+    return "".join(ch if ch.isalnum() or ch in "-_." else "_" for ch in symbol)
+
+
+def load_or_download_daily(service, symbol: str, period: str, cache_dir: Path, refresh: bool = False) -> tuple[pd.DataFrame, str]:
+    """Reuse locally persisted OHLCV data; download only on cache miss or explicit refresh."""
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f"{safe_cache_name(symbol)}.csv"
+    if cache_file.exists() and not refresh:
+        try:
+            cached = pd.read_csv(cache_file, index_col=0, parse_dates=True)
+            cached.index = pd.to_datetime(cached.index)
+            if not cached.empty and {"Open", "High", "Low", "Close", "Volume"}.issubset(cached.columns):
+                return cached.sort_index(), "CACHE"
+        except (OSError, ValueError, pd.errors.ParserError):
+            pass
+    downloaded = service.get_daily_data(symbol, period=period)
+    if not downloaded.empty:
+        downloaded.to_csv(cache_file, index_label="Date")
+    return downloaded, "DOWNLOADED"
+
+
 def safe_slope(series, bars=4):
     s = pd.to_numeric(series, errors="coerce").dropna().tail(bars)
     if len(s) < bars:
@@ -217,17 +239,28 @@ def main():
     p.add_argument("--top", type=int, default=20)
     p.add_argument("--max-daily-candidates", type=int, default=5)
     p.add_argument("--output-dir", default="reports/us_weekly_then_daily")
+    p.add_argument("--cache-dir", default="data/market_cache/us_equities")
+    p.add_argument("--refresh-cache", action="store_true", help="Force fresh Yahoo Finance downloads and replace cached OHLCV files.")
     args = p.parse_args()
     symbols = list(dict.fromkeys(s.strip().upper() for s in args.symbols.split(",") if s.strip()))
     service = MarketDataService()
     out = ROOT / args.output_dir
     out.mkdir(parents=True, exist_ok=True)
+    cache_dir = ROOT / args.cache_dir
     raw_data, liquidity_rows, errors = {}, [], []
+    cache_hits = 0
+    downloaded_count = 0
     print(f"Downloading daily history for {len(symbols)} US-listed symbols to rank liquidity...", flush=True)
     for i, symbol in enumerate(symbols, 1):
         print(f"[LIQUIDITY {i}/{len(symbols)}] {symbol}", flush=True)
         try:
-            daily = completed_daily(service.get_daily_data(symbol, period=args.period))
+            raw_daily, cache_status = load_or_download_daily(
+                service, symbol, period=args.period, cache_dir=cache_dir,
+                refresh=args.refresh_cache,
+            )
+            cache_hits += cache_status == "CACHE"
+            downloaded_count += cache_status == "DOWNLOADED"
+            daily = completed_daily(raw_daily)
             if daily.empty or not {"Close", "Volume"}.issubset(daily.columns):
                 raise ValueError("No usable OHLCV data")
             raw_data[symbol] = daily
@@ -400,6 +433,10 @@ def main():
         "seed_universe_size": len(symbols), "requested_top_liquid": args.top,
         "selected_by_20_session_dollar_turnover": len(selected_symbols),
         "weekly_selected_for_analysis": len(selected_symbols),
+        "ohlcv_cache_directory": str(cache_dir.relative_to(ROOT)),
+        "ohlcv_cache_hits": int(cache_hits),
+        "ohlcv_downloads": int(downloaded_count),
+        "ohlcv_cache_policy": "OHLCV CSV files are reused across runs; pass --refresh-cache to replace them with fresh Yahoo Finance history.",
         "weekly_analyzed": int(weekly_df["Weekly_Screen_Status"].ne("ERROR").sum()) if not weekly_df.empty else 0,
         "weekly_vfi_candidates": int(len(candidates)),
         "daily_followup_analyzed": int(len(daily_df)),
