@@ -195,31 +195,19 @@ class VFIIndicator:
         # 14. VFI Signal
         # ==========================================================
 
-        df["VFI_Signal_20"] = (
-            df["VFI"]
-            .ewm(
-                span=self.signal_length,
-                adjust=False
-            )
-            .mean()
-        )
+        # Keep the explicit 20/50 research lines stable, while also exposing
+        # any custom configured spans without mislabeling their column names.
+        signal_spans = {20, 50, int(self.signal_length), int(self.signal_length_50)}
+        for span in sorted(signal_spans):
+            df[f"VFI_Signal_{span}"] = df["VFI"].ewm(span=span, adjust=False).mean()
 
-        df["VFI_Signal_50"] = (
-            df["VFI"]
-            .ewm(
-                span=self.signal_length_50,
-                adjust=False
-            )
-            .mean()
-        )
+        # Backward compatibility: the unsuffixed signal follows signal_length.
+        df["VFI_Signal"] = df[f"VFI_Signal_{int(self.signal_length)}"]
 
-        # Backward compatibility: VFI_Signal continues to refer to the 20-bar line.
-        df["VFI_Signal"] = df["VFI_Signal_20"]
-
-        # Histograms relative to both signal lengths.
+        # Fixed 20/50 histograms remain comparable across runs.
         df["VFI_Histogram_20"] = df["VFI"] - df["VFI_Signal_20"]
         df["VFI_Histogram_50"] = df["VFI"] - df["VFI_Signal_50"]
-        df["VFI_Histogram"] = df["VFI_Histogram_20"]
+        df["VFI_Histogram"] = df["VFI"] - df["VFI_Signal"]
 
         # ==========================================================
         # 16. Weekly VFI slope
