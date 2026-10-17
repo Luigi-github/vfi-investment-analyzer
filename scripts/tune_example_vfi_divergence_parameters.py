@@ -66,6 +66,18 @@ DIVERGENCE_CONFIGS = [
     {"name": "EARLIER_PIVOTS", "vl1": 5, "vl2": 8, "pivot_left": 3, "pivot_right": 3, "range_lower": 3, "range_upper": 40},
     {"name": "STRICTER_PIVOTS", "vl1": 5, "vl2": 8, "pivot_left": 7, "pivot_right": 7, "range_lower": 5, "range_upper": 60},
 ]
+# Pivot settings only affect the actual bullish-divergence confirmation, not
+# the oscillator's cycle. Compare them only in modes that require that signal.
+DIVERGENCE_EXPERIMENTS = [
+    {"name": "TV_DEFAULT_CYCLE_ONLY", "config": DIVERGENCE_CONFIGS[0], "require_bullish_divergence": False},
+    {"name": "FASTER_WMA_CYCLE_ONLY", "config": DIVERGENCE_CONFIGS[1], "require_bullish_divergence": False},
+    {"name": "SLOWER_WMA_CYCLE_ONLY", "config": DIVERGENCE_CONFIGS[2], "require_bullish_divergence": False},
+    {"name": "TV_DEFAULT_PLUS_BULL_DIV", "config": DIVERGENCE_CONFIGS[0], "require_bullish_divergence": True},
+    {"name": "FASTER_WMA_PLUS_BULL_DIV", "config": DIVERGENCE_CONFIGS[1], "require_bullish_divergence": True},
+    {"name": "SLOWER_WMA_PLUS_BULL_DIV", "config": DIVERGENCE_CONFIGS[2], "require_bullish_divergence": True},
+    {"name": "EARLIER_PIVOTS_PLUS_BULL_DIV", "config": DIVERGENCE_CONFIGS[3], "require_bullish_divergence": True},
+    {"name": "STRICTER_PIVOTS_PLUS_BULL_DIV", "config": DIVERGENCE_CONFIGS[4], "require_bullish_divergence": True},
+]
 HORIZONS = (20, 40, 60)  # trading days; deliberately no intraday or 1-10 day targets
 ROUND_TRIP_COST_PCT = 0.25
 MIN_DAILY_BARS = 260
@@ -147,8 +159,11 @@ def vfi_setup(frame: pd.DataFrame, p: dict) -> pd.Series:
     ).fillna(False)
 
 
-def divergence_setup(frame: pd.DataFrame, p: dict) -> pd.Series:
-    return (
+def divergence_setup(
+    frame: pd.DataFrame, p: dict, require_bullish_divergence: bool = False,
+    bullish_divergence_fresh_weeks: int = 4,
+) -> pd.Series:
+    cycle_setup = (
         frame["Volume_Divergence_MM"].lt(0)
         & frame["DIV_Z"].ge(-float(p["div_near_zero_z"]))
         & frame["DIV_SLOPE_1"].gt(0)
@@ -157,7 +172,13 @@ def divergence_setup(frame: pd.DataFrame, p: dict) -> pd.Series:
         & frame["DIV_SLOPE_2_Z"].ge(float(p["div_slope_min"]))
         & frame["DIV_SLOPE_4_Z"].gt(0)
         & frame["WEEKS_TO_ZERO"].between(0, float(p["div_max_weeks_to_zero"]))
-    ).fillna(False)
+    )
+    if require_bullish_divergence:
+        if "Volume_Div_Bullish_Age_Bars" not in frame:
+            return pd.Series(False, index=frame.index, dtype=bool)
+        fresh_bullish = frame["Volume_Div_Bullish_Age_Bars"].between(0, bullish_divergence_fresh_weeks)
+        cycle_setup &= fresh_bullish
+    return cycle_setup.fillna(False)
 
 
 def event_positions(mask: pd.Series, cooldown: int = COOLDOWN_DAILY_BARS) -> list[int]:
@@ -363,10 +384,12 @@ def main() -> None:
         })
 
     combined_rows = []
-    for div_config in DIVERGENCE_CONFIGS:
+    for experiment in DIVERGENCE_EXPERIMENTS:
+        div_config = experiment["config"]
+        require_bullish_divergence = experiment["require_bullish_divergence"]
         for formula_index, formula in enumerate(chosen_formulas, start=1):
             print(
-                f"Combined grid: divergence={div_config['name']} "
+                f"Combined grid: mode={experiment['name']} "
                 f"VFI formula {formula_index}/{len(chosen_formulas)} {formula}",
                 flush=True,
             )
@@ -379,12 +402,16 @@ def main() -> None:
                         continue
                     vf = feature_cache[cache_key]
                     div = div_data[div_key]
-                    mask = vfi_setup(vf, params) & divergence_setup(div, params)
+                    mask = vfi_setup(vf, params) & divergence_setup(
+                        div, params, require_bullish_divergence=require_bullish_divergence
+                    )
                     train, test = evaluate_mask(mask, key, closes[key], split_dates[key])
                     per_asset[key] = {"train": train, "test": test}
                 train_metrics = collect_metrics(per_asset, "train")
                 test_metrics = collect_metrics(per_asset, "test")
                 config_fields = {
+                    "signal_mode": experiment["name"],
+                    "require_bullish_divergence": require_bullish_divergence,
                     "div_config": div_config["name"],
                     "div_vl1": div_config["vl1"],
                     "div_vl2": div_config["vl2"],
@@ -420,6 +447,7 @@ def main() -> None:
         "div_near_zero_z", "div_slope_min", "div_max_weeks_to_zero",
     )}
     best_div_config = next(config for config in DIVERGENCE_CONFIGS if config["name"] == best_row["div_config"])
+    best_requires_bullish_divergence = bool(best_row["require_bullish_divergence"])
     baseline_div_config = DIVERGENCE_CONFIGS[0]
     baseline_formula = {"length": 130, "coef": 0.20, "vcoef": 2.5}
     baseline_params = {
@@ -430,18 +458,22 @@ def main() -> None:
     for key in requested:
         if key not in div_data:
             continue
-        for label, formula, params, div_config in (
-            ("BASELINE", baseline_formula, baseline_params, baseline_div_config),
-            ("TRAIN_SELECTED_BEST", best_formula, best_params, best_div_config),
+        for label, formula, params, div_config, require_bullish in (
+            ("BASELINE", baseline_formula, baseline_params, baseline_div_config, False),
+            ("TRAIN_SELECTED_BEST", best_formula, best_params, best_div_config, best_requires_bullish_divergence),
         ):
             cache_key = (key, formula["length"], formula["coef"], formula["vcoef"])
             div_key = (key, div_config["name"])
             if cache_key not in feature_cache or div_key not in div_data:
                 continue
-            mask = vfi_setup(feature_cache[cache_key], params) & divergence_setup(div_data[div_key], params)
+            mask = vfi_setup(feature_cache[cache_key], params) & divergence_setup(
+                div_data[div_key], params, require_bullish_divergence=require_bullish
+            )
             train_events, test_events = evaluate_mask(mask, key, closes[key], split_dates[key])
             row = {
                 "Asset": key, "Ticker": ASSETS[key], "Configuration": label,
+                "signal_mode": "CYCLE_PLUS_BULLISH_DIVERGENCE" if require_bullish else "CYCLE_ONLY",
+                "require_bullish_divergence": require_bullish,
                 **formula, **params, **{f"div_{k}": v for k, v in div_config.items()},
             }
             row.update(summarize_events(train_events, "Train"))
@@ -462,6 +494,11 @@ def main() -> None:
         "divergence_threshold_grid": DIV_THRESHOLD_GRID,
         "divergence_indicator_parameter_grid": DIVERGENCE_CONFIGS,
         "divergence_default_control": DIVERGENCE_CONFIGS[0],
+        "divergence_signal_experiments": [
+            {"name": exp["name"], "config": exp["config"]["name"], "require_bullish_divergence": exp["require_bullish_divergence"]}
+            for exp in DIVERGENCE_EXPERIMENTS
+        ],
+        "bullish_divergence_freshness": "4 completed weekly bars; confirmed pivot-based bullish divergence only",
         "signal_definition": "Both oscillators must remain below zero, within the selected normalized distance from zero, have positive slopes on all selected lookbacks, and project a zero crossing within the selected horizon. Signals are first entry into the setup plus a 20-trading-day cooldown.",
         "selection_method": "Choose VFI formula candidates on training data only, then tune combined thresholds on training data only; report final 30% holdout metrics separately.",
         "limitations": "Small example universe and parameter search can overfit. Holdout is a historical test, not a profit guarantee. Signals enter at the signal day's close; returns subtract a 0.25 percentage-point round-trip cost.",
@@ -469,7 +506,7 @@ def main() -> None:
     }
     (out / "metadata.json").write_text(json.dumps(metadata, indent=2, default=str), encoding="utf-8")
     print("\nTOP COMBINED PARAMETER SETS (ranked on training data; holdout shown separately):")
-    cols = ["Train_Rank", "div_config", "div_vl1", "div_vl2", "div_pivot_left", "div_pivot_right", "div_range_lower", "div_range_upper", "length", "coef", "vcoef", "vfi_near_zero_z", "vfi_slope_min", "vfi_max_days_to_zero", "div_near_zero_z", "div_slope_min", "div_max_weeks_to_zero", "Train_Events_40D", "Train_Assets_40D", "Train_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Events_40D", "Test_Assets_40D", "Test_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Win_Rate_40D_Pct"]
+    cols = ["Train_Rank", "signal_mode", "require_bullish_divergence", "div_config", "div_vl1", "div_vl2", "div_pivot_left", "div_pivot_right", "div_range_lower", "div_range_upper", "length", "coef", "vcoef", "vfi_near_zero_z", "vfi_slope_min", "vfi_max_days_to_zero", "div_near_zero_z", "div_slope_min", "div_max_weeks_to_zero", "Train_Events_40D", "Train_Assets_40D", "Train_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Events_40D", "Test_Assets_40D", "Test_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Win_Rate_40D_Pct"]
     print(finalists[cols].to_string(index=False), flush=True)
 
 
