@@ -599,3 +599,32 @@ El ML no se considera listo para producir señales automáticas hasta demostrar 
 El proyecto se considera **research-ready** cuando las pruebas automatizadas pasan, el entorno está fijado, la procedencia de datos queda registrada, las señales son ejecutables sin look-ahead, los resultados se separan de las etiquetas futuras y la evidencia OOS se conserva separada de la selección.
 
 Research-ready no significa rentable ni garantiza resultados futuros.
+
+
+## Optimización de EMA semanal (5/20/50 como baseline)
+
+El estudio **scripts/optimize_ema_periods.py** compara la EMA corta, media y larga usando por defecto **DDD, INTC, NVDA y BTC-USD**. El baseline requerido es **5/20/50 semanas**; también evalúa combinaciones cercanas:
+
+- Corta: 3, 5, 7, 9 semanas.
+- Media: 15, 20, 25, 30 semanas.
+- Larga: 40, 50, 60, 80 semanas.
+
+Se descartan combinaciones donde corta ≥ media o media ≥ larga. La hipótesis de entrada busca recuperación temprana: EMA corta por encima de la media, cierre por encima de EMA larga, VFI subiendo y VFI ≤ 5. La salida ocurre cuando la EMA corta cae a/por debajo de la media o el VFI deja de subir. Las señales se calculan al cierre semanal y se aplican desde la siguiente barra, evitando ejecutar al mismo cierre que generó la señal.
+
+La selección se hace con el primer 60% del historial y el último 40% queda como holdout cronológico. La puntuación de entrenamiento es CAGR menos la mitad del drawdown máximo absoluto y exige al menos tres entradas en entrenamiento. Los resultados del holdout se reportan, pero no se usan para elegir los periodos. Esto reduce —pero no elimina— el sobreajuste y no convierte la mejor combinación histórica en una garantía futura.
+
+Ejecutar en PowerShell:
+
+    .\\venv\\Scripts\\python.exe scripts\\optimize_ema_periods.py
+
+Para otros activos:
+
+    .\\venv\\Scripts\\python.exe scripts\\optimize_ema_periods.py --symbols DDD,INTC,NVDA,BTC-USD,SQM,EC
+
+Los CSV se guardan en reports/ema_optimization/:
+- ema_parameter_trials.csv: todas las combinaciones, métricas de entrenamiento y holdout.
+- ema_selected_periods.csv: combinación elegida exclusivamente en entrenamiento por activo.
+- ema_5_20_50_baseline.csv: resultado holdout del baseline 5/20/50.
+- ema_optimization_errors.csv: símbolos sin historial suficiente o con errores de datos.
+
+El estudio es semanal, no intradía. Antes de adoptar un periodo distinto a 5/20/50, compara su rendimiento holdout con el baseline, el número de operaciones, la exposición y el drawdown; prioriza resultados consistentes entre activos, no el mejor retorno aislado.
