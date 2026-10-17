@@ -621,7 +621,7 @@ Para otros activos:
 
     .\\venv\\Scripts\\python.exe scripts\\optimize_ema_periods.py --symbols DDD,INTC,NVDA,BTC-USD,SQM,EC
 
-Los CSV se guardan en reports/ema_optimization/:
+Los nombres de los campos de periodos son `EMA_short`, `EMA_medium` y `EMA_long`; cada campo contiene el número de semanas elegido. Los informes también incluyen CAGR, drawdown, exposición, entradas y benchmark buy-and-hold para el holdout. Los CSV se guardan en reports/ema_optimization/:
 - ema_parameter_trials.csv: todas las combinaciones, métricas de entrenamiento y holdout.
 - ema_selected_periods.csv: combinación elegida exclusivamente en entrenamiento por activo.
 - ema_5_20_50_baseline.csv: resultado holdout del baseline 5/20/50.
