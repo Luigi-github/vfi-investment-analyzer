@@ -174,9 +174,9 @@ def divergence_setup(
         & frame["WEEKS_TO_ZERO"].between(0, float(p["div_max_weeks_to_zero"]))
     )
     if require_bullish_divergence:
-        if "Volume_Div_Bullish_Age_Bars" not in frame:
+        if "Volume_Div_Bullish_Visible_Age_Bars" not in frame:
             return pd.Series(False, index=frame.index, dtype=bool)
-        fresh_bullish = frame["Volume_Div_Bullish_Age_Bars"].between(0, bullish_divergence_fresh_weeks)
+        fresh_bullish = frame["Volume_Div_Bullish_Visible_Age_Bars"].between(0, bullish_divergence_fresh_weeks)
         cycle_setup &= fresh_bullish
     return cycle_setup.fillna(False)
 
