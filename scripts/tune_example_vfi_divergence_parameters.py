@@ -373,7 +373,7 @@ def main() -> None:
     finalists.to_csv(out / "top_parameter_sets.csv", index=False)
 
     # Per-asset view of the training-selected winner versus the unchanged baseline.
-    best_row = combined.iloc[0]
+    best_row = eligible.iloc[0] if not eligible.empty else combined.iloc[0]
     best_formula = {
         "length": int(best_row["length"]),
         "coef": float(best_row["coef"]),
