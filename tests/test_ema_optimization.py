@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from scripts.optimize_ema_periods import candidate_periods, simulate_strategy, training_score
+from scripts.optimize_ema_periods import candidate_periods, simulate_strategy, summarize_returns, training_score
 
 
 class EMAOptimizationTests(unittest.TestCase):
@@ -27,6 +27,20 @@ class EMAOptimizationTests(unittest.TestCase):
         self.assertEqual(result.loc[first_signal, "Position"], 0.0)
         next_date = result.index[result.index.get_loc(first_signal) + 1]
         self.assertEqual(result.loc[next_date, "Position"], 1.0)
+
+
+    def test_summary_includes_buy_and_hold_benchmark(self):
+        index = pd.date_range("2020-01-03", periods=10, freq="W-FRI")
+        close = pd.Series(np.linspace(100.0, 120.0, len(index)), index=index)
+        data = pd.DataFrame({
+            "Close": close,
+            "Position": np.zeros(len(index)),
+            "Strategy_Return": np.zeros(len(index)),
+            "Signal": np.zeros(len(index), dtype=int),
+        }, index=index)
+        metrics = summarize_returns(data)
+        self.assertAlmostEqual(metrics["BuyHold_Total_Return_Pct"], 20.0)
+        self.assertEqual(metrics["Total_Return_Pct"], 0.0)
 
     def test_training_score_rejects_too_few_entries(self):
         metrics = {"Bars": 200, "Entries": 2, "CAGR_Pct": 15.0, "Max_Drawdown_Pct": -10.0}
