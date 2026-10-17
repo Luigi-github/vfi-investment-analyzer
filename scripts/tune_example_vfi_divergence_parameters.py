@@ -192,11 +192,22 @@ def evaluate_mask(mask: pd.Series, asset: str, close: pd.Series, split_date: pd.
     for pos in event_positions(mask):
         if pos >= len(close):
             continue
-        event_date = close.index[pos]
+        event_ts = pd.Timestamp(close.index[pos])
+        event_date = event_ts.tz_localize(None) if event_ts.tzinfo is not None else event_ts
+        is_train = event_date <= split_date
         record = {"Asset": asset, "Date": event_date.strftime("%Y-%m-%d")}
         for h in HORIZONS:
-            if pos + h < len(close):
-                record[f"R{h}"] = (float(close.iloc[pos + h]) / float(close.iloc[pos]) - 1.0) * 100.0 - ROUND_TRIP_COST_PCT
+            future_pos = pos + h
+            if future_pos < len(close):
+                future_ts = pd.Timestamp(close.index[future_pos])
+                future_date = future_ts.tz_localize(None) if future_ts.tzinfo is not None else future_ts
+                # Purge training events whose forward-return window crosses the
+                # train/holdout boundary. Otherwise the selected parameters
+                # indirectly learn from prices in the supposedly unseen holdout.
+                if (not is_train) or (future_date <= split_date):
+                    record[f"R{h}"] = (float(close.iloc[future_pos]) / float(close.iloc[pos]) - 1.0) * 100.0 - ROUND_TRIP_COST_PCT
+                else:
+                    record[f"R{h}"] = np.nan
             else:
                 record[f"R{h}"] = np.nan
         events.append(record)
@@ -362,7 +373,7 @@ def main() -> None:
     finalists.to_csv(out / "top_parameter_sets.csv", index=False)
 
     # Per-asset view of the training-selected winner versus the unchanged baseline.
-    best_row = combined.iloc[0]
+    best_row = eligible.iloc[0] if not eligible.empty else combined.iloc[0]
     best_formula = {
         "length": int(best_row["length"]),
         "coef": float(best_row["coef"]),
