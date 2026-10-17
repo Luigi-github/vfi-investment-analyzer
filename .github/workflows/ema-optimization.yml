@@ -32,7 +32,7 @@ jobs:
       - name: Install dependencies
         run: python -m pip install -r requirements.txt
       - name: Run unit tests
-        run: python -m unittest tests.test_ema_optimization -v
+        run: python -m unittest discover -s tests -p test_ema_optimization.py -v
       - name: Run weekly EMA optimization
         env:
           EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'DDD,INTC,NVDA,BTC-USD' }}
