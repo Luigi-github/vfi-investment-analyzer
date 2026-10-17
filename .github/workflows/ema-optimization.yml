@@ -11,6 +11,7 @@ on:
     paths:
       - "scripts/optimize_ema_periods.py"
       - "scripts/optimize_daily_volume_divergence_ema.py"
+      - "scripts/study_early_vfi_accumulation.py"
       - "tests/test_ema_optimization.py"
       - "tests/test_daily_volume_divergence_ema.py"
       - ".github/workflows/ema-optimization.yml"
@@ -42,6 +43,10 @@ jobs:
         env:
           EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'DDD,INTC,NVDA,BTC-USD,EC,CIB,MSFT,EEM,SQM,LTC-USD,AU,SPY,AMZN,PBR,NU,QQQ,ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL' }}
         run: python scripts/optimize_ema_periods.py --symbols "$EMA_SYMBOLS"
+      - name: Run early VFI accumulation scan (EMA on VFI 130)
+        env:
+          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'DDD,INTC,NVDA,BTC-USD,EC,CIB,MSFT,EEM,SQM,LTC-USD,AU,SPY,AMZN,PBR,NU,QQQ,ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL' }}
+        run: python scripts/study_early_vfi_accumulation.py --symbols "$EMA_SYMBOLS"
       - name: Run daily Volume Divergence + EMA optimization
         env:
           EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'DDD,INTC,NVDA,BTC-USD,EC,CIB,MSFT,EEM,SQM,LTC-USD,AU,SPY,AMZN,PBR,NU,QQQ,ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL' }}
@@ -54,5 +59,6 @@ jobs:
           path: |
             reports/ema_optimization/
             reports/daily_volume_divergence_ema/
+            reports/early_vfi_accumulation/
           if-no-files-found: warn
           retention-days: 30
