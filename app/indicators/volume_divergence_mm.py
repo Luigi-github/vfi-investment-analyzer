@@ -5,7 +5,10 @@ import pandas as pd
 
 
 class VolumeDivergenceMM:
-    def __init__(self, vl1=5, vl2=8, lbR=5, lbL=5, range_upper=60, range_lower=5):
+    def __init__(self, vl1=5, vl2=8, lbR=5, lbL=5, range_upper=60, range_lower=5,
+                 plot_hidden_bull=False, plot_hidden_bear=False):
+        self.plot_hidden_bull = bool(plot_hidden_bull)
+        self.plot_hidden_bear = bool(plot_hidden_bear)
         self.vl1 = vl1
         self.vl2 = vl2
         self.vl3 = vl1 + vl2
@@ -104,8 +107,15 @@ class VolumeDivergenceMM:
         df["Volume_Div_Hidden_Bull"] = hb
         df["Volume_Div_Regular_Bear"] = rbe
         df["Volume_Div_Hidden_Bear"] = hbe
+        # Raw detections include hidden divergences for research. TradingView's
+        # published defaults hide hidden bullish/bearish labels, so the Visible
+        # columns respect those defaults unless explicitly enabled.
         df["Volume_Div_Bullish"] = rb | hb
         df["Volume_Div_Bearish"] = rbe | hbe
+        visible_bull = rb | (hb if self.plot_hidden_bull else np.zeros(len(df), dtype=bool))
+        visible_bear = rbe | (hbe if self.plot_hidden_bear else np.zeros(len(df), dtype=bool))
+        df["Volume_Div_Bullish_Visible"] = visible_bull
+        df["Volume_Div_Bearish_Visible"] = visible_bear
 
         signal = np.full(len(df), "", dtype=object)
         signal[rb] = "REGULAR_BULLISH"
@@ -115,6 +125,17 @@ class VolumeDivergenceMM:
         signal[rb & hb] = "BULLISH_REGULAR_AND_HIDDEN"
         signal[rbe & hbe] = "BEARISH_REGULAR_AND_HIDDEN"
         df["Volume_Div_Signal"] = signal
+
+        visible_signal = np.full(len(df), "", dtype=object)
+        visible_signal[rb] = "REGULAR_BULLISH"
+        visible_signal[rbe] = "REGULAR_BEARISH"
+        if self.plot_hidden_bull:
+            visible_signal[hb] = "HIDDEN_BULLISH"
+        if self.plot_hidden_bear:
+            visible_signal[hbe] = "HIDDEN_BEARISH"
+        visible_signal[rb & hb & self.plot_hidden_bull] = "BULLISH_REGULAR_AND_HIDDEN"
+        visible_signal[rbe & hbe & self.plot_hidden_bear] = "BEARISH_REGULAR_AND_HIDDEN"
+        df["Volume_Div_Visible_Signal"] = visible_signal
 
         bull_age = []
         bear_age = []
@@ -129,4 +150,16 @@ class VolumeDivergenceMM:
             bear_age.append(np.nan if last_bear is None else i - last_bear)
         df["Volume_Div_Bullish_Age_Bars"] = bull_age
         df["Volume_Div_Bearish_Age_Bars"] = bear_age
+
+        visible_bull_age, visible_bear_age = [], []
+        last_visible_bull = last_visible_bear = None
+        for i in range(len(df)):
+            if visible_bull[i]:
+                last_visible_bull = i
+            if visible_bear[i]:
+                last_visible_bear = i
+            visible_bull_age.append(np.nan if last_visible_bull is None else i - last_visible_bull)
+            visible_bear_age.append(np.nan if last_visible_bear is None else i - last_visible_bear)
+        df["Volume_Div_Bullish_Visible_Age_Bars"] = visible_bull_age
+        df["Volume_Div_Bearish_Visible_Age_Bars"] = visible_bear_age
         return df
