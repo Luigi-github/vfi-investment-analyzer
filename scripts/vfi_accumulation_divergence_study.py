@@ -346,11 +346,11 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
     # A chained WMA warm-up plus confirmed pivots needs a long weekly sample.
     # Keep VFI-only daily results for younger assets, but do not treat missing
     # weekly-divergence history as a negative or valid divergence reading.
-    wbull = weekly_div["Volume_Div_Bullish"].fillna(False).astype(bool)
-    wbear = weekly_div["Volume_Div_Bearish"].fillna(False).astype(bool)
-    weekly_signal_names = weekly_div["Volume_Div_Signal"].astype(str)
-    weekly_bull_age = weekly_div["Volume_Div_Bullish_Age_Bars"].copy()
-    weekly_bear_age = weekly_div["Volume_Div_Bearish_Age_Bars"].copy()
+    wbull = weekly_div["Volume_Div_Bullish_Visible"].fillna(False).astype(bool)
+    wbear = weekly_div["Volume_Div_Bearish_Visible"].fillna(False).astype(bool)
+    weekly_signal_names = weekly_div["Volume_Div_Visible_Signal"].astype(str)
+    weekly_bull_age = weekly_div["Volume_Div_Bullish_Visible_Age_Bars"].copy()
+    weekly_bear_age = weekly_div["Volume_Div_Bearish_Visible_Age_Bars"].copy()
     if not weekly_history_sufficient:
         wbull = pd.Series(False, index=weekly.index)
         wbear = pd.Series(False, index=weekly.index)
@@ -414,19 +414,19 @@ def build_asset_events(asset: str, daily_raw: pd.DataFrame, crypto: bool,
     # Daily divergence is included as a comparison, but all signals are daily
     # or weekly; no intraday timeframe enters this study.
     joined["Daily_Bullish_Div_Recent"] = fresh_signal(
-        daily_div["Volume_Div_Bullish"].reindex(joined.index, fill_value=False),
+        daily_div["Volume_Div_Bullish_Visible"].reindex(joined.index, fill_value=False),
         DAILY_DIVERGENCE_FRESH_DAYS,
     )
     joined["Daily_Bearish_Div_Recent"] = fresh_signal(
-        daily_div["Volume_Div_Bearish"].reindex(joined.index, fill_value=False),
+        daily_div["Volume_Div_Bearish_Visible"].reindex(joined.index, fill_value=False),
         DAILY_DIVERGENCE_FRESH_DAYS,
     )
-    daily_signal_names = daily_div["Volume_Div_Signal"].astype(str)
-    daily_bull_age = daily_div["Volume_Div_Bullish_Age_Bars"].reindex(joined.index)
-    daily_bear_age = daily_div["Volume_Div_Bearish_Age_Bars"].reindex(joined.index)
+    daily_signal_names = daily_div["Volume_Div_Visible_Signal"].astype(str)
+    daily_bull_age = daily_div["Volume_Div_Bullish_Visible_Age_Bars"].reindex(joined.index)
+    daily_bear_age = daily_div["Volume_Div_Bearish_Visible_Age_Bars"].reindex(joined.index)
     daily_age = pd.concat([daily_bull_age, daily_bear_age], axis=1).min(axis=1, skipna=True)
-    daily_bull_signal = daily_signal_names.where(daily_div["Volume_Div_Bullish"].fillna(False)).ffill().reindex(joined.index)
-    daily_bear_signal = daily_signal_names.where(daily_div["Volume_Div_Bearish"].fillna(False)).ffill().reindex(joined.index)
+    daily_bull_signal = daily_signal_names.where(daily_div["Volume_Div_Bullish_Visible"].fillna(False)).ffill().reindex(joined.index)
+    daily_bear_signal = daily_signal_names.where(daily_div["Volume_Div_Bearish_Visible"].fillna(False)).ffill().reindex(joined.index)
     daily_bull_is_newer = daily_bull_age.fillna(np.inf).le(daily_bear_age.fillna(np.inf))
     joined["Daily_Last_Confirmed_Div_Signal"] = np.where(daily_bull_is_newer, daily_bull_signal, daily_bear_signal)
     joined["Daily_Last_Confirmed_Div_Signal"] = joined["Daily_Last_Confirmed_Div_Signal"].fillna("")

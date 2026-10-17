@@ -63,11 +63,36 @@ class VolumeDivergenceMMTests(unittest.TestCase):
             "Volume_Div_Hidden_Bear",
             "Volume_Div_Bullish",
             "Volume_Div_Bearish",
+            "Volume_Div_Bullish_Visible",
+            "Volume_Div_Bearish_Visible",
+            "Volume_Div_Visible_Signal",
+            "Volume_Div_Bullish_Visible_Age_Bars",
+            "Volume_Div_Bearish_Visible_Age_Bars",
             "Volume_Div_Signal",
             "Volume_Div_Bullish_Age_Bars",
             "Volume_Div_Bearish_Age_Bars",
         }
         self.assertTrue(required.issubset(result.columns))
+
+
+    def test_visible_signals_match_tradingview_hidden_divergence_defaults(self):
+        idx = pd.date_range("2025-01-01", periods=120, freq="D")
+        close = 100 + np.sin(np.arange(120) / 5.0) * 5 + np.arange(120) * 0.02
+        open_ = close - 0.5
+        data = pd.DataFrame({
+            "Open": open_,
+            "High": np.maximum(open_, close) + 1,
+            "Low": np.minimum(open_, close) - 1,
+            "Close": close,
+            "Volume": 1000 + (np.arange(120) % 10) * 25,
+        }, index=idx)
+        default = VolumeDivergenceMM().calculate(data)
+        self.assertTrue((default["Volume_Div_Bullish_Visible"] == default["Volume_Div_Regular_Bull"]).all())
+        self.assertTrue((default["Volume_Div_Bearish_Visible"] == default["Volume_Div_Regular_Bear"]).all())
+
+        enabled = VolumeDivergenceMM(plot_hidden_bull=True, plot_hidden_bear=True).calculate(data)
+        self.assertTrue((enabled["Volume_Div_Bullish_Visible"] == enabled["Volume_Div_Bullish"]).all())
+        self.assertTrue((enabled["Volume_Div_Bearish_Visible"] == enabled["Volume_Div_Bearish"]).all())
 
 
 if __name__ == "__main__":
