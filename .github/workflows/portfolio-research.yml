@@ -54,14 +54,14 @@ jobs:
           RESEARCH_CAPITAL: ${{ inputs.capital || '100000' }}
           APPLY_LIQUIDITY: ${{ inputs.apply_liquidity_filter || 'false' }}
         run: |
-          ARGS="--universe $RESEARCH_UNIVERSE --capital $RESEARCH_CAPITAL"
+          ARGS=(--universe "$RESEARCH_UNIVERSE" --capital "$RESEARCH_CAPITAL")
           if [ -n "$RESEARCH_SYMBOLS" ]; then
-            ARGS="$ARGS --symbols $RESEARCH_SYMBOLS"
+            ARGS+=(--symbols "$RESEARCH_SYMBOLS")
           fi
           if [ "$APPLY_LIQUIDITY" = "true" ]; then
-            ARGS="$ARGS --apply-liquidity-filter"
+            ARGS+=(--apply-liquidity-filter)
           fi
-          python scripts/run_portfolio_backtest.py $ARGS
+          python scripts/run_portfolio_backtest.py "${ARGS[@]}"
       - name: Upload portfolio reports
         uses: actions/upload-artifact@v4
         with:
