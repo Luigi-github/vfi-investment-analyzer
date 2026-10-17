@@ -49,3 +49,15 @@ def test_vfi_signal_length_can_be_configured_and_50_defaults_to_50():
         result["VFI_Signal_50"].dropna().iloc[-1],
         result["VFI"].ewm(span=50, adjust=False).mean().dropna().iloc[-1],
     )
+
+
+def test_custom_signal_span_is_not_mislabeled_as_the_20_bar_line():
+    result = VFIIndicator(signal_length=5).calculate(sample_ohlcv())
+    expected5 = result["VFI"].ewm(span=5, adjust=False).mean()
+    expected20 = result["VFI"].ewm(span=20, adjust=False).mean()
+    pd.testing.assert_series_equal(result["VFI_Signal_5"], expected5, check_names=False)
+    pd.testing.assert_series_equal(result["VFI_Signal"], expected5, check_names=False)
+    pd.testing.assert_series_equal(result["VFI_Signal_20"], expected20, check_names=False)
+    pd.testing.assert_series_equal(
+        result["VFI_Histogram"], result["VFI"] - expected5, check_names=False
+    )
