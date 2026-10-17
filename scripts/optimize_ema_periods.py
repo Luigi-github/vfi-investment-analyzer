@@ -157,14 +157,18 @@ def optimize_asset(symbol: str, weekly: pd.DataFrame, near_zero: float = 5.0):
         & (results["EMA_Medium"] == 20)
         & (results["EMA_Long"] == 50)
     ]
+    if baseline.empty:
+        raise RuntimeError("The 5/20/50 baseline must be present in the candidate grid.")
+    eligible = results[results["Train_Entries"] >= 3]
+    if eligible.empty:
+        raise ValueError(f"{symbol}: no EMA combination generated at least three training entries.")
+    best = eligible.iloc[0]
     results["Selected_On_Train"] = False
-    results.loc[0, "Selected_On_Train"] = True
+    results.loc[best.name, "Selected_On_Train"] = True
     results["Is_5_20_50_Baseline"] = (
         (results["EMA_Short"] == 5) & (results["EMA_Medium"] == 20) & (results["EMA_Long"] == 50)
     )
-    if baseline.empty:
-        raise RuntimeError("The 5/20/50 baseline must be present in the candidate grid.")
-    return results, results.iloc[0].to_dict(), baseline.iloc[0].to_dict()
+    return results, best.to_dict(), baseline.iloc[0].to_dict()
 
 
 def parse_args(argv=None):
