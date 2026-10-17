@@ -5,6 +5,7 @@ import pandas as pd
 from scripts.tune_example_vfi_divergence_parameters import (
     divergence_setup,
     event_positions,
+    evaluate_mask,
     vfi_setup,
 )
 
@@ -53,6 +54,18 @@ class ExampleParameterTuningTests(unittest.TestCase):
         mask = pd.Series(False, index=index)
         mask.iloc[[2, 10, 23, 24, 45]] = True
         self.assertEqual(event_positions(mask, cooldown=20), [2, 23, 45])
+
+    def test_training_forward_returns_cannot_cross_holdout_boundary(self):
+        index = pd.date_range("2020-01-01", periods=100, freq="D")
+        close = pd.Series(range(100, 200), index=index, dtype=float)
+        mask = pd.Series(False, index=index)
+        mask.iloc[[20, 50, 75]] = True
+        train, test = evaluate_mask(mask, "TEST", close, index[60])
+        self.assertEqual([e["Date"] for e in train], [index[20].strftime("%Y-%m-%d"), index[50].strftime("%Y-%m-%d")])
+        self.assertTrue(pd.notna(train[0]["R20"]))
+        self.assertTrue(pd.isna(train[1]["R20"]))
+        self.assertEqual([e["Date"] for e in test], [index[75].strftime("%Y-%m-%d")])
+        self.assertTrue(pd.notna(test[0]["R20"]))
 
 
 if __name__ == "__main__":
