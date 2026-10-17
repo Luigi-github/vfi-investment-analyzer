@@ -57,6 +57,15 @@ DIV_THRESHOLD_GRID = {
     "div_slope_min": [0.10, 0.20, 0.30],
     "div_max_weeks_to_zero": [4.0, 8.0, 12.0],
 }
+# Keep TradingView's published default as the control, then vary one family
+# at a time so any improvement is interpretable rather than an opaque mixture.
+DIVERGENCE_CONFIGS = [
+    {"name": "TV_DEFAULT", "vl1": 5, "vl2": 8, "pivot_left": 5, "pivot_right": 5, "range_lower": 5, "range_upper": 60},
+    {"name": "FASTER_WMA", "vl1": 4, "vl2": 7, "pivot_left": 5, "pivot_right": 5, "range_lower": 5, "range_upper": 60},
+    {"name": "SLOWER_WMA", "vl1": 6, "vl2": 9, "pivot_left": 5, "pivot_right": 5, "range_lower": 5, "range_upper": 60},
+    {"name": "EARLIER_PIVOTS", "vl1": 5, "vl2": 8, "pivot_left": 3, "pivot_right": 3, "range_lower": 3, "range_upper": 40},
+    {"name": "STRICTER_PIVOTS", "vl1": 5, "vl2": 8, "pivot_left": 7, "pivot_right": 7, "range_lower": 5, "range_upper": 60},
+]
 HORIZONS = (20, 40, 60)  # trading days; deliberately no intraday or 1-10 day targets
 ROUND_TRIP_COST_PCT = 0.25
 MIN_DAILY_BARS = 260
@@ -106,10 +115,15 @@ def vfi_features(daily: pd.DataFrame, formula: dict) -> pd.DataFrame:
     return frame
 
 
-def divergence_features(weekly: pd.DataFrame) -> pd.DataFrame:
-    # Preserve the TradingView Volume Divergence by MM default oscillator
-    # construction (5/8/13/21/34 WMA chain, 5-left/5-right pivots).
-    frame = VolumeDivergenceMM(vl1=5, vl2=8, lbL=5, lbR=5, range_upper=60, range_lower=5).calculate(weekly)
+def divergence_features(weekly: pd.DataFrame, config: dict | None = None) -> pd.DataFrame:
+    # TV_DEFAULT reproduces the 5/8/13/21/34 WMA chain and 5-left/5-right
+    # pivot settings; alternatives are controlled sensitivity experiments.
+    config = config or DIVERGENCE_CONFIGS[0]
+    frame = VolumeDivergenceMM(
+        vl1=int(config["vl1"]), vl2=int(config["vl2"]),
+        lbL=int(config["pivot_left"]), lbR=int(config["pivot_right"]),
+        range_upper=int(config["range_upper"]), range_lower=int(config["range_lower"]),
+    ).calculate(weekly)
     osc = frame["Volume_Divergence_MM"].astype(float)
     scale = osc.rolling(52, min_periods=20).std().replace(0, np.nan)
     frame["DIV_Z"] = osc / scale
@@ -235,7 +249,8 @@ def main() -> None:
     out = ROOT / args.output_dir
     out.mkdir(parents=True, exist_ok=True)
     service = MarketDataService()
-    daily_data, div_data, closes, split_dates = {}, {}, {}, {}
+    daily_data, weekly_data, div_data, closes, split_dates = {}, {}, {}, {}, {}
+    ready_assets = set()
     coverage, errors = [], []
 
     for key in requested:
@@ -247,6 +262,7 @@ def main() -> None:
             if daily.empty:
                 raise ValueError("No completed daily OHLCV data")
             weekly = completed_weekly(daily)
+            weekly_data[key] = weekly
             split_dates[key] = pd.Timestamp(daily.index[int(len(daily) * 0.70)]).tz_localize(None) if pd.Timestamp(daily.index[int(len(daily) * 0.70)]).tzinfo else pd.Timestamp(daily.index[int(len(daily) * 0.70)])
             closes[key] = daily["Close"].astype(float)
             daily_data[key] = daily
@@ -254,15 +270,19 @@ def main() -> None:
                 coverage.append({"Asset": key, "Ticker": ticker, "Daily_Bars": len(daily), "Weekly_Bars": len(weekly), "Split_Date": str(split_dates[key].date()), "Status": "INSUFFICIENT_HISTORY_FOR_FULL_COMBINED_TEST"})
                 print(f"[{key}] insufficient bars: daily={len(daily)} weekly={len(weekly)}", flush=True)
                 continue
-            div = divergence_features(weekly)
-            # Only completed weekly oscillator values are made available to daily bars.
-            aligned = div.reindex(daily.index, method="ffill")
-            div_data[key] = aligned
+            ready_assets.add(key)
             coverage.append({"Asset": key, "Ticker": ticker, "Daily_Bars": len(daily), "Weekly_Bars": len(weekly), "Split_Date": str(split_dates[key].date()), "Status": "READY"})
         except Exception as exc:
             errors.append({"Asset": key, "Ticker": ticker, "Error": repr(exc)})
             coverage.append({"Asset": key, "Ticker": ticker, "Daily_Bars": 0, "Weekly_Bars": 0, "Split_Date": "", "Status": "ERROR"})
             print(f"[{key}] ERROR: {exc!r}", flush=True)
+
+    # Calculate every candidate oscillator/pivot configuration once per asset,
+    # and forward-fill only its completed weekly values to daily timestamps.
+    for config in DIVERGENCE_CONFIGS:
+        for key in sorted(ready_assets):
+            div = divergence_features(weekly_data[key], config)
+            div_data[(key, config["name"])] = div.reindex(daily_data[key].index, method="ffill")
 
     pd.DataFrame(coverage).to_csv(out / "asset_data_coverage.csv", index=False)
     if errors:
@@ -321,8 +341,9 @@ def main() -> None:
     print("Top VFI formulas selected from training data:")
     print(top_formulas[["Train_Rank", "length", "coef", "vcoef", "Train_Events_40D", "Train_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Asset_Balanced_Mean_Net_Return_40D_Pct"]].to_string(index=False), flush=True)
 
-    # Grid-search the cycle thresholds for VFI + weekly oscillator, using only the
-    # selected VFI formula candidates. Oscillator formula/pivots remain TradingView defaults.
+    # Grid-search cycle thresholds jointly with a small, interpretable set of
+    # weekly oscillator/pivot configurations. All choices are ranked on training
+    # history only; the final 30% remains a holdout.
     threshold_sets = []
     for v_z, v_slope, v_days, d_z, d_slope, d_weeks in itertools.product(
         VFI_THRESHOLD_GRID["vfi_near_zero_z"],
@@ -342,22 +363,37 @@ def main() -> None:
         })
 
     combined_rows = []
-    for formula_index, formula in enumerate(chosen_formulas, start=1):
-        print(f"Combined threshold grid: VFI formula {formula_index}/{len(chosen_formulas)} {formula}", flush=True)
-        for params in threshold_sets:
-            per_asset = {}
-            for key in requested:
-                cache_key = (key, formula["length"], formula["coef"], formula["vcoef"])
-                if cache_key not in feature_cache or key not in div_data:
-                    continue
-                vf = feature_cache[cache_key]
-                div = div_data[key]
-                mask = vfi_setup(vf, params) & divergence_setup(div, params)
-                train, test = evaluate_mask(mask, key, closes[key], split_dates[key])
-                per_asset[key] = {"train": train, "test": test}
-            train_metrics = collect_metrics(per_asset, "train")
-            test_metrics = collect_metrics(per_asset, "test")
-            combined_rows.append({**formula, **params, **train_metrics, **test_metrics})
+    for div_config in DIVERGENCE_CONFIGS:
+        for formula_index, formula in enumerate(chosen_formulas, start=1):
+            print(
+                f"Combined grid: divergence={div_config['name']} "
+                f"VFI formula {formula_index}/{len(chosen_formulas)} {formula}",
+                flush=True,
+            )
+            for params in threshold_sets:
+                per_asset = {}
+                for key in requested:
+                    cache_key = (key, formula["length"], formula["coef"], formula["vcoef"])
+                    div_key = (key, div_config["name"])
+                    if cache_key not in feature_cache or div_key not in div_data:
+                        continue
+                    vf = feature_cache[cache_key]
+                    div = div_data[div_key]
+                    mask = vfi_setup(vf, params) & divergence_setup(div, params)
+                    train, test = evaluate_mask(mask, key, closes[key], split_dates[key])
+                    per_asset[key] = {"train": train, "test": test}
+                train_metrics = collect_metrics(per_asset, "train")
+                test_metrics = collect_metrics(per_asset, "test")
+                config_fields = {
+                    "div_config": div_config["name"],
+                    "div_vl1": div_config["vl1"],
+                    "div_vl2": div_config["vl2"],
+                    "div_pivot_left": div_config["pivot_left"],
+                    "div_pivot_right": div_config["pivot_right"],
+                    "div_range_lower": div_config["range_lower"],
+                    "div_range_upper": div_config["range_upper"],
+                }
+                combined_rows.append({**formula, **config_fields, **params, **train_metrics, **test_metrics})
 
     combined = pd.DataFrame(combined_rows)
     if combined.empty:
@@ -383,6 +419,8 @@ def main() -> None:
         "vfi_near_zero_z", "vfi_slope_min", "vfi_max_days_to_zero",
         "div_near_zero_z", "div_slope_min", "div_max_weeks_to_zero",
     )}
+    best_div_config = next(config for config in DIVERGENCE_CONFIGS if config["name"] == best_row["div_config"])
+    baseline_div_config = DIVERGENCE_CONFIGS[0]
     baseline_formula = {"length": 130, "coef": 0.20, "vcoef": 2.5}
     baseline_params = {
         "vfi_near_zero_z": 0.75, "vfi_slope_min": 0.20, "vfi_max_days_to_zero": 20.0,
@@ -392,16 +430,20 @@ def main() -> None:
     for key in requested:
         if key not in div_data:
             continue
-        for label, formula, params in (
-            ("BASELINE", baseline_formula, baseline_params),
-            ("TRAIN_SELECTED_BEST", best_formula, best_params),
+        for label, formula, params, div_config in (
+            ("BASELINE", baseline_formula, baseline_params, baseline_div_config),
+            ("TRAIN_SELECTED_BEST", best_formula, best_params, best_div_config),
         ):
             cache_key = (key, formula["length"], formula["coef"], formula["vcoef"])
-            if cache_key not in feature_cache:
-                feature_cache[cache_key] = vfi_features(daily_data[key], formula)
-            mask = vfi_setup(feature_cache[cache_key], params) & divergence_setup(div_data[key], params)
+            div_key = (key, div_config["name"])
+            if cache_key not in feature_cache or div_key not in div_data:
+                continue
+            mask = vfi_setup(feature_cache[cache_key], params) & divergence_setup(div_data[div_key], params)
             train_events, test_events = evaluate_mask(mask, key, closes[key], split_dates[key])
-            row = {"Asset": key, "Ticker": ASSETS[key], "Configuration": label, **formula, **params}
+            row = {
+                "Asset": key, "Ticker": ASSETS[key], "Configuration": label,
+                **formula, **params, **{f"div_{k}": v for k, v in div_config.items()},
+            }
             row.update(summarize_events(train_events, "Train"))
             row.update(summarize_events(test_events, "Test"))
             per_asset_rows.append(row)
@@ -418,7 +460,8 @@ def main() -> None:
         "vfi_formula_grid": VFI_FORMULA_GRID,
         "vfi_threshold_grid": VFI_THRESHOLD_GRID,
         "divergence_threshold_grid": DIV_THRESHOLD_GRID,
-        "divergence_indicator_parameters": {"vl1": 5, "vl2": 8, "derived_wmas": [13, 21, 34], "pivot_left": 5, "pivot_right": 5, "range_lower": 5, "range_upper": 60},
+        "divergence_indicator_parameter_grid": DIVERGENCE_CONFIGS,
+        "divergence_default_control": DIVERGENCE_CONFIGS[0],
         "signal_definition": "Both oscillators must remain below zero, within the selected normalized distance from zero, have positive slopes on all selected lookbacks, and project a zero crossing within the selected horizon. Signals are first entry into the setup plus a 20-trading-day cooldown.",
         "selection_method": "Choose VFI formula candidates on training data only, then tune combined thresholds on training data only; report final 30% holdout metrics separately.",
         "limitations": "Small example universe and parameter search can overfit. Holdout is a historical test, not a profit guarantee. Signals enter at the signal day's close; returns subtract a 0.25 percentage-point round-trip cost.",
@@ -426,7 +469,7 @@ def main() -> None:
     }
     (out / "metadata.json").write_text(json.dumps(metadata, indent=2, default=str), encoding="utf-8")
     print("\nTOP COMBINED PARAMETER SETS (ranked on training data; holdout shown separately):")
-    cols = ["Train_Rank", "length", "coef", "vcoef", "vfi_near_zero_z", "vfi_slope_min", "vfi_max_days_to_zero", "div_near_zero_z", "div_slope_min", "div_max_weeks_to_zero", "Train_Events_40D", "Train_Assets_40D", "Train_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Events_40D", "Test_Assets_40D", "Test_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Win_Rate_40D_Pct"]
+    cols = ["Train_Rank", "div_config", "div_vl1", "div_vl2", "div_pivot_left", "div_pivot_right", "div_range_lower", "div_range_upper", "length", "coef", "vcoef", "vfi_near_zero_z", "vfi_slope_min", "vfi_max_days_to_zero", "div_near_zero_z", "div_slope_min", "div_max_weeks_to_zero", "Train_Events_40D", "Train_Assets_40D", "Train_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Events_40D", "Test_Assets_40D", "Test_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Win_Rate_40D_Pct"]
     print(finalists[cols].to_string(index=False), flush=True)
 
 
