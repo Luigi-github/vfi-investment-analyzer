@@ -68,7 +68,7 @@ class ExampleParameterTuningTests(unittest.TestCase):
 
     def test_divergence_features_calculate_for_each_candidate_config(self):
         index = pd.date_range("2020-01-03", periods=220, freq="W-FRI")
-        close = pd.Series(100 + 0.08 * range(len(index)) + 5 * np.sin(np.arange(len(index)) / 7), index=index)
+        close = pd.Series(100 + 0.08 * np.arange(len(index)) + 5 * np.sin(np.arange(len(index)) / 7), index=index)
         frame = pd.DataFrame({
             "Open": close.shift(1).fillna(close.iloc[0]),
             "High": close + 1,
