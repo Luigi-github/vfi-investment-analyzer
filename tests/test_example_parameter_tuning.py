@@ -1,8 +1,12 @@
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from scripts.tune_example_vfi_divergence_parameters import (
+    DIVERGENCE_CONFIGS,
+    DIVERGENCE_EXPERIMENTS,
+    divergence_features,
     divergence_setup,
     event_positions,
     evaluate_mask,
@@ -48,6 +52,63 @@ class ExampleParameterTuningTests(unittest.TestCase):
         }
         result = divergence_setup(frame, params).tolist()
         self.assertEqual(result, [True, False, False])
+
+    def test_divergence_config_grid_includes_tradingview_control_and_variants(self):
+        names = [config["name"] for config in DIVERGENCE_CONFIGS]
+        self.assertEqual(names[0], "TV_DEFAULT")
+        self.assertEqual(len(names), len(set(names)))
+        self.assertIn("FASTER_WMA", names)
+        self.assertIn("SLOWER_WMA", names)
+        self.assertIn("EARLIER_PIVOTS", names)
+        self.assertIn("STRICTER_PIVOTS", names)
+        self.assertEqual(
+            {key: DIVERGENCE_CONFIGS[0][key] for key in ("vl1", "vl2", "pivot_left", "pivot_right", "range_lower", "range_upper")},
+            {"vl1": 5, "vl2": 8, "pivot_left": 5, "pivot_right": 5, "range_lower": 5, "range_upper": 60},
+        )
+
+    def test_divergence_features_calculate_for_each_candidate_config(self):
+        index = pd.date_range("2020-01-03", periods=220, freq="W-FRI")
+        close = pd.Series(100 + 0.08 * np.arange(len(index)) + 5 * np.sin(np.arange(len(index)) / 7), index=index)
+        frame = pd.DataFrame({
+            "Open": close.shift(1).fillna(close.iloc[0]),
+            "High": close + 1,
+            "Low": close - 1,
+            "Close": close,
+            "Volume": 1000 + 200 * np.sin(np.arange(len(index)) / 3) ** 2,
+        }, index=index)
+        outputs = [divergence_features(frame, config) for config in DIVERGENCE_CONFIGS]
+        self.assertTrue(all("Volume_Divergence_MM" in output.columns for output in outputs))
+        self.assertTrue(all(len(output) == len(frame) for output in outputs))
+        self.assertTrue(any(output["Volume_Divergence_MM"].notna().any() for output in outputs))
+
+    def test_pivot_variants_are_only_tested_with_real_bullish_divergence_confirmation(self):
+        pivot_modes = [e for e in DIVERGENCE_EXPERIMENTS if e["config"]["name"] in {"EARLIER_PIVOTS", "STRICTER_PIVOTS"}]
+        self.assertTrue(pivot_modes)
+        self.assertTrue(all(e["require_bullish_divergence"] for e in pivot_modes))
+        self.assertFalse(any(
+            e["require_bullish_divergence"] and e["config"]["name"] in {"EARLIER_PIVOTS", "STRICTER_PIVOTS"}
+            for e in DIVERGENCE_EXPERIMENTS if e["name"].endswith("CYCLE_ONLY")
+        ))
+
+    def test_bullish_divergence_confirmation_requires_a_recent_confirmed_pivot_signal(self):
+        frame = pd.DataFrame({
+            "Volume_Divergence_MM": [-0.2, -0.2, -0.2],
+            "DIV_Z": [-0.4, -0.4, -0.4],
+            "DIV_SLOPE_1": [0.1, 0.1, 0.1],
+            "DIV_SLOPE_2": [0.2, 0.2, 0.2],
+            "DIV_SLOPE_4": [0.3, 0.3, 0.3],
+            "DIV_SLOPE_2_Z": [0.3, 0.3, 0.3],
+            "DIV_SLOPE_4_Z": [0.4, 0.4, 0.4],
+            "WEEKS_TO_ZERO": [3.0, 3.0, 3.0],
+            "Volume_Div_Bullish_Age_Bars": [5.0, 2.0, float("nan")],
+        })
+        params = {
+            "div_near_zero_z": 0.75,
+            "div_slope_min": 0.2,
+            "div_max_weeks_to_zero": 8,
+        }
+        result = divergence_setup(frame, params, require_bullish_divergence=True).tolist()
+        self.assertEqual(result, [False, True, False])
 
     def test_events_are_spaced_by_cooldown(self):
         index = pd.date_range("2025-01-01", periods=70, freq="D")
