@@ -1,6 +1,6 @@
 """Walk-forward optimization of short/medium/long weekly EMAs for early VFI recovery.
 
-The default study uses DDD, INTC, NVDA and BTC-USD. Candidate periods are selected
+The default study covers US stocks/ETFs, Latin American equities, Colombian listings, and crypto assets. Candidate periods are selected
 on the earlier 60% of each asset's weekly history and evaluated on the later 40%.
 Signals are computed at weekly close and returns are applied from the next bar.
 This is research, not a guarantee of future performance.
@@ -20,7 +20,7 @@ if str(ROOT) not in sys.path:
 from app.data.market_data import MarketDataService
 from app.indicators.vfi import VFIIndicator
 
-DEFAULT_SYMBOLS = ("DDD", "INTC", "NVDA", "BTC-USD")
+DEFAULT_SYMBOLS = tuple("DDD,INTC,NVDA,BTC-USD,EC,CIB,MSFT,EEM,SQM,LTC-USD,AU,SPY,AMZN,PBR,NU,QQQ,ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL".split(","))
 SHORT_CANDIDATES = (3, 5, 7, 9)
 MEDIUM_CANDIDATES = (15, 20, 25, 30)
 LONG_CANDIDATES = (40, 50, 60, 80)
