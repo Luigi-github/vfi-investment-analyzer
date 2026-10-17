@@ -1,5 +1,6 @@
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from scripts.tune_example_vfi_divergence_parameters import (
@@ -66,13 +67,13 @@ class ExampleParameterTuningTests(unittest.TestCase):
 
     def test_divergence_features_calculate_for_each_candidate_config(self):
         index = pd.date_range("2020-01-03", periods=220, freq="W-FRI")
-        close = pd.Series(100 + 0.08 * range(len(index)) + 5 * __import__("numpy").sin(__import__("numpy").arange(len(index)) / 7), index=index)
+        close = pd.Series(100 + 0.08 * range(len(index)) + 5 * np.sin(np.arange(len(index)) / 7), index=index)
         frame = pd.DataFrame({
             "Open": close.shift(1).fillna(close.iloc[0]),
             "High": close + 1,
             "Low": close - 1,
             "Close": close,
-            "Volume": 1000 + 200 * __import__("numpy").sin(__import__("numpy").arange(len(index)) / 3) ** 2,
+            "Volume": 1000 + 200 * np.sin(np.arange(len(index)) / 3) ** 2,
         }, index=index)
         outputs = [divergence_features(frame, config) for config in DIVERGENCE_CONFIGS]
         self.assertTrue(all("Volume_Divergence_MM" in output.columns for output in outputs))
