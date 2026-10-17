@@ -26,5 +26,11 @@ jobs:
       - name: Compile project
         run: python -m compileall app scripts dashboard
 
+      - name: Smoke-test research entry points
+        run: |
+          python scripts/run_full_research.py --help
+          python scripts/run_cycle_analysis.py --help
+          python scripts/run_portfolio_backtest.py --help
+
       - name: Run unit tests
         run: python -m unittest discover -s tests -v

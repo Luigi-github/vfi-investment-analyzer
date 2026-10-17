@@ -1,7 +1,14 @@
 """Run the complete configured multi-market VFI research study."""
 
 from argparse import ArgumentParser
+from pathlib import Path
 import sys
+
+# When executed directly, Python places the scripts directory first on sys.path.
+# Add the repository root before importing sibling project modules.
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 from scripts.run_cycle_analysis import DEFAULT_UNIVERSE, main as run_cycle_analysis
 from app.research.universes import MARKET_UNIVERSES
