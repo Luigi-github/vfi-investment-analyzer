@@ -275,8 +275,6 @@ def main() -> None:
             try:
                 vf = vfi_features(daily_data[key], formula)
                 feature_cache[(key, formula["length"], formula["coef"], formula["vcoef"])] = vf
-                if key not in div_data:
-                    continue
                 mask = vfi_setup(vf, baseline_vfi_thresholds)
                 train, test = evaluate_mask(mask, key, closes[key], split_dates[key])
                 per_asset[key] = {"train": train, "test": test}
@@ -304,6 +302,11 @@ def main() -> None:
         {"length": int(r["length"]), "coef": float(r["coef"]), "vcoef": float(r["vcoef"])}
         for _, r in top_formulas.iterrows()
     ]
+    # Always include TradingView-style VFI defaults as a control, even if
+    # the training-only ranking does not place them in the top five.
+    baseline_formula = {"length": 130, "coef": 0.20, "vcoef": 2.5}
+    if baseline_formula not in chosen_formulas:
+        chosen_formulas.append(baseline_formula)
     print("Top VFI formulas selected from training data:")
     print(top_formulas[["Train_Rank", "length", "coef", "vcoef", "Train_Events_40D", "Train_Asset_Balanced_Mean_Net_Return_40D_Pct", "Test_Asset_Balanced_Mean_Net_Return_40D_Pct"]].to_string(index=False), flush=True)
 
