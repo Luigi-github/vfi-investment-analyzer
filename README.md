@@ -603,7 +603,7 @@ Research-ready no significa rentable ni garantiza resultados futuros.
 
 ## Optimización de EMA semanal (5/20/50 como baseline)
 
-El estudio **scripts/optimize_ema_periods.py** compara la EMA corta, media y larga usando por defecto **DDD, INTC, NVDA y BTC-USD**. El baseline requerido es **5/20/50 semanas**; también evalúa combinaciones cercanas:
+El estudio **scripts/optimize_ema_periods.py** compara la EMA corta, media y larga usando por defecto **DDD, INTC, NVDA, BTC-USD, EC, CIB, MSFT, EEM, SQM, LTC-USD, AU, SPY, AMZN, PBR, NU, QQQ, ISA.CL, GEB.CL, MINEROS.CL, PFAVAL.CL, PFDAVVNDA.CL, TERPEL.CL**. El baseline requerido es **5/20/50 semanas**; también evalúa combinaciones cercanas:
 
 - Corta: 3, 5, 7, 9 semanas.
 - Media: 15, 20, 25, 30 semanas.
@@ -628,3 +628,12 @@ Los nombres de los campos de periodos son `EMA_short`, `EMA_medium` y `EMA_long`
 - ema_optimization_errors.csv: símbolos sin historial suficiente o con errores de datos.
 
 El estudio es semanal, no intradía. Antes de adoptar un periodo distinto a 5/20/50, compara su rendimiento holdout con el baseline, el número de operaciones, la exposición y el drawdown; prioriza resultados consistentes entre activos, no el mejor retorno aislado.
+
+
+## Optimización diaria de Volume Divergence + EMA
+
+El script `scripts/optimize_daily_volume_divergence_ema.py` optimiza las mismas tres EMAs para el gráfico diario, usando la implementación causal de `VolumeDivergenceMM`. La entrada exige divergencia alcista regular confirmada en los últimos 5 días hábiles, `EMA_short > EMA_medium`, cierre por encima de `EMA_long` y EMA corta ascendente. La salida ocurre si EMA corta cae a/por debajo de la media o se confirma una divergencia bajista regular reciente. El pivote se registra en la barra de confirmación —no se retrocede a la fecha histórica del pivote— y la posición se aplica desde la siguiente barra.
+
+Ambos estudios evalúan la rejilla de periodos (corta 3/5/7/9, media 15/20/25/30, larga 40/50/60/80), eligen usando solo el 60% inicial del historial y reportan el 40% final como holdout, además de comparar con buy-and-hold. La selección requiere al menos tres entradas en entrenamiento. El universo incluye acciones/ETF de EE. UU., ADR latinoamericanos, cripto y acciones colombianas con símbolos de Yahoo Finance (.CL); `LTCUSD` se normaliza como `LTC-USD`. Los símbolos sin histórico disponible quedan registrados en el archivo de errores sin detener el resto del análisis.
+
+Los informes diarios se guardan en `reports/daily_volume_divergence_ema/`: `daily_ema_parameter_trials.csv`, `daily_ema_selected_periods.csv`, `daily_ema_5_20_50_baseline.csv` y `daily_ema_optimization_errors.csv`.
