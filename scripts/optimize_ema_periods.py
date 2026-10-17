@@ -58,18 +58,18 @@ def simulate_strategy(data: pd.DataFrame, short: int, medium: int, long: int, ne
     if not (0 < short < medium < long):
         raise ValueError("EMA periods must satisfy 0 < short < medium < long.")
     frame = data.copy().sort_index()
-    frame["EMA_Short"] = frame["Close"].ewm(span=short, adjust=False, min_periods=short).mean()
-    frame["EMA_Medium"] = frame["Close"].ewm(span=medium, adjust=False, min_periods=medium).mean()
-    frame["EMA_Long"] = frame["Close"].ewm(span=long, adjust=False, min_periods=long).mean()
+    frame["EMA_short"] = frame["Close"].ewm(span=short, adjust=False, min_periods=short).mean()
+    frame["EMA_medium"] = frame["Close"].ewm(span=medium, adjust=False, min_periods=medium).mean()
+    frame["EMA_long"] = frame["Close"].ewm(span=long, adjust=False, min_periods=long).mean()
     vfi_rising = frame["VFI"] > frame["VFI"].shift(1)
     entry = (
-        (frame["EMA_Short"] > frame["EMA_Medium"])
-        & (frame["Close"] > frame["EMA_Long"])
+        (frame["EMA_short"] > frame["EMA_medium"])
+        & (frame["Close"] > frame["EMA_long"])
         & vfi_rising
         & (frame["VFI"] <= near_zero)
     ).fillna(False)
     exit_ = (
-        (frame["EMA_Short"] <= frame["EMA_Medium"])
+        (frame["EMA_short"] <= frame["EMA_medium"])
         | ~vfi_rising
     ).fillna(False)
 
@@ -99,7 +99,9 @@ def summarize_returns(frame: pd.DataFrame, start: int = 0, end=None) -> dict:
     sample = frame.iloc[start:end].copy()
     if sample.empty:
         return {"Bars": 0, "Total_Return_Pct": np.nan, "CAGR_Pct": np.nan,
-                "Max_Drawdown_Pct": np.nan, "Exposure_Pct": np.nan, "Entries": 0}
+                "Max_Drawdown_Pct": np.nan, "Exposure_Pct": np.nan, "Entries": 0,
+                "BuyHold_Total_Return_Pct": np.nan, "BuyHold_CAGR_Pct": np.nan,
+                "BuyHold_Max_Drawdown_Pct": np.nan}
     returns = sample["Strategy_Return"].fillna(0.0)
     equity = (1.0 + returns).cumprod()
     total = float((equity.iloc[-1] - 1.0) * 100.0)
@@ -107,6 +109,10 @@ def summarize_returns(frame: pd.DataFrame, start: int = 0, end=None) -> dict:
     final_equity = max(float(equity.iloc[-1]), 1e-12)
     cagr = (final_equity ** (1.0 / years) - 1.0) * 100.0
     drawdown = equity / equity.cummax() - 1.0
+    buy_hold_equity = sample["Close"].astype(float) / float(sample["Close"].iloc[0])
+    buy_hold_total = float((buy_hold_equity.iloc[-1] - 1.0) * 100.0)
+    buy_hold_cagr = (max(float(buy_hold_equity.iloc[-1]), 1e-12) ** (1.0 / years) - 1.0) * 100.0
+    buy_hold_drawdown = buy_hold_equity / buy_hold_equity.cummax() - 1.0
     return {
         "Bars": int(len(sample)),
         "Total_Return_Pct": total,
@@ -114,6 +120,9 @@ def summarize_returns(frame: pd.DataFrame, start: int = 0, end=None) -> dict:
         "Max_Drawdown_Pct": float(drawdown.min() * 100.0),
         "Exposure_Pct": float(sample["Position"].mean() * 100.0),
         "Entries": int(sample["Signal"].sum()),
+        "BuyHold_Total_Return_Pct": buy_hold_total,
+        "BuyHold_CAGR_Pct": float(buy_hold_cagr),
+        "BuyHold_Max_Drawdown_Pct": float(buy_hold_drawdown.min() * 100.0),
     }
 
 
@@ -139,23 +148,27 @@ def optimize_asset(symbol: str, weekly: pd.DataFrame, near_zero: float = 5.0):
         train = summarize_returns(simulated, 0, split)
         test = summarize_returns(simulated, split, None)
         trials.append({
-            "Symbol": symbol, "EMA_Short": short, "EMA_Medium": medium, "EMA_Long": long,
+            "Symbol": symbol, "EMA_short": short, "EMA_medium": medium, "EMA_long": long,
             "Train_Score": training_score(train), "Train_CAGR_Pct": train["CAGR_Pct"],
             "Train_Max_Drawdown_Pct": train["Max_Drawdown_Pct"], "Train_Entries": train["Entries"],
             "Test_Total_Return_Pct": test["Total_Return_Pct"], "Test_CAGR_Pct": test["CAGR_Pct"],
             "Test_Max_Drawdown_Pct": test["Max_Drawdown_Pct"], "Test_Exposure_Pct": test["Exposure_Pct"],
-            "Test_Entries": test["Entries"], "Train_Bars": train["Bars"], "Test_Bars": test["Bars"],
+            "Test_Entries": test["Entries"],
+            "Test_BuyHold_Total_Return_Pct": test["BuyHold_Total_Return_Pct"],
+            "Test_BuyHold_CAGR_Pct": test["BuyHold_CAGR_Pct"],
+            "Test_BuyHold_Max_Drawdown_Pct": test["BuyHold_Max_Drawdown_Pct"],
+            "Train_Bars": train["Bars"], "Test_Bars": test["Bars"],
             "Train_Start": str(data.index[0].date()), "Test_Start": str(data.index[split].date()),
             "Data_End": str(data.index[-1].date()),
         })
     results = pd.DataFrame(trials).sort_values(
-        ["Train_Score", "EMA_Short", "EMA_Medium", "EMA_Long"],
+        ["Train_Score", "EMA_short", "EMA_medium", "EMA_long"],
         ascending=[False, True, True, True],
     ).reset_index(drop=True)
     baseline = results[
-        (results["EMA_Short"] == 5)
-        & (results["EMA_Medium"] == 20)
-        & (results["EMA_Long"] == 50)
+        (results["EMA_short"] == 5)
+        & (results["EMA_medium"] == 20)
+        & (results["EMA_long"] == 50)
     ]
     if baseline.empty:
         raise RuntimeError("The 5/20/50 baseline must be present in the candidate grid.")
@@ -166,7 +179,7 @@ def optimize_asset(symbol: str, weekly: pd.DataFrame, near_zero: float = 5.0):
     results["Selected_On_Train"] = False
     results.loc[best.name, "Selected_On_Train"] = True
     results["Is_5_20_50_Baseline"] = (
-        (results["EMA_Short"] == 5) & (results["EMA_Medium"] == 20) & (results["EMA_Long"] == 50)
+        (results["EMA_short"] == 5) & (results["EMA_medium"] == 20) & (results["EMA_long"] == 50)
     )
     return results, best.to_dict(), baseline.iloc[0].to_dict()
 
@@ -199,9 +212,10 @@ def main(argv=None):
             all_trials.append(trials)
             selected.append(best)
             baselines.append(baseline)
-            print(f"Bars: {len(weekly)} | selected EMA: {int(best['EMA_Short'])}/{int(best['EMA_Medium'])}/{int(best['EMA_Long'])}")
-            print(f"Holdout CAGR: {best['Test_CAGR_Pct']:.2f}% | holdout max drawdown: {best['Test_Max_Drawdown_Pct']:.2f}% | entries: {int(best['Test_Entries'])}")
-            print(f"5/20/50 holdout CAGR: {baseline['Test_CAGR_Pct']:.2f}% | max drawdown: {baseline['Test_Max_Drawdown_Pct']:.2f}%")
+            print(f"Bars: {len(weekly)} | selected EMA: {int(best['EMA_short'])}/{int(best['EMA_medium'])}/{int(best['EMA_long'])}")
+            print(f"Holdout strategy CAGR: {best['Test_CAGR_Pct']:.2f}% | buy-and-hold CAGR: {best['Test_BuyHold_CAGR_Pct']:.2f}%")
+            print(f"Holdout strategy max drawdown: {best['Test_Max_Drawdown_Pct']:.2f}% | buy-and-hold: {best['Test_BuyHold_Max_Drawdown_Pct']:.2f}% | entries: {int(best['Test_Entries'])}")
+            print(f"5/20/50 baseline strategy CAGR: {baseline['Test_CAGR_Pct']:.2f}% | buy-and-hold CAGR: {baseline['Test_BuyHold_CAGR_Pct']:.2f}%")
         except Exception as exc:
             errors.append({"Symbol": symbol, "Error": str(exc)})
             print(f"SKIPPED {symbol}: {exc}")
