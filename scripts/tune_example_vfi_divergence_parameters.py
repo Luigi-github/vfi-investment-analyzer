@@ -361,6 +361,41 @@ def main() -> None:
     finalists = eligible.head(20) if not eligible.empty else combined.head(20)
     finalists.to_csv(out / "top_parameter_sets.csv", index=False)
 
+    # Per-asset view of the training-selected winner versus the unchanged baseline.
+    best_row = combined.iloc[0]
+    best_formula = {
+        "length": int(best_row["length"]),
+        "coef": float(best_row["coef"]),
+        "vcoef": float(best_row["vcoef"]),
+    }
+    best_params = {key: float(best_row[key]) for key in (
+        "vfi_near_zero_z", "vfi_slope_min", "vfi_max_days_to_zero",
+        "div_near_zero_z", "div_slope_min", "div_max_weeks_to_zero",
+    )}
+    baseline_formula = {"length": 130, "coef": 0.20, "vcoef": 2.5}
+    baseline_params = {
+        "vfi_near_zero_z": 0.75, "vfi_slope_min": 0.20, "vfi_max_days_to_zero": 20.0,
+        "div_near_zero_z": 0.75, "div_slope_min": 0.20, "div_max_weeks_to_zero": 8.0,
+    }
+    per_asset_rows = []
+    for key in requested:
+        if key not in div_data:
+            continue
+        for label, formula, params in (
+            ("BASELINE", baseline_formula, baseline_params),
+            ("TRAIN_SELECTED_BEST", best_formula, best_params),
+        ):
+            cache_key = (key, formula["length"], formula["coef"], formula["vcoef"])
+            if cache_key not in feature_cache:
+                feature_cache[cache_key] = vfi_features(daily_data[key], formula)
+            mask = vfi_setup(feature_cache[cache_key], params) & divergence_setup(div_data[key], params)
+            train_events, test_events = evaluate_mask(mask, key, closes[key], split_dates[key])
+            row = {"Asset": key, "Ticker": ASSETS[key], "Configuration": label, **formula, **params}
+            row.update(summarize_events(train_events, "Train"))
+            row.update(summarize_events(test_events, "Test"))
+            per_asset_rows.append(row)
+    pd.DataFrame(per_asset_rows).to_csv(out / "asset_level_best_vs_baseline.csv", index=False)
+
     metadata = {
         "requested_assets": requested,
         "asset_tickers": {k: ASSETS[k] for k in requested},
