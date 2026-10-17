@@ -100,7 +100,7 @@ class ExampleParameterTuningTests(unittest.TestCase):
             "DIV_SLOPE_2_Z": [0.3, 0.3, 0.3],
             "DIV_SLOPE_4_Z": [0.4, 0.4, 0.4],
             "WEEKS_TO_ZERO": [3.0, 3.0, 3.0],
-            "Volume_Div_Bullish_Age_Bars": [5.0, 2.0, float("nan")],
+            "Volume_Div_Bullish_Visible_Age_Bars": [5.0, 2.0, float("nan")],
         })
         params = {
             "div_near_zero_z": 0.75,
