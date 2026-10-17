@@ -5,6 +5,7 @@ import pandas as pd
 
 from scripts.tune_example_vfi_divergence_parameters import (
     DIVERGENCE_CONFIGS,
+    DIVERGENCE_EXPERIMENTS,
     divergence_features,
     divergence_setup,
     event_positions,
@@ -79,6 +80,35 @@ class ExampleParameterTuningTests(unittest.TestCase):
         self.assertTrue(all("Volume_Divergence_MM" in output.columns for output in outputs))
         self.assertTrue(all(len(output) == len(frame) for output in outputs))
         self.assertTrue(any(output["Volume_Divergence_MM"].notna().any() for output in outputs))
+
+    def test_pivot_variants_are_only_tested_with_real_bullish_divergence_confirmation(self):
+        pivot_modes = [e for e in DIVERGENCE_EXPERIMENTS if e["config"]["name"] in {"EARLIER_PIVOTS", "STRICTER_PIVOTS"}]
+        self.assertTrue(pivot_modes)
+        self.assertTrue(all(e["require_bullish_divergence"] for e in pivot_modes))
+        self.assertFalse(any(
+            e["require_bullish_divergence"] and e["config"]["name"] in {"EARLIER_PIVOTS", "STRICTER_PIVOTS"}
+            for e in DIVERGENCE_EXPERIMENTS if e["name"].endswith("CYCLE_ONLY")
+        ))
+
+    def test_bullish_divergence_confirmation_requires_a_recent_confirmed_pivot_signal(self):
+        frame = pd.DataFrame({
+            "Volume_Divergence_MM": [-0.2, -0.2, -0.2],
+            "DIV_Z": [-0.4, -0.4, -0.4],
+            "DIV_SLOPE_1": [0.1, 0.1, 0.1],
+            "DIV_SLOPE_2": [0.2, 0.2, 0.2],
+            "DIV_SLOPE_4": [0.3, 0.3, 0.3],
+            "DIV_SLOPE_2_Z": [0.3, 0.3, 0.3],
+            "DIV_SLOPE_4_Z": [0.4, 0.4, 0.4],
+            "WEEKS_TO_ZERO": [3.0, 3.0, 3.0],
+            "Volume_Div_Bullish_Age_Bars": [5.0, 2.0, float("nan")],
+        })
+        params = {
+            "div_near_zero_z": 0.75,
+            "div_slope_min": 0.2,
+            "div_max_weeks_to_zero": 8,
+        }
+        result = divergence_setup(frame, params, require_bullish_divergence=True).tolist()
+        self.assertEqual(result, [False, True, False])
 
     def test_events_are_spaced_by_cooldown(self):
         index = pd.date_range("2025-01-01", periods=70, freq="D")
