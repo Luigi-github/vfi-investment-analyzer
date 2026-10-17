@@ -75,14 +75,18 @@ def simulate_strategy(data: pd.DataFrame, short: int, medium: int, long: int, ne
 
     active = False
     positions = []
+    entry_events = []
     for enter, leave in zip(entry.to_numpy(), exit_.to_numpy()):
+        opened = False
         if active and leave:
             active = False
         elif not active and enter:
             active = True
+            opened = True
         positions.append(1.0 if active else 0.0)
+        entry_events.append(1 if opened else 0)
 
-    frame["Signal"] = entry.astype(int)
+    frame["Signal"] = pd.Series(entry_events, index=frame.index, dtype=int)
     frame["Position"] = pd.Series(positions, index=frame.index).shift(1).fillna(0.0)
     frame["Asset_Return"] = frame["Close"].pct_change().replace([np.inf, -np.inf], np.nan).fillna(0.0)
     frame["Strategy_Return"] = frame["Position"] * frame["Asset_Return"]
@@ -115,7 +119,7 @@ def summarize_returns(frame: pd.DataFrame, start: int = 0, end=None) -> dict:
 
 def training_score(metrics: dict) -> float:
     """Risk-penalized selection score calculated on training data only."""
-    if metrics["Bars"] == 0 or not np.isfinite(metrics["CAGR_Pct"]):
+    if metrics["Bars"] == 0 or metrics["Entries"] < 3 or not np.isfinite(metrics["CAGR_Pct"]):
         return -np.inf
     return metrics["CAGR_Pct"] - 0.5 * abs(metrics["Max_Drawdown_Pct"])
 
