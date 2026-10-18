@@ -25,6 +25,15 @@ Raw values from different assets are not compared directly. The script estimates
 
 The grid retains 64 combinations: short EMA (3, 5, 7, 9), medium (15, 20, 25, 30), long (40, 50, 60, 80), with short < medium < long.
 
+### Trend-loss penalty
+
+The score subtracts up to **15 points** for deterioration in the weekly VFI setup:
+
+- **8 points:** the short VFI EMA is currently below the medium EMA after having been at/above it during one of the previous 3 completed weekly bars (a bearish recross).
+- **7 points:** the latest VFI slope is non-positive after the average slope of the previous 3 completed weekly bars was positive (loss of the VFI upslope).
+
+The flags and individual penalties are exported in the ranking and EMA-combination CSVs. This penalty is applied to the score, but does not itself decide eligibility; the strict weekly and daily gates remain separate.
+
 **Score and eligibility are different.** `Accumulation_Score` orders research candidates; `Eligible=True` is only assigned when both strict weekly and daily filters pass. A high score alone is not a signal or a probability of profit. Because 64 EMA combinations are searched, the selected combination is a research choice and should be checked out-of-sample before use.
 
 ## Outputs
