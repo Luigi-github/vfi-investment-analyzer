@@ -33,6 +33,7 @@ jobs:
           python scripts/run_portfolio_backtest.py --help
           python scripts/optimize_ema_periods.py --help
           python scripts/optimize_daily_volume_divergence_ema.py --help
+          python scripts/study_early_vfi_accumulation.py --help
 
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
