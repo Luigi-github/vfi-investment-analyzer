@@ -12,6 +12,7 @@ from scripts.study_early_vfi_accumulation import (
     historical_percentile,
     evaluate_combo,
     weekly_vfi_trend_penalty,
+    vfi_positive_extension_penalty,
 )
 
 
@@ -38,6 +39,25 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
         self.assertFalse(state["negative"])
         self.assertFalse(state["near_zero"])
         self.assertEqual(state["score"], 0.0)
+
+    def test_positive_vfi_penalty_increases_with_historical_extension(self):
+        history = pd.Series(np.linspace(-10.0, 10.0, 200))
+        low = vfi_positive_extension_penalty(2.0, pd.concat([history, pd.Series([2.0])]), 252, 100)
+        high = vfi_positive_extension_penalty(9.0, pd.concat([history, pd.Series([9.0])]), 252, 100)
+        negative = vfi_positive_extension_penalty(-9.0, pd.concat([history, pd.Series([-9.0])]), 252, 100)
+        self.assertGreaterEqual(low["VFI_Positive_Extension_Penalty"], 0.0)
+        self.assertGreater(high["VFI_Positive_Extension_Penalty"], low["VFI_Positive_Extension_Penalty"])
+        self.assertLessEqual(high["VFI_Positive_Extension_Penalty"], 15.0)
+        self.assertEqual(negative["VFI_Positive_Extension_Penalty"], 0.0)
+
+    def test_vfi_extension_threshold_uses_prior_bars_only(self):
+        prior = pd.Series(np.linspace(-20.0, 20.0, 200))
+        low_current = vfi_positive_extension_penalty(10.0, pd.concat([prior, pd.Series([10.0])]), 252, 100)
+        huge_current = vfi_positive_extension_penalty(10.0, pd.concat([prior, pd.Series([1_000_000.0])]), 252, 100)
+        self.assertEqual(
+            low_current["VFI_Positive_Extension_Penalty"],
+            huge_current["VFI_Positive_Extension_Penalty"],
+        )
 
     def test_historical_percentile_excludes_current_observation(self):
         prior = pd.Series(np.arange(100.0))
@@ -66,6 +86,7 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             result["Weekly_State_Score"] + result["Weekly_EMA_Score"]
             + result["Daily_Divergence_Score"] + result["Daily_EMA_Score"]
             + result["Persistence_Score"] - result["Weekly_Trend_Penalty"]
+            - result["VFI_Positive_Extension_Penalty"]
         )
         self.assertAlmostEqual(component_sum, result["Accumulation_Score"], places=3)
 
@@ -106,6 +127,9 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
                 "Weekly_EMA_Bearish_Recross": False, "VFI_Uptrend_Lost": False,
                 "Weekly_EMA_Bearish_Recross_Penalty": 0.0,
                 "VFI_Uptrend_Loss_Penalty": 0.0, "Weekly_Trend_Penalty": 0.0,
+                "VFI_Positive_Extended": False, "VFI_Extension_Threshold": 1.0,
+                "VFI_Extreme_Threshold": 2.0, "VFI_Positive_Extension_Penalty": 0.0,
+                "Total_Score_Penalty": 0.0,
                 "Weekly_Filter_Pass": eligible,
                 "Daily_Filter_Pass": eligible, "Final_Filter_Pass": eligible,
                 "EMA_short": 3, "EMA_medium": 15, "EMA_long": 40,
