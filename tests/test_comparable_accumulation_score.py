@@ -53,8 +53,8 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
                 "Weekly_Date": "2026-10-16", "Daily_Date": "2026-10-16",
             })
         summary = build_asset_summary(pd.DataFrame(rows)).set_index("Symbol")
-        self.assertIs(summary.loc["A", "Eligible"], True)
-        self.assertIs(summary.loc["B", "Eligible"], False)
+        self.assertTrue(summary.loc["A", "Eligible"])
+        self.assertFalse(summary.loc["B", "Eligible"])
         self.assertGreater(summary.loc["B", "Accumulation_Score"], summary.loc["A", "Accumulation_Score"])
 
 
