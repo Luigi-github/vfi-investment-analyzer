@@ -49,14 +49,12 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
         self.assertLessEqual(result["Accumulation_Score"], 100.0)
         self.assertIn("Weekly_Filter_Pass", result)
         self.assertIn("Daily_Filter_Pass", result)
-        self.assertEqual(
-            round(
-                result["Weekly_State_Score"] + result["Weekly_EMA_Score"]
-                + result["Daily_Divergence_Score"] + result["Daily_EMA_Score"]
-                + result["Persistence_Score"], 3
-            ),
-            round(result["Accumulation_Score"], 3),
+        component_sum = (
+            result["Weekly_State_Score"] + result["Weekly_EMA_Score"]
+            + result["Daily_Divergence_Score"] + result["Daily_EMA_Score"]
+            + result["Persistence_Score"]
         )
+        self.assertAlmostEqual(component_sum, result["Accumulation_Score"], places=3)
 
     def test_asset_summary_separates_score_from_eligibility(self):
         rows = []
