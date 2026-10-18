@@ -9,6 +9,7 @@ from scripts.study_early_vfi_accumulation import (
     ema_combinations,
     historical_near_zero_threshold,
     historical_percentile,
+    evaluate_combo,
 )
 
 
@@ -34,6 +35,28 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
         self.assertTrue(np.isclose(p_a, p_b))
         self.assertGreaterEqual(p_a, 0.0)
         self.assertLessEqual(p_a, 1.0)
+
+    def test_evaluate_combo_returns_bounded_score_on_synthetic_data(self):
+        weekly_index = pd.date_range("2018-01-05", periods=400, freq="W-FRI")
+        daily_index = pd.date_range("2024-01-01", periods=500, freq="B")
+        weekly = pd.DataFrame({"VFI": 2.0 * np.sin(np.arange(400) / 10.0)}, index=weekly_index)
+        daily = pd.DataFrame(
+            {"Volume_Divergence_MM": 100.0 * np.sin(np.arange(500) / 8.0)},
+            index=daily_index,
+        )
+        result = evaluate_combo("SYNTH", weekly, daily, 3, 15, 40)
+        self.assertGreaterEqual(result["Accumulation_Score"], 0.0)
+        self.assertLessEqual(result["Accumulation_Score"], 100.0)
+        self.assertIn("Weekly_Filter_Pass", result)
+        self.assertIn("Daily_Filter_Pass", result)
+        self.assertEqual(
+            round(
+                result["Weekly_State_Score"] + result["Weekly_EMA_Score"]
+                + result["Daily_Divergence_Score"] + result["Daily_EMA_Score"]
+                + result["Persistence_Score"], 3
+            ),
+            round(result["Accumulation_Score"], 3),
+        )
 
     def test_asset_summary_separates_score_from_eligibility(self):
         rows = []
