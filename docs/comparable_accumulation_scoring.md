@@ -34,16 +34,16 @@ The score subtracts up to **15 points** for deterioration in the weekly VFI setu
 
 The flags and individual penalties are exported in the ranking and EMA-combination CSVs. This penalty is applied to the score, but does not itself decide eligibility; the strict weekly and daily gates remain separate.
 
-### Positive VFI extension penalty
+### Relative VFI extension and positive long-EMA penalties
 
-To avoid ranking an already mature upward move as an early accumulation opportunity, the score also subtracts **up to 15 additional points** when weekly VFI has crossed above zero and become unusually high for that asset:
+To avoid ranking an already mature upward move as an early accumulation opportunity:
 
-- The reference levels are the 75th and 95th percentiles of the asset's **prior absolute weekly VFI values**, using the same trailing history window and excluding the current bar.
-- No extension penalty applies when VFI is zero/negative or at/below the historical 75th percentile.
-- Above the 75th percentile, the penalty increases linearly with VFI; it reaches 15 points at the 95th percentile and remains capped at 15 beyond that.
-- This makes the deduction scale-aware: a raw VFI value is judged against its own asset's history, rather than against one shared number across all assets.
+- The current positive weekly VFI is ranked by its **empirical percentile against the asset's own prior raw VFI values** (not absolute VFI values and not a shared raw-value threshold).
+- No extension penalty applies while VFI is zero/negative or at/below its own historical 75th percentile.
+- Above percentile 75, the penalty increases linearly by percentile rank, reaching 15 points at percentile 95 and remaining capped at 15 thereafter.
+- **If the weekly long-period VFI EMA is above zero, subtract an additional 25 points.** This is intentionally a very strong warning that the long-term flow is already positive, which is inconsistent with the desired early-accumulation setup. EMA equal to zero does not trigger it.
 
-The report exposes `VFI_Positive_Extended`, both thresholds, `VFI_Positive_Extension_Penalty`, and `Total_Score_Penalty`. The final score is the gross component score minus the trend-loss and positive-extension penalties, clipped to 0–100. These penalties lower ranking points but do not change the strict eligibility gates.
+All historical comparisons use prior bars only and exclude the current observation from the reference distribution. The report exposes the VFI historical percentile, extension penalty, long-EMA-positive flag and its penalty, and total penalty. The final score subtracts trend-loss, relative VFI extension and positive long-EMA penalties from the gross score, clipped to 0–100. These penalties lower ranking points but do not replace the strict weekly and daily eligibility gates.
 
 **Score and eligibility are different.** `Accumulation_Score` orders research candidates; `Eligible=True` is only assigned when both strict weekly and daily filters pass. A high score alone is not a signal or a probability of profit. Because 64 EMA combinations are searched, the selected combination is a research choice and should be checked out-of-sample before use.
 
