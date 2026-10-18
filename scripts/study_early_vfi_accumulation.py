@@ -90,7 +90,8 @@ def historical_near_zero_threshold(series: pd.Series, lookback: int,
 def historical_percentile(current: float, history: pd.Series,
                           lookback: int, min_periods: int) -> float:
     """Percentile of current value relative to prior observations only (0..1)."""
-    prior = _clean_history(history).tail(lookback)
+    # Exclude the last observation in history: it is the current bar whose percentile we measure.
+    prior = _clean_history(history.iloc[:-1]).tail(lookback)
     if not np.isfinite(current) or len(prior) < min_periods:
         return 0.5
     return float((prior <= current).mean())
@@ -318,10 +319,11 @@ def main(argv=None):
                 raise ValueError("No valid data after indicator warm-up.")
             # A stable baseline is required for comparable scores. Do not silently
             # assign top scores to assets with too little history.
-            if len(weekly) < VFI_LENGTH + MIN_WEEKLY_BASELINE + max(LONGS):
+            minimum_valid_weekly = MIN_WEEKLY_BASELINE + max(LONGS) + 1
+            if len(weekly) < minimum_valid_weekly:
                 raise ValueError(
-                    f"Insufficient weekly history for normalized VFI score: {len(weekly)} bars; "
-                    f"need at least {VFI_LENGTH + MIN_WEEKLY_BASELINE + max(LONGS)}."
+                    f"Insufficient valid weekly VFI history for normalized score: {len(weekly)} bars; "
+                    f"need at least {minimum_valid_weekly} after VFI warm-up."
                 )
             for short, medium, long in ema_combinations():
                 rows.append(evaluate_combo(symbol, weekly, daily_div, short, medium, long))
