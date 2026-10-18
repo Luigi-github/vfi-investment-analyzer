@@ -155,6 +155,48 @@ def _indicator_state(value: float, slope: float, value_history: pd.Series,
     }
 
 
+def weekly_vfi_trend_penalty(weekly_with_emas: pd.DataFrame) -> dict:
+    """Penalize a recent bearish short/medium EMA recross and loss of VFI upslope.
+
+    Cross penalty applies only when the short EMA is currently below the medium
+    EMA and it was at/above the medium EMA within the last 3 completed weekly
+    bars. Trend-loss penalty applies when the current VFI slope is non-positive
+    after the mean slope of the previous 3 completed bars was positive.
+    """
+    frame = weekly_with_emas.dropna(
+        subset=["VFI", "EMA_short", "EMA_medium", "Indicator_Slope_1Bar"]
+    )
+    result = {
+        "Weekly_EMA_Bearish_Recross": False,
+        "VFI_Uptrend_Lost": False,
+        "Weekly_EMA_Bearish_Recross_Penalty": 0.0,
+        "VFI_Uptrend_Loss_Penalty": 0.0,
+        "Weekly_Trend_Penalty": 0.0,
+    }
+    if len(frame) < 5:
+        return result
+
+    latest = frame.iloc[-1]
+    previous_bars = frame.iloc[-4:-1]
+    bearish_recross = bool(
+        latest["EMA_short"] < latest["EMA_medium"]
+        and (previous_bars["EMA_short"] >= previous_bars["EMA_medium"]).any()
+    )
+    prior_slopes = frame["Indicator_Slope_1Bar"].iloc[-4:-1]
+    current_slope = float(latest["Indicator_Slope_1Bar"])
+    lost_uptrend = bool(current_slope <= 0 and float(prior_slopes.mean()) > 0)
+
+    result["Weekly_EMA_Bearish_Recross"] = bearish_recross
+    result["VFI_Uptrend_Lost"] = lost_uptrend
+    result["Weekly_EMA_Bearish_Recross_Penalty"] = 8.0 if bearish_recross else 0.0
+    result["VFI_Uptrend_Loss_Penalty"] = 7.0 if lost_uptrend else 0.0
+    result["Weekly_Trend_Penalty"] = (
+        result["Weekly_EMA_Bearish_Recross_Penalty"]
+        + result["VFI_Uptrend_Loss_Penalty"]
+    )
+    return result
+
+
 def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     w = add_indicator_emas(weekly, "VFI", short, medium, long)
     d = add_indicator_emas(daily_div, "Volume_Divergence_MM", short, medium, long)
@@ -199,10 +241,14 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         8.0 * min(vfi_streak / 8.0, 1.0)
         + 7.0 * min(divergence_streak / 10.0, 1.0)
     )
-    score = (
+    # A bearish recross and a confirmed loss of the VFI upslope reduce the
+    # gross accumulation score. These are separate from eligibility gates.
+    trend_penalty = weekly_vfi_trend_penalty(w)
+    gross_score = (
         w_state["score"] + weekly_ema_score + d_state["score"]
         + daily_ema_score + persistence_score
     )
+    score = float(np.clip(gross_score - trend_penalty["Weekly_Trend_Penalty"], 0, 100))
 
     return {
         "Symbol": symbol, "EMA_short": short, "EMA_medium": medium, "EMA_long": long,
@@ -235,7 +281,13 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         "Daily_Divergence_Score": round(d_state["score"], 4),
         "Daily_EMA_Score": round(daily_ema_score, 4),
         "Persistence_Score": round(persistence_score, 4),
-        "Accumulation_Score": round(float(np.clip(score, 0, 100)), 4),
+        "Gross_Accumulation_Score": round(float(np.clip(gross_score, 0, 100)), 4),
+        "Weekly_EMA_Bearish_Recross": trend_penalty["Weekly_EMA_Bearish_Recross"],
+        "VFI_Uptrend_Lost": trend_penalty["VFI_Uptrend_Lost"],
+        "Weekly_EMA_Bearish_Recross_Penalty": trend_penalty["Weekly_EMA_Bearish_Recross_Penalty"],
+        "VFI_Uptrend_Loss_Penalty": trend_penalty["VFI_Uptrend_Loss_Penalty"],
+        "Weekly_Trend_Penalty": trend_penalty["Weekly_Trend_Penalty"],
+        "Accumulation_Score": round(score, 4),
         "Final_Filter_Pass": bool(weekly_pass and daily_pass),
     }
 
@@ -260,6 +312,12 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
             "Daily_Divergence_Score": float(best["Daily_Divergence_Score"]),
             "Daily_EMA_Score": float(best["Daily_EMA_Score"]),
             "Persistence_Score": float(best["Persistence_Score"]),
+            "Gross_Accumulation_Score": float(best["Gross_Accumulation_Score"]),
+            "Weekly_EMA_Bearish_Recross": bool(best["Weekly_EMA_Bearish_Recross"]),
+            "VFI_Uptrend_Lost": bool(best["VFI_Uptrend_Lost"]),
+            "Weekly_EMA_Bearish_Recross_Penalty": float(best["Weekly_EMA_Bearish_Recross_Penalty"]),
+            "VFI_Uptrend_Loss_Penalty": float(best["VFI_Uptrend_Loss_Penalty"]),
+            "Weekly_Trend_Penalty": float(best["Weekly_Trend_Penalty"]),
             "Weekly_Combos_Passing": int(group["Weekly_Filter_Pass"].sum()),
             "Daily_Combos_Passing": int(group["Daily_Filter_Pass"].sum()),
             "Final_Combos_Passing": int(group["Final_Filter_Pass"].sum()),
