@@ -44,4 +44,6 @@ python scripts/study_early_vfi_accumulation.py
 python scripts/study_early_vfi_accumulation.py --symbols "DDD,INTC,NVDA,BTC-USD"
 ```
 
+Unit tests also run the score calculation against synthetic weekly and daily indicator histories to verify the score stays bounded and its components sum correctly.
+
 Comparative ranks are cross-sectional among the assets in that scan, so the universe should be kept consistent when comparing reports over time.
