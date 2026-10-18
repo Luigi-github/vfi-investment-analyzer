@@ -1,9 +1,9 @@
-"""Scan early accumulation using matching VFI and Volume Divergence EMA rules.
+"""Rank early accumulation candidates using causal, scale-aware comparisons.
 
-Weekly gate: VFI(130) with negative short/medium EMAs above the long EMA,
-negative VFI near zero, and positive slope.
-Daily confirmation: apply the same EMA/near-zero/positive-slope structure to
-Volume Divergence by MM itself (not to price), using the same EMA spans.
+The score compares each indicator with its own trailing history, so assets with
+different nominal volumes/indicator amplitudes can be compared. Historical
+thresholds exclude the current bar; no full-sample normalization is used.
+A score is a research ranking, not a probability of profit or a buy instruction.
 """
 from itertools import product
 from pathlib import Path
@@ -27,8 +27,20 @@ SHORTS = (3, 5, 7, 9)
 MEDIUMS = (15, 20, 25, 30)
 LONGS = (40, 50, 60, 80)
 VFI_LENGTH = 130
-NEAR_ZERO = 5.0
+# Use the bottom quartile of each asset's own prior absolute indicator values
+# as its near-zero zone. These are quantiles, not a shared raw-value threshold.
+NEAR_ZERO_QUANTILE = 0.25
+WEEKLY_LOOKBACK = 156
+DAILY_LOOKBACK = 252
+MIN_WEEKLY_BASELINE = 52
+MIN_DAILY_BASELINE = 100
 OUT = ROOT / "reports" / "early_vfi_accumulation"
+
+# Score weights total 100. Eligibility remains a separate strict gate.
+WEIGHTS = {
+    "weekly_state": 25, "weekly_ema": 20, "daily_state": 25,
+    "daily_ema": 15, "persistence": 15,
+}
 
 
 def ema_combinations():
@@ -36,7 +48,7 @@ def ema_combinations():
 
 
 def positive_negative_streak(indicator: pd.Series) -> int:
-    """Consecutive bars ending now with indicator<0 and positive one-bar slope."""
+    """Consecutive completed bars ending now with value < 0 and slope > 0."""
     ok = (indicator < 0) & (indicator.diff() > 0)
     count = 0
     for flag in ok.iloc[::-1]:
@@ -49,7 +61,7 @@ def positive_negative_streak(indicator: pd.Series) -> int:
 def add_indicator_emas(frame: pd.DataFrame, value_column: str,
                        short: int, medium: int, long: int) -> pd.DataFrame:
     result = frame.copy()
-    values = result[value_column]
+    values = pd.to_numeric(result[value_column], errors="coerce")
     result["EMA_short"] = values.ewm(span=short, adjust=False, min_periods=short).mean()
     result["EMA_medium"] = values.ewm(span=medium, adjust=False, min_periods=medium).mean()
     result["EMA_long"] = values.ewm(span=long, adjust=False, min_periods=long).mean()
@@ -57,71 +69,221 @@ def add_indicator_emas(frame: pd.DataFrame, value_column: str,
     return result
 
 
+def _clean_history(series: pd.Series) -> pd.Series:
+    return pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+
+
+def historical_near_zero_threshold(series: pd.Series, lookback: int,
+                                   min_periods: int, quantile: float = NEAR_ZERO_QUANTILE) -> float:
+    """Threshold from prior bars only; current observation is deliberately excluded."""
+    clean = _clean_history(series)
+    if len(clean) < min_periods + 1:
+        return float("nan")
+    prior = clean.iloc[:-1].tail(lookback).abs()
+    if len(prior) < min_periods:
+        return float("nan")
+    threshold = float(prior.quantile(quantile))
+    # An all-zero or near-constant series has no useful scale; don't call it a signal.
+    return threshold if np.isfinite(threshold) and threshold > 0 else float("nan")
+
+
+def historical_percentile(current: float, history: pd.Series,
+                          lookback: int, min_periods: int) -> float:
+    """Percentile of current value relative to prior observations only (0..1)."""
+    prior = _clean_history(history).tail(lookback)
+    if not np.isfinite(current) or len(prior) < min_periods:
+        return 0.5
+    return float((prior <= current).mean())
+
+
+def _clip01(value: float) -> float:
+    if not np.isfinite(value):
+        return 0.0
+    return float(np.clip(value, 0.0, 1.0))
+
+
+def _latest_scale(series: pd.Series, lookback: int, min_periods: int) -> float:
+    prior = _clean_history(series).iloc[:-1].tail(lookback).abs()
+    if len(prior) < min_periods:
+        return float("nan")
+    scale = float(prior.median())
+    return scale if np.isfinite(scale) and scale > 0 else float("nan")
+
+
+def _ema_structure_score(row: pd.Series, scale: float) -> float:
+    """Continuous partial credit for the intended negative EMA fan structure."""
+    short = float(row["EMA_short"])
+    medium = float(row["EMA_medium"])
+    long = float(row["EMA_long"])
+    if not np.all(np.isfinite([short, medium, long])) or not np.isfinite(scale) or scale <= 0:
+        return 0.0
+    negative_component = (float(short < 0) + float(medium < 0)) / 2.0
+    ordering_component = (float(short > long) + float(medium > long)) / 2.0
+    # Reward a visible separation, capped at one robust historical scale.
+    separation = max(0.0, min((short + medium) / 2.0 - long, scale)) / scale
+    return _clip01(0.4 * negative_component + 0.4 * ordering_component + 0.2 * separation)
+
+
+def _indicator_state(value: float, slope: float, value_history: pd.Series,
+                     slope_history: pd.Series, lookback: int, min_periods: int):
+    threshold = historical_near_zero_threshold(value_history, lookback, min_periods)
+    near_zero = bool(np.isfinite(threshold) and value < 0 and abs(value) <= threshold)
+    negative = bool(np.isfinite(value) and value < 0)
+    slope_positive = bool(np.isfinite(slope) and slope > 0)
+    slope_percentile = historical_percentile(
+        slope, slope_history, lookback, min_periods
+    )
+    proximity = _clip01(1.0 - abs(value) / threshold) if (
+        np.isfinite(threshold) and threshold > 0 and np.isfinite(value) and value < 0
+    ) else 0.0
+    # The score rewards a positive slope relative to the asset's own past, but
+    # the hard gate still requires an actually positive slope.
+    slope_strength = _clip01((slope_percentile - 0.35) / 0.65)
+    score = 5.0 * float(negative) + 10.0 * max(proximity, 0.5 * float(near_zero)) + 10.0 * slope_strength
+    return {
+        "negative": negative, "near_zero": near_zero,
+        "slope_positive": slope_positive, "threshold": threshold,
+        "proximity": proximity, "slope_percentile": slope_percentile,
+        "score": float(np.clip(score, 0, 25)),
+    }
+
+
 def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     w = add_indicator_emas(weekly, "VFI", short, medium, long)
     d = add_indicator_emas(daily_div, "Volume_Divergence_MM", short, medium, long)
-
     w_valid = w.dropna(subset=["VFI", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
     d_valid = d.dropna(subset=["Volume_Divergence_MM", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
     if w_valid.empty or d_valid.empty:
         raise ValueError(f"{symbol}: insufficient history for EMA combination {short}/{medium}/{long}.")
 
-    wl = w_valid.iloc[-1]
-    dl = d_valid.iloc[-1]
+    wl, dl = w_valid.iloc[-1], d_valid.iloc[-1]
+    weekly_value = float(wl["VFI"])
+    weekly_slope = float(wl["Indicator_Slope_1Bar"])
+    daily_value = float(dl["Volume_Divergence_MM"])
+    daily_slope = float(dl["Indicator_Slope_1Bar"])
 
-    weekly_ema_structure = (
+    w_state = _indicator_state(
+        weekly_value, weekly_slope, w["VFI"], w["Indicator_Slope_1Bar"],
+        WEEKLY_LOOKBACK, MIN_WEEKLY_BASELINE,
+    )
+    d_state = _indicator_state(
+        daily_value, daily_slope, d["Volume_Divergence_MM"], d["Indicator_Slope_1Bar"],
+        DAILY_LOOKBACK, MIN_DAILY_BASELINE,
+    )
+    weekly_scale = _latest_scale(w["VFI"], WEEKLY_LOOKBACK, MIN_WEEKLY_BASELINE)
+    daily_scale = _latest_scale(d["Volume_Divergence_MM"], DAILY_LOOKBACK, MIN_DAILY_BASELINE)
+
+    weekly_ema_score = 20.0 * _ema_structure_score(wl, weekly_scale)
+    daily_ema_score = 15.0 * _ema_structure_score(dl, daily_scale)
+    weekly_ema_structure = bool(
         wl["EMA_short"] < 0 and wl["EMA_medium"] < 0
-        and wl["EMA_short"] > wl["EMA_long"]
-        and wl["EMA_medium"] > wl["EMA_long"]
+        and wl["EMA_short"] > wl["EMA_long"] and wl["EMA_medium"] > wl["EMA_long"]
     )
-    weekly_value_ok = wl["VFI"] < 0 and abs(float(wl["VFI"])) <= NEAR_ZERO
-    weekly_slope_ok = wl["Indicator_Slope_1Bar"] > 0
-    weekly_pass = bool(weekly_ema_structure and weekly_value_ok and weekly_slope_ok)
-
-    daily_ema_structure = (
+    daily_ema_structure = bool(
         dl["EMA_short"] < 0 and dl["EMA_medium"] < 0
-        and dl["EMA_short"] > dl["EMA_long"]
-        and dl["EMA_medium"] > dl["EMA_long"]
+        and dl["EMA_short"] > dl["EMA_long"] and dl["EMA_medium"] > dl["EMA_long"]
     )
-    daily_value_ok = (
-        dl["Volume_Divergence_MM"] < 0
-        and abs(float(dl["Volume_Divergence_MM"])) <= NEAR_ZERO
-    )
-    daily_slope_ok = dl["Indicator_Slope_1Bar"] > 0
-    daily_pass = bool(daily_ema_structure and daily_value_ok and daily_slope_ok)
+    weekly_pass = bool(weekly_ema_structure and w_state["near_zero"] and w_state["slope_positive"])
+    daily_pass = bool(daily_ema_structure and d_state["near_zero"] and d_state["slope_positive"])
 
     vfi_streak = positive_negative_streak(w["VFI"])
     divergence_streak = positive_negative_streak(d["Volume_Divergence_MM"])
+    persistence_score = (
+        8.0 * min(vfi_streak / 8.0, 1.0)
+        + 7.0 * min(divergence_streak / 10.0, 1.0)
+    )
+    score = (
+        w_state["score"] + weekly_ema_score + d_state["score"]
+        + daily_ema_score + persistence_score
+    )
 
     return {
-        "Symbol": symbol,
-        "EMA_short": short,
-        "EMA_medium": medium,
-        "EMA_long": long,
-        "Weekly_Date": str(w.index[-1].date()),
-        "Daily_Date": str(d.index[-1].date()),
-        "VFI_130": float(wl["VFI"]),
-        "VFI_Slope_1W": float(wl["Indicator_Slope_1Bar"]),
-        "EMA_short_VFI": float(wl["EMA_short"]),
-        "EMA_medium_VFI": float(wl["EMA_medium"]),
+        "Symbol": symbol, "EMA_short": short, "EMA_medium": medium, "EMA_long": long,
+        "Weekly_Date": str(w.index[-1].date()), "Daily_Date": str(d.index[-1].date()),
+        "VFI_130": weekly_value, "VFI_Slope_1W": weekly_slope,
+        "VFI_Near_Zero_Threshold": w_state["threshold"],
+        "VFI_Slope_Historical_Percentile": w_state["slope_percentile"],
+        "EMA_short_VFI": float(wl["EMA_short"]), "EMA_medium_VFI": float(wl["EMA_medium"]),
         "EMA_long_VFI": float(wl["EMA_long"]),
-        "Weekly_EMA_Structure_Pass": bool(weekly_ema_structure),
-        "Weekly_VFI_Negative_Near_Zero": bool(weekly_value_ok),
-        "Weekly_VFI_Positive_Slope": bool(weekly_slope_ok),
+        "Weekly_EMA_Structure_Pass": weekly_ema_structure,
+        "Weekly_VFI_Negative": w_state["negative"],
+        "Weekly_VFI_Near_Zero": w_state["near_zero"],
+        "Weekly_VFI_Positive_Slope": w_state["slope_positive"],
         "Weekly_Filter_Pass": weekly_pass,
-        "Volume_Divergence_MM": float(dl["Volume_Divergence_MM"]),
-        "Volume_Div_Slope_1D": float(dl["Indicator_Slope_1Bar"]),
+        "Volume_Divergence_MM": daily_value, "Volume_Div_Slope_1D": daily_slope,
+        "Divergence_Near_Zero_Threshold": d_state["threshold"],
+        "Divergence_Slope_Historical_Percentile": d_state["slope_percentile"],
         "EMA_short_Volume_Div": float(dl["EMA_short"]),
         "EMA_medium_Volume_Div": float(dl["EMA_medium"]),
         "EMA_long_Volume_Div": float(dl["EMA_long"]),
-        "Daily_EMA_Structure_Pass": bool(daily_ema_structure),
-        "Daily_Divergence_Negative_Near_Zero": bool(daily_value_ok),
-        "Daily_Divergence_Positive_Slope": bool(daily_slope_ok),
+        "Daily_EMA_Structure_Pass": daily_ema_structure,
+        "Daily_Divergence_Negative": d_state["negative"],
+        "Daily_Divergence_Near_Zero": d_state["near_zero"],
+        "Daily_Divergence_Positive_Slope": d_state["slope_positive"],
         "Daily_Filter_Pass": daily_pass,
         "VFI_Negative_Positive_Slope_Streak_Weeks": int(vfi_streak),
         "Divergence_Negative_Positive_Slope_Streak_Days": int(divergence_streak),
+        "Weekly_State_Score": round(w_state["score"], 4),
+        "Weekly_EMA_Score": round(weekly_ema_score, 4),
+        "Daily_Divergence_Score": round(d_state["score"], 4),
+        "Daily_EMA_Score": round(daily_ema_score, 4),
+        "Persistence_Score": round(persistence_score, 4),
+        "Accumulation_Score": round(float(np.clip(score, 0, 100)), 4),
         "Final_Filter_Pass": bool(weekly_pass and daily_pass),
     }
+
+
+def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
+    """Choose the strongest combo per asset; eligibility is never inferred from score."""
+    summaries = []
+    for symbol, group in all_combos.groupby("Symbol", sort=False):
+        # Prioritize a qualified combo, then score; nonqualified rows are diagnostic only.
+        ranked = group.sort_values(
+            ["Final_Filter_Pass", "Accumulation_Score",
+             "VFI_Negative_Positive_Slope_Streak_Weeks",
+             "Divergence_Negative_Positive_Slope_Streak_Days"],
+            ascending=[False, False, False, False],
+        )
+        best = ranked.iloc[0]
+        summaries.append({
+            "Symbol": symbol,
+            "Accumulation_Score": float(best["Accumulation_Score"]),
+            "Weekly_State_Score": float(best["Weekly_State_Score"]),
+            "Weekly_EMA_Score": float(best["Weekly_EMA_Score"]),
+            "Daily_Divergence_Score": float(best["Daily_Divergence_Score"]),
+            "Daily_EMA_Score": float(best["Daily_EMA_Score"]),
+            "Persistence_Score": float(best["Persistence_Score"]),
+            "Weekly_Combos_Passing": int(group["Weekly_Filter_Pass"].sum()),
+            "Daily_Combos_Passing": int(group["Daily_Filter_Pass"].sum()),
+            "Final_Combos_Passing": int(group["Final_Filter_Pass"].sum()),
+            "Weekly_Filter_Pass": bool(best["Weekly_Filter_Pass"]),
+            "Daily_Filter_Pass": bool(best["Daily_Filter_Pass"]),
+            "Eligible": bool(best["Final_Filter_Pass"]),
+            "Diagnostic_Only": bool(not best["Final_Filter_Pass"]),
+            "Best_EMA_short": int(best["EMA_short"]),
+            "Best_EMA_medium": int(best["EMA_medium"]),
+            "Best_EMA_long": int(best["EMA_long"]),
+            "VFI_130": float(best["VFI_130"]),
+            "VFI_Slope_1W": float(best["VFI_Slope_1W"]),
+            "VFI_Near_Zero_Threshold": best["VFI_Near_Zero_Threshold"],
+            "Volume_Divergence_MM": float(best["Volume_Divergence_MM"]),
+            "Volume_Div_Slope_1D": float(best["Volume_Div_Slope_1D"]),
+            "Divergence_Near_Zero_Threshold": best["Divergence_Near_Zero_Threshold"],
+            "VFI_Negative_Positive_Slope_Streak_Weeks": int(best["VFI_Negative_Positive_Slope_Streak_Weeks"]),
+            "Divergence_Negative_Positive_Slope_Streak_Days": int(best["Divergence_Negative_Positive_Slope_Streak_Days"]),
+            "Weekly_Date": best["Weekly_Date"], "Daily_Date": best["Daily_Date"],
+        })
+    summary = pd.DataFrame(summaries)
+    if not summary.empty:
+        summary["Rank"] = summary["Accumulation_Score"].rank(method="min", ascending=False).astype(int)
+        summary["Rank_Percentile"] = (
+            summary["Accumulation_Score"].rank(method="average", pct=True) * 100
+        ).round(2)
+        summary = summary.sort_values(
+            ["Eligible", "Accumulation_Score", "Rank"],
+            ascending=[False, False, True],
+        ).reset_index(drop=True)
+    return summary
 
 
 def main(argv=None):
@@ -141,18 +303,26 @@ def main(argv=None):
         print(f"EARLY ACCUMULATION SCAN: {symbol}", flush=True)
         try:
             daily = market.get_daily_data(symbol, period="max").sort_index()
-            # Drop the potentially incomplete current daily candle.
-            if not daily.empty:
-                daily = daily[daily.index.normalize() < pd.Timestamp.now().normalize()]
-            weekly_ohlcv = market.convert_to_weekly(daily)
-            weekly = VFIIndicator(length=VFI_LENGTH).calculate(weekly_ohlcv.sort_index())
+            if daily.empty:
+                raise ValueError("Market data provider returned no rows.")
+            # Do not use today's potentially incomplete daily candle.
+            daily = daily[daily.index.normalize() < pd.Timestamp.now().normalize()]
+            if daily.empty:
+                raise ValueError("No completed daily candles remain.")
+            weekly_ohlcv = market.convert_to_weekly(daily).sort_index()
+            weekly = VFIIndicator(length=VFI_LENGTH).calculate(weekly_ohlcv)
             weekly = weekly.replace([np.inf, -np.inf], np.nan).dropna(subset=["VFI"])
             daily_div = VolumeDivergenceMM().calculate(daily)
-            daily_div = daily_div.replace([np.inf, -np.inf], np.nan).dropna(
-                subset=["Volume_Divergence_MM"]
-            )
+            daily_div = daily_div.replace([np.inf, -np.inf], np.nan).dropna(subset=["Volume_Divergence_MM"])
             if weekly.empty or daily_div.empty:
                 raise ValueError("No valid data after indicator warm-up.")
+            # A stable baseline is required for comparable scores. Do not silently
+            # assign top scores to assets with too little history.
+            if len(weekly) < VFI_LENGTH + MIN_WEEKLY_BASELINE + max(LONGS):
+                raise ValueError(
+                    f"Insufficient weekly history for normalized VFI score: {len(weekly)} bars; "
+                    f"need at least {VFI_LENGTH + MIN_WEEKLY_BASELINE + max(LONGS)}."
+                )
             for short, medium, long in ema_combinations():
                 rows.append(evaluate_combo(symbol, weekly, daily_div, short, medium, long))
             print(
@@ -167,51 +337,23 @@ def main(argv=None):
     if rows:
         all_combos = pd.DataFrame(rows)
         all_combos.to_csv(output / "ema_combo_scan.csv", index=False)
-        summaries = []
-        for symbol, group in all_combos.groupby("Symbol", sort=False):
-            weekly_ok = group[group["Weekly_Filter_Pass"]]
-            final_ok = group[group["Final_Filter_Pass"]]
-            # Diagnostic fallback is explicitly flagged and must not be treated as a pass.
-            pool = final_ok if not final_ok.empty else (weekly_ok if not weekly_ok.empty else group)
-            best = pool.sort_values(
-                ["VFI_Negative_Positive_Slope_Streak_Weeks",
-                 "Divergence_Negative_Positive_Slope_Streak_Days"],
-                ascending=[False, False],
-            ).iloc[0]
-            summaries.append({
-                "Symbol": symbol,
-                "Weekly_Combos_Passing": int(len(weekly_ok)),
-                "Daily_Combos_Passing": int(group["Daily_Filter_Pass"].sum()),
-                "Final_Combos_Passing": int(len(final_ok)),
-                "Best_EMA_short": int(best["EMA_short"]),
-                "Best_EMA_medium": int(best["EMA_medium"]),
-                "Best_EMA_long": int(best["EMA_long"]),
-                "VFI_130": float(best["VFI_130"]),
-                "VFI_Slope_1W": float(best["VFI_Slope_1W"]),
-                "Volume_Divergence_MM": float(best["Volume_Divergence_MM"]),
-                "Volume_Div_Slope_1D": float(best["Volume_Div_Slope_1D"]),
-                "VFI_Negative_Positive_Slope_Streak_Weeks": int(best["VFI_Negative_Positive_Slope_Streak_Weeks"]),
-                "Divergence_Negative_Positive_Slope_Streak_Days": int(best["Divergence_Negative_Positive_Slope_Streak_Days"]),
-                "Weekly_Filter_Pass": bool(len(weekly_ok) > 0),
-                "Daily_Filter_Pass": bool(group["Daily_Filter_Pass"].any()),
-                "Final_Filter_Pass": bool(len(final_ok) > 0),
-                "Diagnostic_Fallback_Used": bool(final_ok.empty),
-                "Weekly_Date": best["Weekly_Date"],
-                "Daily_Date": best["Daily_Date"],
-            })
-        summary = pd.DataFrame(summaries).sort_values(
-            ["Final_Filter_Pass", "Weekly_Filter_Pass", "VFI_Negative_Positive_Slope_Streak_Weeks",
-             "Divergence_Negative_Positive_Slope_Streak_Days"],
-            ascending=[False, False, False, False],
-        )
+        summary = build_asset_summary(all_combos)
         summary.to_csv(output / "early_vfi_accumulation_ranking.csv", index=False)
+        # Separate file makes it harder to mistake diagnostic candidates for signals.
+        summary[summary["Eligible"]].to_csv(output / "qualified_accumulation_candidates.csv", index=False)
+        summary[~summary["Eligible"]].to_csv(output / "diagnostic_candidates_not_qualified.csv", index=False)
+    else:
+        pd.DataFrame().to_csv(output / "ema_combo_scan.csv", index=False)
+        pd.DataFrame().to_csv(output / "early_vfi_accumulation_ranking.csv", index=False)
+        pd.DataFrame().to_csv(output / "qualified_accumulation_candidates.csv", index=False)
+        pd.DataFrame().to_csv(output / "diagnostic_candidates_not_qualified.csv", index=False)
     pd.DataFrame(errors, columns=["Symbol", "Error"]).to_csv(
         output / "early_vfi_accumulation_errors.csv", index=False
     )
     print(f"Reports written to: {output}")
     print(f"Assets scanned: {len(set(r['Symbol'] for r in rows))}; EMA combinations per asset: {len(ema_combinations())}")
-    print("Both timeframes use EMAs calculated on the indicator values, never on price.")
-    print("A diagnostic fallback row is not a qualified signal; use Final_Filter_Pass=True only.")
+    print("Score is comparative, not a probability of profit.")
+    print("Use Eligible=True for strict weekly + daily confirmation; diagnostic rows are not qualified signals.")
 
 
 if __name__ == "__main__":
