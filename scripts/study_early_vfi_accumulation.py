@@ -198,20 +198,26 @@ def positive_long_ema_penalty(long_ema: float) -> dict:
 
 
 def weekly_vfi_trend_penalty(weekly_with_emas: pd.DataFrame) -> dict:
-    """Penalize a recent bearish short/medium EMA recross and loss of VFI upslope.
+    """Penalize recent bearish EMA crossovers and loss of VFI upslope.
 
-    Cross penalty applies only when the short EMA is currently below the medium
-    EMA and it was at/above the medium EMA within the last 3 completed weekly
-    bars. Trend-loss penalty applies when the current VFI slope is non-positive
-    after the mean slope of the previous 3 completed bars was positive.
+    Each crossover is recent when the latest EMA is below the slower EMA and
+    at least one of the prior 3 completed weekly bars was at/above it.
+    Penalties are cumulative: short/medium -20, short/long -20, medium/long
+    -25. A non-positive latest VFI slope after positive prior slopes costs 7.
     """
     frame = weekly_with_emas.dropna(
-        subset=["VFI", "EMA_short", "EMA_medium", "Indicator_Slope_1Bar"]
+        subset=["VFI", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"]
     )
     result = {
         "Weekly_EMA_Bearish_Recross": False,
+        "Weekly_EMA_Short_Below_Medium_Recross": False,
+        "Weekly_EMA_Short_Below_Long_Recross": False,
+        "Weekly_EMA_Medium_Below_Long_Recross": False,
         "VFI_Uptrend_Lost": False,
         "Weekly_EMA_Bearish_Recross_Penalty": 0.0,
+        "Weekly_EMA_Short_Medium_Cross_Penalty": 0.0,
+        "Weekly_EMA_Short_Long_Cross_Penalty": 0.0,
+        "Weekly_EMA_Medium_Long_Cross_Penalty": 0.0,
         "VFI_Uptrend_Loss_Penalty": 0.0,
         "Weekly_Trend_Penalty": 0.0,
     }
@@ -220,17 +226,33 @@ def weekly_vfi_trend_penalty(weekly_with_emas: pd.DataFrame) -> dict:
 
     latest = frame.iloc[-1]
     previous_bars = frame.iloc[-4:-1]
-    bearish_recross = bool(
-        latest["EMA_short"] < latest["EMA_medium"]
-        and (previous_bars["EMA_short"] >= previous_bars["EMA_medium"]).any()
-    )
+
+    def recent_bearish_cross(fast_name, slow_name):
+        return bool(
+            latest[fast_name] < latest[slow_name]
+            and (previous_bars[fast_name] >= previous_bars[slow_name]).any()
+        )
+
+    short_medium = recent_bearish_cross("EMA_short", "EMA_medium")
+    short_long = recent_bearish_cross("EMA_short", "EMA_long")
+    medium_long = recent_bearish_cross("EMA_medium", "EMA_long")
     prior_slopes = frame["Indicator_Slope_1Bar"].iloc[-4:-1]
     current_slope = float(latest["Indicator_Slope_1Bar"])
     lost_uptrend = bool(current_slope <= 0 and float(prior_slopes.mean()) > 0)
 
-    result["Weekly_EMA_Bearish_Recross"] = bearish_recross
+    result["Weekly_EMA_Bearish_Recross"] = short_medium
+    result["Weekly_EMA_Short_Below_Medium_Recross"] = short_medium
+    result["Weekly_EMA_Short_Below_Long_Recross"] = short_long
+    result["Weekly_EMA_Medium_Below_Long_Recross"] = medium_long
     result["VFI_Uptrend_Lost"] = lost_uptrend
-    result["Weekly_EMA_Bearish_Recross_Penalty"] = 8.0 if bearish_recross else 0.0
+    result["Weekly_EMA_Short_Medium_Cross_Penalty"] = 20.0 if short_medium else 0.0
+    result["Weekly_EMA_Short_Long_Cross_Penalty"] = 20.0 if short_long else 0.0
+    result["Weekly_EMA_Medium_Long_Cross_Penalty"] = 25.0 if medium_long else 0.0
+    result["Weekly_EMA_Bearish_Recross_Penalty"] = (
+        result["Weekly_EMA_Short_Medium_Cross_Penalty"]
+        + result["Weekly_EMA_Short_Long_Cross_Penalty"]
+        + result["Weekly_EMA_Medium_Long_Cross_Penalty"]
+    )
     result["VFI_Uptrend_Loss_Penalty"] = 7.0 if lost_uptrend else 0.0
     result["Weekly_Trend_Penalty"] = (
         result["Weekly_EMA_Bearish_Recross_Penalty"]
@@ -334,8 +356,14 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         "Persistence_Score": round(persistence_score, 4),
         "Gross_Accumulation_Score": round(float(np.clip(gross_score, 0, 100)), 4),
         "Weekly_EMA_Bearish_Recross": trend_penalty["Weekly_EMA_Bearish_Recross"],
+        "Weekly_EMA_Short_Below_Medium_Recross": trend_penalty["Weekly_EMA_Short_Below_Medium_Recross"],
+        "Weekly_EMA_Short_Below_Long_Recross": trend_penalty["Weekly_EMA_Short_Below_Long_Recross"],
+        "Weekly_EMA_Medium_Below_Long_Recross": trend_penalty["Weekly_EMA_Medium_Below_Long_Recross"],
         "VFI_Uptrend_Lost": trend_penalty["VFI_Uptrend_Lost"],
         "Weekly_EMA_Bearish_Recross_Penalty": trend_penalty["Weekly_EMA_Bearish_Recross_Penalty"],
+        "Weekly_EMA_Short_Medium_Cross_Penalty": trend_penalty["Weekly_EMA_Short_Medium_Cross_Penalty"],
+        "Weekly_EMA_Short_Long_Cross_Penalty": trend_penalty["Weekly_EMA_Short_Long_Cross_Penalty"],
+        "Weekly_EMA_Medium_Long_Cross_Penalty": trend_penalty["Weekly_EMA_Medium_Long_Cross_Penalty"],
         "VFI_Uptrend_Loss_Penalty": trend_penalty["VFI_Uptrend_Loss_Penalty"],
         "Weekly_Trend_Penalty": trend_penalty["Weekly_Trend_Penalty"],
         "VFI_Positive_Extended": extension_penalty["VFI_Positive_Extended"],
@@ -373,8 +401,14 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
             "Persistence_Score": float(best["Persistence_Score"]),
             "Gross_Accumulation_Score": float(best["Gross_Accumulation_Score"]),
             "Weekly_EMA_Bearish_Recross": bool(best["Weekly_EMA_Bearish_Recross"]),
+            "Weekly_EMA_Short_Below_Medium_Recross": bool(best["Weekly_EMA_Short_Below_Medium_Recross"]),
+            "Weekly_EMA_Short_Below_Long_Recross": bool(best["Weekly_EMA_Short_Below_Long_Recross"]),
+            "Weekly_EMA_Medium_Below_Long_Recross": bool(best["Weekly_EMA_Medium_Below_Long_Recross"]),
             "VFI_Uptrend_Lost": bool(best["VFI_Uptrend_Lost"]),
             "Weekly_EMA_Bearish_Recross_Penalty": float(best["Weekly_EMA_Bearish_Recross_Penalty"]),
+            "Weekly_EMA_Short_Medium_Cross_Penalty": float(best["Weekly_EMA_Short_Medium_Cross_Penalty"]),
+            "Weekly_EMA_Short_Long_Cross_Penalty": float(best["Weekly_EMA_Short_Long_Cross_Penalty"]),
+            "Weekly_EMA_Medium_Long_Cross_Penalty": float(best["Weekly_EMA_Medium_Long_Cross_Penalty"]),
             "VFI_Uptrend_Loss_Penalty": float(best["VFI_Uptrend_Loss_Penalty"]),
             "Weekly_Trend_Penalty": float(best["Weekly_Trend_Penalty"]),
             "VFI_Positive_Extended": bool(best["VFI_Positive_Extended"]),
