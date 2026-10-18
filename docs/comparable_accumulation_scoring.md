@@ -7,7 +7,7 @@ The scanner is `scripts/study_early_vfi_accumulation.py`. It retains the intende
 
 ## Why scores are comparable
 
-Raw values from different assets are not compared directly. The script estimates a near-zero boundary from the 25th percentile of each indicator's **prior absolute values**. Slope strength is ranked against the asset's own prior slope distribution. EMA separation is scaled by the prior median absolute indicator value. Historical baselines exclude the current bar and use trailing windows only.
+Raw values from different assets are not compared directly. The script estimates a near-zero boundary from the 25th percentile of each indicator's **prior absolute values**. Slope strength is ranked against the asset's own prior slope distribution, but it earns score points only when the indicator is negative and in that near-zero zone; a positive/high indicator cannot win on slope alone. EMA separation is scaled by the prior median absolute indicator value. Historical baselines exclude the current bar and use trailing windows only.
 
 - Weekly history window: up to 156 bars (3 years); at least 52 baseline observations.
 - Daily history window: up to 252 bars (about 1 trading year); at least 100 baseline observations.
