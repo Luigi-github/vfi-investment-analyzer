@@ -1,9 +1,9 @@
-"""Scan early VFI accumulation: weekly EMAs on VFI(130), then daily Volume Divergence by MM.
+"""Scan early accumulation using matching VFI and Volume Divergence EMA rules.
 
-The output ranks assets by the current weekly setup, the uninterrupted run of
-negative VFI with positive weekly slope, and a recent confirmed daily bullish
-volume divergence. EMA spans are scanned over a fixed candidate grid; this is
-a screening study, not a return-maximizing strategy or a forecast.
+Weekly gate: VFI(130) with negative short/medium EMAs above the long EMA,
+negative VFI near zero, and positive slope.
+Daily confirmation: apply the same EMA/near-zero/positive-slope structure to
+Volume Divergence by MM itself (not to price), using the same EMA spans.
 """
 from itertools import product
 from pathlib import Path
@@ -28,7 +28,6 @@ MEDIUMS = (15, 20, 25, 30)
 LONGS = (40, 50, 60, 80)
 VFI_LENGTH = 130
 NEAR_ZERO = 5.0
-DIVERGENCE_FRESH_DAYS = 5
 OUT = ROOT / "reports" / "early_vfi_accumulation"
 
 
@@ -36,10 +35,9 @@ def ema_combinations():
     return [(s, m, l) for s, m, l in product(SHORTS, MEDIUMS, LONGS) if s < m < l]
 
 
-def positive_negative_streak(vfi: pd.Series) -> int:
-    """Count consecutive closed weekly bars ending now with VFI<0 and 1-bar slope>0."""
-    slope = vfi.diff()
-    ok = (vfi < 0) & (slope > 0)
+def positive_negative_streak(indicator: pd.Series) -> int:
+    """Consecutive bars ending now with indicator<0 and positive one-bar slope."""
+    ok = (indicator < 0) & (indicator.diff() > 0)
     count = 0
     for flag in ok.iloc[::-1]:
         if not bool(flag):
@@ -48,40 +46,52 @@ def positive_negative_streak(vfi: pd.Series) -> int:
     return count
 
 
-def weekly_features(weekly: pd.DataFrame) -> pd.DataFrame:
-    result = VFIIndicator(length=VFI_LENGTH).calculate(weekly.sort_index())
-    result["VFI_Slope_1W"] = result["VFI"].diff()
+def add_indicator_emas(frame: pd.DataFrame, value_column: str,
+                       short: int, medium: int, long: int) -> pd.DataFrame:
+    result = frame.copy()
+    values = result[value_column]
+    result["EMA_short"] = values.ewm(span=short, adjust=False, min_periods=short).mean()
+    result["EMA_medium"] = values.ewm(span=medium, adjust=False, min_periods=medium).mean()
+    result["EMA_long"] = values.ewm(span=long, adjust=False, min_periods=long).mean()
+    result["Indicator_Slope_1Bar"] = values.diff()
     return result
 
 
-def evaluate_combo(symbol, weekly, daily, short, medium, long):
-    w = weekly.copy()
-    v = w["VFI"]
-    w["EMA_short"] = v.ewm(span=short, adjust=False, min_periods=short).mean()
-    w["EMA_medium"] = v.ewm(span=medium, adjust=False, min_periods=medium).mean()
-    w["EMA_long"] = v.ewm(span=long, adjust=False, min_periods=long).mean()
-    w["VFI_Slope_4W"] = (v - v.shift(4)) / 4.0
+def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
+    w = add_indicator_emas(weekly, "VFI", short, medium, long)
+    d = add_indicator_emas(daily_div, "Volume_Divergence_MM", short, medium, long)
 
-    latest = w.dropna(subset=["VFI", "EMA_short", "EMA_medium", "EMA_long"]).iloc[-1]
-    # EMA lines are calculated from VFI, not from the asset price.
-    ema_structure = (
-        latest["EMA_short"] < 0
-        and latest["EMA_medium"] < 0
-        and latest["EMA_short"] > latest["EMA_long"]
-        and latest["EMA_medium"] > latest["EMA_long"]
+    w_valid = w.dropna(subset=["VFI", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
+    d_valid = d.dropna(subset=["Volume_Divergence_MM", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
+    if w_valid.empty or d_valid.empty:
+        raise ValueError(f"{symbol}: insufficient history for EMA combination {short}/{medium}/{long}.")
+
+    wl = w_valid.iloc[-1]
+    dl = d_valid.iloc[-1]
+
+    weekly_ema_structure = (
+        wl["EMA_short"] < 0 and wl["EMA_medium"] < 0
+        and wl["EMA_short"] > wl["EMA_long"]
+        and wl["EMA_medium"] > wl["EMA_long"]
     )
-    vfi_negative = latest["VFI"] < 0
-    vfi_positive_slope = latest["VFI_Slope_1W"] > 0
-    near_zero = abs(float(latest["VFI"])) <= NEAR_ZERO
-    weekly_pass = bool(ema_structure and vfi_negative and vfi_positive_slope and near_zero)
+    weekly_value_ok = wl["VFI"] < 0 and abs(float(wl["VFI"])) <= NEAR_ZERO
+    weekly_slope_ok = wl["Indicator_Slope_1Bar"] > 0
+    weekly_pass = bool(weekly_ema_structure and weekly_value_ok and weekly_slope_ok)
 
-    streak = positive_negative_streak(w["VFI"])
-    recent = daily.tail(DIVERGENCE_FRESH_DAYS)
-    bullish = bool(recent["Volume_Div_Regular_Bull"].fillna(False).astype(bool).any())
-    bearish = bool(recent["Volume_Div_Regular_Bear"].fillna(False).astype(bool).any())
-    last_bull_date = ""
-    if bullish:
-        last_bull_date = str(recent.index[recent["Volume_Div_Regular_Bull"].fillna(False).astype(bool)][-1].date())
+    daily_ema_structure = (
+        dl["EMA_short"] < 0 and dl["EMA_medium"] < 0
+        and dl["EMA_short"] > dl["EMA_long"]
+        and dl["EMA_medium"] > dl["EMA_long"]
+    )
+    daily_value_ok = (
+        dl["Volume_Divergence_MM"] < 0
+        and abs(float(dl["Volume_Divergence_MM"])) <= NEAR_ZERO
+    )
+    daily_slope_ok = dl["Indicator_Slope_1Bar"] > 0
+    daily_pass = bool(daily_ema_structure and daily_value_ok and daily_slope_ok)
+
+    vfi_streak = positive_negative_streak(w["VFI"])
+    divergence_streak = positive_negative_streak(d["Volume_Divergence_MM"])
 
     return {
         "Symbol": symbol,
@@ -89,22 +99,28 @@ def evaluate_combo(symbol, weekly, daily, short, medium, long):
         "EMA_medium": medium,
         "EMA_long": long,
         "Weekly_Date": str(w.index[-1].date()),
-        "VFI_130": float(latest["VFI"]),
-        "VFI_Slope_1W": float(latest["VFI_Slope_1W"]),
-        "VFI_Slope_4W": float(latest["VFI_Slope_4W"]) if pd.notna(latest["VFI_Slope_4W"]) else np.nan,
-        "EMA_short_VFI": float(latest["EMA_short"]),
-        "EMA_medium_VFI": float(latest["EMA_medium"]),
-        "EMA_long_VFI": float(latest["EMA_long"]),
-        "EMA_Structure_Pass": bool(ema_structure),
-        "VFI_Negative": bool(vfi_negative),
-        "VFI_Positive_Slope": bool(vfi_positive_slope),
-        "VFI_Near_Zero": bool(near_zero),
-        "Negative_Positive_Slope_Streak_Weeks": int(streak),
+        "Daily_Date": str(d.index[-1].date()),
+        "VFI_130": float(wl["VFI"]),
+        "VFI_Slope_1W": float(wl["Indicator_Slope_1Bar"]),
+        "EMA_short_VFI": float(wl["EMA_short"]),
+        "EMA_medium_VFI": float(wl["EMA_medium"]),
+        "EMA_long_VFI": float(wl["EMA_long"]),
+        "Weekly_EMA_Structure_Pass": bool(weekly_ema_structure),
+        "Weekly_VFI_Negative_Near_Zero": bool(weekly_value_ok),
+        "Weekly_VFI_Positive_Slope": bool(weekly_slope_ok),
         "Weekly_Filter_Pass": weekly_pass,
-        "Daily_Bullish_Divergence_Recent": bullish,
-        "Daily_Bearish_Divergence_Recent": bearish,
-        "Last_Daily_Bullish_Divergence": last_bull_date,
-        "Final_Filter_Pass": bool(weekly_pass and bullish and not bearish),
+        "Volume_Divergence_MM": float(dl["Volume_Divergence_MM"]),
+        "Volume_Div_Slope_1D": float(dl["Indicator_Slope_1Bar"]),
+        "EMA_short_Volume_Div": float(dl["EMA_short"]),
+        "EMA_medium_Volume_Div": float(dl["EMA_medium"]),
+        "EMA_long_Volume_Div": float(dl["EMA_long"]),
+        "Daily_EMA_Structure_Pass": bool(daily_ema_structure),
+        "Daily_Divergence_Negative_Near_Zero": bool(daily_value_ok),
+        "Daily_Divergence_Positive_Slope": bool(daily_slope_ok),
+        "Daily_Filter_Pass": daily_pass,
+        "VFI_Negative_Positive_Slope_Streak_Weeks": int(vfi_streak),
+        "Divergence_Negative_Positive_Slope_Streak_Days": int(divergence_streak),
+        "Final_Filter_Pass": bool(weekly_pass and daily_pass),
     }
 
 
@@ -122,67 +138,80 @@ def main(argv=None):
 
     for symbol in symbols:
         print("=" * 72)
-        print(f"EARLY VFI ACCUMULATION: {symbol}")
+        print(f"EARLY ACCUMULATION SCAN: {symbol}", flush=True)
         try:
-            daily = market.get_daily_data(symbol, period="max")
+            daily = market.get_daily_data(symbol, period="max").sort_index()
+            # Drop the potentially incomplete current daily candle.
+            if not daily.empty:
+                daily = daily[daily.index.normalize() < pd.Timestamp.now().normalize()]
             weekly_ohlcv = market.convert_to_weekly(daily)
-            weekly = weekly_features(weekly_ohlcv).dropna(subset=["VFI"])
-            daily_div = VolumeDivergenceMM().calculate(daily.sort_index())
-            daily_div = daily_div.replace([np.inf, -np.inf], np.nan).dropna(subset=["Volume_Divergence_MM"])
+            weekly = VFIIndicator(length=VFI_LENGTH).calculate(weekly_ohlcv.sort_index())
+            weekly = weekly.replace([np.inf, -np.inf], np.nan).dropna(subset=["VFI"])
+            daily_div = VolumeDivergenceMM().calculate(daily)
+            daily_div = daily_div.replace([np.inf, -np.inf], np.nan).dropna(
+                subset=["Volume_Divergence_MM"]
+            )
             if weekly.empty or daily_div.empty:
                 raise ValueError("No valid data after indicator warm-up.")
             for short, medium, long in ema_combinations():
                 rows.append(evaluate_combo(symbol, weekly, daily_div, short, medium, long))
-            print(f"Weekly bars after VFI warm-up: {len(weekly)}; daily bars for divergence: {len(daily_div)}; as of {weekly.index[-1].date()}")
+            print(
+                f"Weekly bars: {len(weekly)}; daily divergence bars: {len(daily_div)}; "
+                f"data through {daily_div.index[-1].date()}",
+                flush=True,
+            )
         except Exception as exc:
             errors.append({"Symbol": symbol, "Error": str(exc)})
-            print(f"SKIPPED {symbol}: {exc}")
+            print(f"SKIPPED {symbol}: {exc}", flush=True)
 
     if rows:
         all_combos = pd.DataFrame(rows)
         all_combos.to_csv(output / "ema_combo_scan.csv", index=False)
-        # Per-asset summary includes how robust the weekly filter is across candidate EMA spans.
         summaries = []
         for symbol, group in all_combos.groupby("Symbol", sort=False):
-            qualified = group[group["Weekly_Filter_Pass"]]
-            final = group[group["Final_Filter_Pass"]]
-            # Select the longest negative/positive-slope history among currently qualifying
-            # combinations. If none qualifies, retain the longest streak for diagnostics.
-            pool = qualified if not qualified.empty else group
+            weekly_ok = group[group["Weekly_Filter_Pass"]]
+            final_ok = group[group["Final_Filter_Pass"]]
+            # Diagnostic fallback is explicitly flagged and must not be treated as a pass.
+            pool = final_ok if not final_ok.empty else (weekly_ok if not weekly_ok.empty else group)
             best = pool.sort_values(
-                ["Negative_Positive_Slope_Streak_Weeks", "VFI_130"],
+                ["VFI_Negative_Positive_Slope_Streak_Weeks",
+                 "Divergence_Negative_Positive_Slope_Streak_Days"],
                 ascending=[False, False],
             ).iloc[0]
             summaries.append({
                 "Symbol": symbol,
-                "Weekly_Combos_Passing": int(len(qualified)),
-                "Final_Combos_Passing": int(len(final)),
+                "Weekly_Combos_Passing": int(len(weekly_ok)),
+                "Daily_Combos_Passing": int(group["Daily_Filter_Pass"].sum()),
+                "Final_Combos_Passing": int(len(final_ok)),
                 "Best_EMA_short": int(best["EMA_short"]),
                 "Best_EMA_medium": int(best["EMA_medium"]),
                 "Best_EMA_long": int(best["EMA_long"]),
                 "VFI_130": float(best["VFI_130"]),
                 "VFI_Slope_1W": float(best["VFI_Slope_1W"]),
-                "EMA_short_VFI": float(best["EMA_short_VFI"]),
-                "EMA_medium_VFI": float(best["EMA_medium_VFI"]),
-                "EMA_long_VFI": float(best["EMA_long_VFI"]),
-                "Negative_Positive_Slope_Streak_Weeks": int(best["Negative_Positive_Slope_Streak_Weeks"]),
-                "Daily_Bullish_Divergence_Recent": bool(best["Daily_Bullish_Divergence_Recent"]),
-                "Daily_Bearish_Divergence_Recent": bool(best["Daily_Bearish_Divergence_Recent"]),
-                "Last_Daily_Bullish_Divergence": best["Last_Daily_Bullish_Divergence"],
-                "Weekly_Filter_Pass": bool(len(qualified) > 0),
-                "Final_Filter_Pass": bool(len(final) > 0),
+                "Volume_Divergence_MM": float(best["Volume_Divergence_MM"]),
+                "Volume_Div_Slope_1D": float(best["Volume_Div_Slope_1D"]),
+                "VFI_Negative_Positive_Slope_Streak_Weeks": int(best["VFI_Negative_Positive_Slope_Streak_Weeks"]),
+                "Divergence_Negative_Positive_Slope_Streak_Days": int(best["Divergence_Negative_Positive_Slope_Streak_Days"]),
+                "Weekly_Filter_Pass": bool(len(weekly_ok) > 0),
+                "Daily_Filter_Pass": bool(group["Daily_Filter_Pass"].any()),
+                "Final_Filter_Pass": bool(len(final_ok) > 0),
+                "Diagnostic_Fallback_Used": bool(final_ok.empty),
                 "Weekly_Date": best["Weekly_Date"],
+                "Daily_Date": best["Daily_Date"],
             })
         summary = pd.DataFrame(summaries).sort_values(
-            ["Final_Filter_Pass", "Weekly_Filter_Pass", "Negative_Positive_Slope_Streak_Weeks", "VFI_130"],
+            ["Final_Filter_Pass", "Weekly_Filter_Pass", "VFI_Negative_Positive_Slope_Streak_Weeks",
+             "Divergence_Negative_Positive_Slope_Streak_Days"],
             ascending=[False, False, False, False],
         )
         summary.to_csv(output / "early_vfi_accumulation_ranking.csv", index=False)
-    pd.DataFrame(errors, columns=["Symbol", "Error"]).to_csv(output / "early_vfi_accumulation_errors.csv", index=False)
+    pd.DataFrame(errors, columns=["Symbol", "Error"]).to_csv(
+        output / "early_vfi_accumulation_errors.csv", index=False
+    )
     print(f"Reports written to: {output}")
-    print(f"Assets scanned: {len(set(r['Symbol'] for r in rows))}; combinations per asset: {len(ema_combinations())}")
-    print("Ranking prioritizes weekly+daily candidates, then consecutive weeks with VFI<0 and positive slope.")
-    print("EMA lines are computed from VFI(130), not the asset's price.")
+    print(f"Assets scanned: {len(set(r['Symbol'] for r in rows))}; EMA combinations per asset: {len(ema_combinations())}")
+    print("Both timeframes use EMAs calculated on the indicator values, never on price.")
+    print("A diagnostic fallback row is not a qualified signal; use Final_Filter_Pass=True only.")
 
 
 if __name__ == "__main__":
