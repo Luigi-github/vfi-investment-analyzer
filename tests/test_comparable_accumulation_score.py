@@ -11,6 +11,7 @@ from scripts.study_early_vfi_accumulation import (
     historical_near_zero_threshold,
     historical_percentile,
     evaluate_combo,
+    weekly_vfi_trend_penalty,
 )
 
 
@@ -64,9 +65,35 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
         component_sum = (
             result["Weekly_State_Score"] + result["Weekly_EMA_Score"]
             + result["Daily_Divergence_Score"] + result["Daily_EMA_Score"]
-            + result["Persistence_Score"]
+            + result["Persistence_Score"] - result["Weekly_Trend_Penalty"]
         )
         self.assertAlmostEqual(component_sum, result["Accumulation_Score"], places=3)
+
+    def test_penalizes_bearish_ema_recross_and_vfi_uptrend_loss(self):
+        frame = pd.DataFrame({
+            "VFI": [-3.0, -2.5, -2.0, -1.5, -1.6],
+            "EMA_short": [-2.8, -2.3, -1.8, -1.4, -1.7],
+            "EMA_medium": [-3.0, -2.4, -1.9, -1.5, -1.6],
+            "Indicator_Slope_1Bar": [0.2, 0.5, 0.5, 0.5, -0.1],
+        })
+        penalty = weekly_vfi_trend_penalty(frame)
+        self.assertTrue(penalty["Weekly_EMA_Bearish_Recross"])
+        self.assertTrue(penalty["VFI_Uptrend_Lost"])
+        self.assertEqual(penalty["Weekly_EMA_Bearish_Recross_Penalty"], 8.0)
+        self.assertEqual(penalty["VFI_Uptrend_Loss_Penalty"], 7.0)
+        self.assertEqual(penalty["Weekly_Trend_Penalty"], 15.0)
+
+    def test_no_trend_penalty_when_no_bearish_recross_or_uptrend_loss(self):
+        frame = pd.DataFrame({
+            "VFI": [-3.0, -2.8, -2.6, -2.4, -2.2],
+            "EMA_short": [-2.9, -2.7, -2.5, -2.3, -2.1],
+            "EMA_medium": [-3.1, -2.9, -2.7, -2.5, -2.3],
+            "Indicator_Slope_1Bar": [0.2, 0.2, 0.2, 0.2, 0.2],
+        })
+        penalty = weekly_vfi_trend_penalty(frame)
+        self.assertFalse(penalty["Weekly_EMA_Bearish_Recross"])
+        self.assertFalse(penalty["VFI_Uptrend_Lost"])
+        self.assertEqual(penalty["Weekly_Trend_Penalty"], 0.0)
 
     def test_asset_summary_separates_score_from_eligibility(self):
         rows = []
@@ -75,7 +102,11 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
                 "Symbol": symbol, "Accumulation_Score": score,
                 "Weekly_State_Score": 20.0, "Weekly_EMA_Score": 15.0,
                 "Daily_Divergence_Score": 20.0, "Daily_EMA_Score": 10.0,
-                "Persistence_Score": 10.0, "Weekly_Filter_Pass": eligible,
+                "Persistence_Score": 10.0, "Gross_Accumulation_Score": score,
+                "Weekly_EMA_Bearish_Recross": False, "VFI_Uptrend_Lost": False,
+                "Weekly_EMA_Bearish_Recross_Penalty": 0.0,
+                "VFI_Uptrend_Loss_Penalty": 0.0, "Weekly_Trend_Penalty": 0.0,
+                "Weekly_Filter_Pass": eligible,
                 "Daily_Filter_Pass": eligible, "Final_Filter_Pass": eligible,
                 "EMA_short": 3, "EMA_medium": 15, "EMA_long": 40,
                 "VFI_130": -1.0, "VFI_Slope_1W": 0.2,
