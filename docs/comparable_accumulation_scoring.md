@@ -25,14 +25,16 @@ Raw values from different assets are not compared directly. The script estimates
 
 The grid retains 64 combinations: short EMA (3, 5, 7, 9), medium (15, 20, 25, 30), long (40, 50, 60, 80), with short < medium < long.
 
-### Trend-loss penalty
+### Strong bearish EMA crossover penalties
 
-The score subtracts up to **15 points** for deterioration in the weekly VFI setup:
+The score applies cumulative penalties when weekly VFI EMAs have recently crossed bearish. A crossover is considered recent when the latest completed weekly bar has the faster EMA below the slower EMA and at least one of the prior 3 completed weekly bars had it at/above that EMA:
 
-- **8 points:** the short VFI EMA is currently below the medium EMA after having been at/above it during one of the previous 3 completed weekly bars (a bearish recross).
+- **20 points:** short EMA crosses below medium EMA.
+- **20 points:** short EMA crosses below long EMA.
+- **25 points:** medium EMA crosses below long EMA.
 - **7 points:** the latest VFI slope is non-positive after the average slope of the previous 3 completed weekly bars was positive (loss of the VFI upslope).
 
-The flags and individual penalties are exported in the ranking and EMA-combination CSVs. This penalty is applied to the score, but does not itself decide eligibility; the strict weekly and daily gates remain separate.
+The EMA crossover penalties stack, so all three bearish crosses together subtract **65 points**; including loss of VFI upslope, the weekly trend penalty can reach **72 points**. These are intentionally strong penalties for deterioration in the accumulation structure. Individual flags and penalties are exported in the ranking and EMA-combination CSVs. The penalty lowers the score but does not itself decide eligibility; strict weekly and daily gates remain separate.
 
 ### Relative VFI extension and positive long-EMA penalties
 
@@ -43,7 +45,7 @@ To avoid ranking an already mature upward move as an early accumulation opportun
 - Above percentile 75, the penalty increases linearly by percentile rank, reaching 15 points at percentile 95 and remaining capped at 15 thereafter.
 - **If the weekly long-period VFI EMA is above zero, subtract an additional 25 points.** This is intentionally a very strong warning that the long-term flow is already positive, which is inconsistent with the desired early-accumulation setup. EMA equal to zero does not trigger it.
 
-All historical comparisons use prior bars only and exclude the current observation from the reference distribution. The report exposes the VFI historical percentile, extension penalty, long-EMA-positive flag and its penalty, and total penalty. The final score subtracts trend-loss, relative VFI extension and positive long-EMA penalties from the gross score, clipped to 0–100. These penalties lower ranking points but do not replace the strict weekly and daily eligibility gates.
+All historical comparisons use prior bars only and exclude the current observation from the reference distribution. The report exposes the VFI historical percentile, extension penalty, long-EMA-positive flag and its penalty, each of the three EMA bearish crossover flags/penalties, and total penalty. The final score subtracts trend-loss, relative VFI extension and positive long-EMA penalties from the gross score, clipped to 0–100. These penalties lower ranking points but do not replace the strict weekly and daily eligibility gates.
 
 **Score and eligibility are different.** `Accumulation_Score` orders research candidates; `Eligible=True` is only assigned when both strict weekly and daily filters pass. A high score alone is not a signal or a probability of profit. Because 64 EMA combinations are searched, the selected combination is a research choice and should be checked out-of-sample before use.
 
