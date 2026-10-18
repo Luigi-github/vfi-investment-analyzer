@@ -137,10 +137,16 @@ def _indicator_state(value: float, slope: float, value_history: pd.Series,
     proximity = _clip01(1.0 - abs(value) / threshold) if (
         np.isfinite(threshold) and threshold > 0 and np.isfinite(value) and value < 0
     ) else 0.0
-    # The score rewards a positive slope relative to the asset's own past, but
-    # the hard gate still requires an actually positive slope.
+    # Positive slope is useful for this early-accumulation thesis only while
+    # the indicator is still negative and in its asset-specific near-zero zone.
+    # This prevents already-positive/high indicators from winning on slope alone.
     slope_strength = _clip01((slope_percentile - 0.35) / 0.65)
-    score = 5.0 * float(negative) + 10.0 * max(proximity, 0.5 * float(near_zero)) + 10.0 * slope_strength
+    near_zero_weight = max(proximity, 0.5 * float(near_zero))
+    score = (
+        5.0 * float(negative)
+        + 10.0 * near_zero_weight
+        + 10.0 * slope_strength * float(near_zero)
+    )
     return {
         "negative": negative, "near_zero": near_zero,
         "slope_positive": slope_positive, "threshold": threshold,
