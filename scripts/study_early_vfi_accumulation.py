@@ -155,6 +155,42 @@ def _indicator_state(value: float, slope: float, value_history: pd.Series,
     }
 
 
+def vfi_positive_extension_penalty(
+    current_vfi: float,
+    vfi_history: pd.Series,
+    lookback: int = WEEKLY_LOOKBACK,
+    min_periods: int = MIN_WEEKLY_BASELINE,
+) -> dict:
+    """Penalize a positive VFI that is unusually high vs the asset's own past.
+
+    Uses prior absolute VFI values only. No penalty is applied while VFI is
+    negative or at/below the prior 75th percentile of absolute VFI. Above that
+    threshold, the penalty rises linearly to 15 points at the prior 95th
+    percentile and remains capped there. This is a ranking penalty, not a gate.
+    """
+    prior = _clean_history(vfi_history).iloc[:-1].tail(lookback).abs()
+    result = {
+        "VFI_Positive_Extended": False,
+        "VFI_Extension_Threshold": float("nan"),
+        "VFI_Extreme_Threshold": float("nan"),
+        "VFI_Positive_Extension_Penalty": 0.0,
+    }
+    if not np.isfinite(current_vfi) or current_vfi <= 0 or len(prior) < min_periods:
+        return result
+
+    threshold = float(prior.quantile(0.75))
+    extreme = float(prior.quantile(0.95))
+    result["VFI_Extension_Threshold"] = threshold
+    result["VFI_Extreme_Threshold"] = extreme
+    if not np.isfinite(threshold) or not np.isfinite(extreme) or extreme <= threshold:
+        return result
+
+    result["VFI_Positive_Extended"] = bool(current_vfi > threshold)
+    penalty = 15.0 * float(np.clip((current_vfi - threshold) / (extreme - threshold), 0.0, 1.0))
+    result["VFI_Positive_Extension_Penalty"] = penalty
+    return result
+
+
 def weekly_vfi_trend_penalty(weekly_with_emas: pd.DataFrame) -> dict:
     """Penalize a recent bearish short/medium EMA recross and loss of VFI upslope.
 
@@ -244,11 +280,18 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     # A bearish recross and a confirmed loss of the VFI upslope reduce the
     # gross accumulation score. These are separate from eligibility gates.
     trend_penalty = weekly_vfi_trend_penalty(w)
+    extension_penalty = vfi_positive_extension_penalty(
+        weekly_value, w["VFI"], WEEKLY_LOOKBACK, MIN_WEEKLY_BASELINE
+    )
     gross_score = (
         w_state["score"] + weekly_ema_score + d_state["score"]
         + daily_ema_score + persistence_score
     )
-    score = float(np.clip(gross_score - trend_penalty["Weekly_Trend_Penalty"], 0, 100))
+    total_penalty = (
+        trend_penalty["Weekly_Trend_Penalty"]
+        + extension_penalty["VFI_Positive_Extension_Penalty"]
+    )
+    score = float(np.clip(gross_score - total_penalty, 0, 100))
 
     return {
         "Symbol": symbol, "EMA_short": short, "EMA_medium": medium, "EMA_long": long,
@@ -287,6 +330,11 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         "Weekly_EMA_Bearish_Recross_Penalty": trend_penalty["Weekly_EMA_Bearish_Recross_Penalty"],
         "VFI_Uptrend_Loss_Penalty": trend_penalty["VFI_Uptrend_Loss_Penalty"],
         "Weekly_Trend_Penalty": trend_penalty["Weekly_Trend_Penalty"],
+        "VFI_Positive_Extended": extension_penalty["VFI_Positive_Extended"],
+        "VFI_Extension_Threshold": extension_penalty["VFI_Extension_Threshold"],
+        "VFI_Extreme_Threshold": extension_penalty["VFI_Extreme_Threshold"],
+        "VFI_Positive_Extension_Penalty": round(extension_penalty["VFI_Positive_Extension_Penalty"], 4),
+        "Total_Score_Penalty": round(total_penalty, 4),
         "Accumulation_Score": round(score, 4),
         "Final_Filter_Pass": bool(weekly_pass and daily_pass),
     }
@@ -318,6 +366,11 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
             "Weekly_EMA_Bearish_Recross_Penalty": float(best["Weekly_EMA_Bearish_Recross_Penalty"]),
             "VFI_Uptrend_Loss_Penalty": float(best["VFI_Uptrend_Loss_Penalty"]),
             "Weekly_Trend_Penalty": float(best["Weekly_Trend_Penalty"]),
+            "VFI_Positive_Extended": bool(best["VFI_Positive_Extended"]),
+            "VFI_Extension_Threshold": best["VFI_Extension_Threshold"],
+            "VFI_Extreme_Threshold": best["VFI_Extreme_Threshold"],
+            "VFI_Positive_Extension_Penalty": float(best["VFI_Positive_Extension_Penalty"]),
+            "Total_Score_Penalty": float(best["Total_Score_Penalty"]),
             "Weekly_Combos_Passing": int(group["Weekly_Filter_Pass"].sum()),
             "Daily_Combos_Passing": int(group["Daily_Filter_Pass"].sum()),
             "Final_Combos_Passing": int(group["Final_Filter_Pass"].sum()),
