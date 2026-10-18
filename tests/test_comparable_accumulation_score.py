@@ -114,24 +114,31 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             "VFI": [-3.0, -2.5, -2.0, -1.5, -1.6],
             "EMA_short": [-2.8, -2.3, -1.8, -1.4, -1.7],
             "EMA_medium": [-3.0, -2.4, -1.9, -1.5, -1.6],
+            "EMA_long": [-3.5, -3.0, -2.8, -2.0, -1.8],
             "Indicator_Slope_1Bar": [0.2, 0.5, 0.5, 0.5, -0.1],
         })
         penalty = weekly_vfi_trend_penalty(frame)
         self.assertTrue(penalty["Weekly_EMA_Bearish_Recross"])
         self.assertTrue(penalty["VFI_Uptrend_Lost"])
-        self.assertEqual(penalty["Weekly_EMA_Bearish_Recross_Penalty"], 8.0)
+        self.assertEqual(penalty["Weekly_EMA_Short_Medium_Cross_Penalty"], 20.0)
+        self.assertEqual(penalty["Weekly_EMA_Short_Long_Cross_Penalty"], 20.0)
+        self.assertEqual(penalty["Weekly_EMA_Medium_Long_Cross_Penalty"], 0.0)
+        self.assertEqual(penalty["Weekly_EMA_Bearish_Recross_Penalty"], 40.0)
         self.assertEqual(penalty["VFI_Uptrend_Loss_Penalty"], 7.0)
-        self.assertEqual(penalty["Weekly_Trend_Penalty"], 15.0)
+        self.assertEqual(penalty["Weekly_Trend_Penalty"], 47.0)
 
     def test_no_trend_penalty_when_no_bearish_recross_or_uptrend_loss(self):
         frame = pd.DataFrame({
             "VFI": [-3.0, -2.8, -2.6, -2.4, -2.2],
             "EMA_short": [-2.9, -2.7, -2.5, -2.3, -2.1],
             "EMA_medium": [-3.1, -2.9, -2.7, -2.5, -2.3],
+            "EMA_long": [-3.5, -3.2, -3.0, -2.8, -2.6],
             "Indicator_Slope_1Bar": [0.2, 0.2, 0.2, 0.2, 0.2],
         })
         penalty = weekly_vfi_trend_penalty(frame)
         self.assertFalse(penalty["Weekly_EMA_Bearish_Recross"])
+        self.assertFalse(penalty["Weekly_EMA_Short_Below_Long_Recross"])
+        self.assertFalse(penalty["Weekly_EMA_Medium_Below_Long_Recross"])
         self.assertFalse(penalty["VFI_Uptrend_Lost"])
         self.assertEqual(penalty["Weekly_Trend_Penalty"], 0.0)
 
@@ -143,8 +150,15 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
                 "Weekly_State_Score": 20.0, "Weekly_EMA_Score": 15.0,
                 "Daily_Divergence_Score": 20.0, "Daily_EMA_Score": 10.0,
                 "Persistence_Score": 10.0, "Gross_Accumulation_Score": score,
-                "Weekly_EMA_Bearish_Recross": False, "VFI_Uptrend_Lost": False,
+                "Weekly_EMA_Bearish_Recross": False,
+                "Weekly_EMA_Short_Below_Medium_Recross": False,
+                "Weekly_EMA_Short_Below_Long_Recross": False,
+                "Weekly_EMA_Medium_Below_Long_Recross": False,
+                "VFI_Uptrend_Lost": False,
                 "Weekly_EMA_Bearish_Recross_Penalty": 0.0,
+                "Weekly_EMA_Short_Medium_Cross_Penalty": 0.0,
+                "Weekly_EMA_Short_Long_Cross_Penalty": 0.0,
+                "Weekly_EMA_Medium_Long_Cross_Penalty": 0.0,
                 "VFI_Uptrend_Loss_Penalty": 0.0, "Weekly_Trend_Penalty": 0.0,
                 "VFI_Positive_Extended": False, "VFI_Historical_Percentile": 0.5,
                 "VFI_Extension_Threshold": 1.0, "VFI_Extreme_Threshold": 2.0,
