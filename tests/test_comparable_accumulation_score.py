@@ -6,6 +6,7 @@ import pandas as pd
 
 from scripts.study_early_vfi_accumulation import (
     build_asset_summary,
+    _indicator_state,
     ema_combinations,
     historical_near_zero_threshold,
     historical_percentile,
@@ -25,6 +26,17 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
         b = historical_near_zero_threshold(pd.concat([prior, pd.Series([1_000_000.0])]), 200, 50)
         self.assertTrue(np.isclose(a, b))
         self.assertGreater(a, 0)
+
+    def test_positive_indicator_cannot_earn_early_accumulation_slope_points(self):
+        history = pd.Series(np.arange(1.0, 201.0))
+        slopes = pd.Series(np.arange(1.0, 201.0))
+        state = _indicator_state(
+            value=100.0, slope=200.0, value_history=history, slope_history=slopes,
+            lookback=252, min_periods=100,
+        )
+        self.assertFalse(state["negative"])
+        self.assertFalse(state["near_zero"])
+        self.assertEqual(state["score"], 0.0)
 
     def test_historical_percentile_excludes_current_observation(self):
         prior = pd.Series(np.arange(100.0))
