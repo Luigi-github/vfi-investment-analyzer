@@ -14,6 +14,7 @@ on:
       - "scripts/study_early_vfi_accumulation.py"
       - "tests/test_ema_optimization.py"
       - "tests/test_daily_volume_divergence_ema.py"
+      - "tests/test_comparable_accumulation_score.py"
       - ".github/workflows/ema-optimization.yml"
       - "app/indicators/vfi.py"
       - "app/indicators/volume_divergence_mm.py"
@@ -39,6 +40,7 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_ema_optimization.py" -v
           python -m unittest discover -s tests -p "test_daily_volume_divergence_ema.py" -v
+          python -m unittest discover -s tests -p "test_comparable_accumulation_score.py" -v
       - name: Run weekly EMA optimization
         env:
           EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'DDD,INTC,NVDA,BTC-USD,EC,CIB,MSFT,EEM,SQM,LTC-USD,AU,SPY,AMZN,PBR,NU,QQQ,ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL' }}
