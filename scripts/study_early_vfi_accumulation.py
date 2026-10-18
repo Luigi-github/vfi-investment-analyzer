@@ -361,6 +361,8 @@ def main(argv=None):
         output / "early_vfi_accumulation_errors.csv", index=False
     )
     print(f"Reports written to: {output}")
+    qualified_count = int(summary["Eligible"].sum()) if rows else 0
+    print(f"Qualified assets (strict weekly + daily filters): {qualified_count}")
     print(f"Assets scanned: {len(set(r['Symbol'] for r in rows))}; EMA combinations per asset: {len(ema_combinations())}")
     print("Score is comparative, not a probability of profit.")
     print("Use Eligible=True for strict weekly + daily confirmation; diagnostic rows are not qualified signals.")
