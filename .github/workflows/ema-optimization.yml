@@ -12,6 +12,7 @@ on:
       - "scripts/optimize_ema_periods.py"
       - "scripts/optimize_daily_volume_divergence_ema.py"
       - "scripts/study_early_vfi_accumulation.py"
+      - "scripts/tune_early_accumulation_score_weights.py"
       - "tests/test_ema_optimization.py"
       - "tests/test_daily_volume_divergence_ema.py"
       - "tests/test_comparable_accumulation_score.py"
@@ -26,7 +27,7 @@ permissions:
 jobs:
   optimize:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -53,6 +54,10 @@ jobs:
         env:
           EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'DDD,INTC,NVDA,BTC-USD,EC,CIB,MSFT,EEM,SQM,LTC-USD,AU,SPY,AMZN,PBR,NU,QQQ,ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL' }}
         run: python scripts/optimize_daily_volume_divergence_ema.py --symbols "$EMA_SYMBOLS"
+      - name: Tune historical accumulation score weights (70% train / 30% holdout)
+        env:
+          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'DDD,INTC,NVDA,BTC-USD,EC,CIB,MSFT,EEM,SQM,LTC-USD,AU,SPY,AMZN,PBR,NU,QQQ,ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL' }}
+        run: python scripts/tune_early_accumulation_score_weights.py --symbols "$EMA_SYMBOLS" --max-candidates 600
       - name: Upload research reports
         if: always()
         uses: actions/upload-artifact@v4
@@ -62,5 +67,6 @@ jobs:
             reports/ema_optimization/
             reports/daily_volume_divergence_ema/
             reports/early_vfi_accumulation/
+            reports/score_weight_tuning/
           if-no-files-found: warn
           retention-days: 30
