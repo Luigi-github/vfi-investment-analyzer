@@ -25,9 +25,10 @@ permissions:
   contents: read
 
 jobs:
-  optimize:
+  ema_optimization:
+    name: EMA optimization and tests
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 90
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -44,29 +45,71 @@ jobs:
           python -m unittest discover -s tests -p "test_comparable_accumulation_score.py" -v
       - name: Run weekly EMA optimization
         env:
-          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,AMD,MU,INTC,ORCL,PLTR,CRM,NFLX,QCOM,TXN,AMAT,LRCX,KLAC,ASML,ARM,TSM,DELL,ANET,CSCO,IBM,NOW,PANW,CRWD,SNPS,CDNS,ADI,MRVL,ON,JPM,BAC,WFC,C,GS,MS,SCHW,COIN,HOOD,SOFI,NU,V,MA,PYPL,AXP,BLK,BX,KKR,PNC,USB,XOM,CVX,COP,SLB,OXY,FANG,PSX,VLO,WMT,COST,TGT,HD,LOW,NKE,MCD,SBUX,KO,PEP,PG,CVS,UNH,LLY,JNJ,MRK,ABBV,PFE,AMGN,ISRG,ABT,CAT,GE,RTX,LMT,BA,F,GM,UBER,DASH,ABNB,DIS,T,VZ,TMUS,BABA' }}
+          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,AMD,MU,INTC,ORCL,PLTR,CRM,NFLX,QCOM,TXN,AMAT,LRCX,KLAC,ASML,ARM,TSM,DELL,ANET,CSCO,IBM,NOW,PANW,CRWD,SNPS,CDNS,ADI,MRVL,ON,JPM,BAC,WFC,C,GS,MS,SCHW,COIN,HOOD,SOFI,NU,V,MA,PYPL,AXP,BLK,BX,KKR,PNC,USB,XOM,CVX,COP,SLB,OXY,FANG,PSX,VLO,WMT,COST,TGT,HD,LOW,NKE,MCD,SBUX,KO,PEP,PG,CVS,UNH,LLY,JNJ,MRK,ABBV,PFE,AMGN,ISRG,ABT,CAT,GE,RTX,LMT,BA,F,GM,UBER,DASH,ABNB,DIS,T,VZ,TMUS,BABA,SPOT' }}
         run: python scripts/optimize_ema_periods.py --symbols "$EMA_SYMBOLS"
-      - name: Run early VFI accumulation scan (EMA on VFI 130)
-        env:
-          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,AMD,MU,INTC,ORCL,PLTR,CRM,NFLX,QCOM,TXN,AMAT,LRCX,KLAC,ASML,ARM,TSM,DELL,ANET,CSCO,IBM,NOW,PANW,CRWD,SNPS,CDNS,ADI,MRVL,ON,JPM,BAC,WFC,C,GS,MS,SCHW,COIN,HOOD,SOFI,NU,V,MA,PYPL,AXP,BLK,BX,KKR,PNC,USB,XOM,CVX,COP,SLB,OXY,FANG,PSX,VLO,WMT,COST,TGT,HD,LOW,NKE,MCD,SBUX,KO,PEP,PG,CVS,UNH,LLY,JNJ,MRK,ABBV,PFE,AMGN,ISRG,ABT,CAT,GE,RTX,LMT,BA,F,GM,UBER,DASH,ABNB,DIS,T,VZ,TMUS,BABA' }}
-        run: python scripts/study_early_vfi_accumulation.py --symbols "$EMA_SYMBOLS"
       - name: Run daily Volume Divergence + EMA optimization
         env:
-          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,AMD,MU,INTC,ORCL,PLTR,CRM,NFLX,QCOM,TXN,AMAT,LRCX,KLAC,ASML,ARM,TSM,DELL,ANET,CSCO,IBM,NOW,PANW,CRWD,SNPS,CDNS,ADI,MRVL,ON,JPM,BAC,WFC,C,GS,MS,SCHW,COIN,HOOD,SOFI,NU,V,MA,PYPL,AXP,BLK,BX,KKR,PNC,USB,XOM,CVX,COP,SLB,OXY,FANG,PSX,VLO,WMT,COST,TGT,HD,LOW,NKE,MCD,SBUX,KO,PEP,PG,CVS,UNH,LLY,JNJ,MRK,ABBV,PFE,AMGN,ISRG,ABT,CAT,GE,RTX,LMT,BA,F,GM,UBER,DASH,ABNB,DIS,T,VZ,TMUS,BABA' }}
+          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,AMD,MU,INTC,ORCL,PLTR,CRM,NFLX,QCOM,TXN,AMAT,LRCX,KLAC,ASML,ARM,TSM,DELL,ANET,CSCO,IBM,NOW,PANW,CRWD,SNPS,CDNS,ADI,MRVL,ON,JPM,BAC,WFC,C,GS,MS,SCHW,COIN,HOOD,SOFI,NU,V,MA,PYPL,AXP,BLK,BX,KKR,PNC,USB,XOM,CVX,COP,SLB,OXY,FANG,PSX,VLO,WMT,COST,TGT,HD,LOW,NKE,MCD,SBUX,KO,PEP,PG,CVS,UNH,LLY,JNJ,MRK,ABBV,PFE,AMGN,ISRG,ABT,CAT,GE,RTX,LMT,BA,F,GM,UBER,DASH,ABNB,DIS,T,VZ,TMUS,BABA,SPOT' }}
         run: python scripts/optimize_daily_volume_divergence_ema.py --symbols "$EMA_SYMBOLS"
-      - name: Tune historical accumulation score weights (70% train / 30% holdout)
-        env:
-          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,AMD,MU,INTC,ORCL,PLTR,CRM,NFLX,QCOM,TXN,AMAT,LRCX,KLAC,ASML,ARM,TSM,DELL,ANET,CSCO,IBM,NOW,PANW,CRWD,SNPS,CDNS,ADI,MRVL,ON,JPM,BAC,WFC,C,GS,MS,SCHW,COIN,HOOD,SOFI,NU,V,MA,PYPL,AXP,BLK,BX,KKR,PNC,USB,XOM,CVX,COP,SLB,OXY,FANG,PSX,VLO,WMT,COST,TGT,HD,LOW,NKE,MCD,SBUX,KO,PEP,PG,CVS,UNH,LLY,JNJ,MRK,ABBV,PFE,AMGN,ISRG,ABT,CAT,GE,RTX,LMT,BA,F,GM,UBER,DASH,ABNB,DIS,T,VZ,TMUS,BABA' }}
-        run: python scripts/tune_early_accumulation_score_weights.py --symbols "$EMA_SYMBOLS" --max-candidates 600
-      - name: Upload research reports
+      - name: Upload EMA optimization reports
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: weekly-daily-ema-optimization-reports
+          name: ema-optimization-100-us-stocks
           path: |
             reports/ema_optimization/
             reports/daily_volume_divergence_ema/
-            reports/early_vfi_accumulation/
-            reports/score_weight_tuning/
+          if-no-files-found: warn
+          retention-days: 30
+
+  baseline_vfi_scan:
+    name: System A — original baseline weights
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Run baseline early-accumulation ranking
+        env:
+          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,AMD,MU,INTC,ORCL,PLTR,CRM,NFLX,QCOM,TXN,AMAT,LRCX,KLAC,ASML,ARM,TSM,DELL,ANET,CSCO,IBM,NOW,PANW,CRWD,SNPS,CDNS,ADI,MRVL,ON,JPM,BAC,WFC,C,GS,MS,SCHW,COIN,HOOD,SOFI,NU,V,MA,PYPL,AXP,BLK,BX,KKR,PNC,USB,XOM,CVX,COP,SLB,OXY,FANG,PSX,VLO,WMT,COST,TGT,HD,LOW,NKE,MCD,SBUX,KO,PEP,PG,CVS,UNH,LLY,JNJ,MRK,ABBV,PFE,AMGN,ISRG,ABT,CAT,GE,RTX,LMT,BA,F,GM,UBER,DASH,ABNB,DIS,T,VZ,TMUS,BABA,SPOT' }}
+        run: python scripts/study_early_vfi_accumulation.py --symbols "$EMA_SYMBOLS"
+      - name: Upload System A ranking
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-a-baseline-ranking-100-us-stocks
+          path: reports/early_vfi_accumulation/
+          if-no-files-found: warn
+          retention-days: 30
+
+  experimental_weight_tuning:
+    name: System B — experimental optimized weights
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Tune weights using historical train/holdout split
+        env:
+          EMA_SYMBOLS: ${{ github.event.inputs.symbols || 'AAPL,MSFT,NVDA,AMZN,META,GOOGL,TSLA,AVGO,AMD,MU,INTC,ORCL,PLTR,CRM,NFLX,QCOM,TXN,AMAT,LRCX,KLAC,ASML,ARM,TSM,DELL,ANET,CSCO,IBM,NOW,PANW,CRWD,SNPS,CDNS,ADI,MRVL,ON,JPM,BAC,WFC,C,GS,MS,SCHW,COIN,HOOD,SOFI,NU,V,MA,PYPL,AXP,BLK,BX,KKR,PNC,USB,XOM,CVX,COP,SLB,OXY,FANG,PSX,VLO,WMT,COST,TGT,HD,LOW,NKE,MCD,SBUX,KO,PEP,PG,CVS,UNH,LLY,JNJ,MRK,ABBV,PFE,AMGN,ISRG,ABT,CAT,GE,RTX,LMT,BA,F,GM,UBER,DASH,ABNB,DIS,T,VZ,TMUS,BABA,SPOT' }}
+        run: python scripts/tune_early_accumulation_score_weights.py --symbols "$EMA_SYMBOLS" --max-candidates 600
+      - name: Upload System B tuning and ranking reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: system-b-experimental-ranking-100-us-stocks
+          path: reports/score_weight_tuning/
           if-no-files-found: warn
           retention-days: 30
