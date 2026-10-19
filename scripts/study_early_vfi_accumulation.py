@@ -321,7 +321,9 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         + extension_penalty["VFI_Positive_Extension_Penalty"]
         + long_ema_penalty["VFI_Long_EMA_Positive_Penalty"]
     )
-    score = float(np.clip(gross_score - total_penalty, 0, 100))
+    # Preserve negative scores so deductions can still distinguish weak assets;
+    # no score-based eligibility gate is applied.
+    score = float(np.clip(gross_score - total_penalty, -100, 100))
 
     return {
         "Symbol": symbol, "EMA_short": short, "EMA_medium": medium, "EMA_long": long,
