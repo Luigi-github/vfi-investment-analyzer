@@ -212,10 +212,17 @@ def main():
     best_train = metrics(train, score_features(train, best), "train")
     best_test = metrics(holdout, score_features(holdout, best), "holdout")
     ranked.to_csv(out / "weight_search_training_rank.csv", index=False)
-    pd.DataFrame([
-        {"Configuration": "BASELINE", **baseline, **baseline_train, **baseline_test},
-        {"Configuration": "OPTIMIZED_TRAIN_ONLY", **best, **best_train, **best_test},
-    ]).to_csv(out / "baseline_vs_optimized.csv", index=False)
+    comparison_rows = []
+    for label, weights, train_metrics, holdout_metrics in (
+        ("BASELINE", baseline, baseline_train, baseline_test),
+        ("OPTIMIZED_TRAIN_ONLY", best, best_train, best_test),
+    ):
+        comparison_rows.append({
+            "Configuration": label, **weights,
+            **{f"Train_{k}": v for k, v in train_metrics.items() if k != "Split"},
+            **{f"Holdout_{k}": v for k, v in holdout_metrics.items() if k != "Split"},
+        })
+    pd.DataFrame(comparison_rows).to_csv(out / "baseline_vs_optimized.csv", index=False)
     holdout_scored = holdout.copy()
     holdout_scored["Baseline_Score"] = score_features(holdout_scored, baseline)
     holdout_scored["Optimized_Score"] = score_features(holdout_scored, best)
