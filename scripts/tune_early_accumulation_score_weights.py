@@ -115,7 +115,9 @@ def build_asset_rows(symbol, daily):
     feat["Forward_Return_40D_Pct"] = (close.shift(-HORIZON) / close - 1.0) * 100.0 - COST_PCT
     feat["Date"] = idx
     feat["Symbol"] = symbol
-    feat = feat.replace([np.inf, -np.inf], np.nan).dropna(subset=FEATURES + ["Forward_Return_40D_Pct"])
+    # Keep the most recent feature snapshots even though their 40-day forward
+    # return is not observable yet. They are used for the current ranking only.
+    feat = feat.replace([np.inf, -np.inf], np.nan).dropna(subset=FEATURES)
     return feat.reset_index(drop=True)
 
 
@@ -187,8 +189,9 @@ def main():
     if not all_rows:
         raise RuntimeError("No assets produced usable historical snapshots.")
     data = pd.concat(all_rows, ignore_index=True)
-    train = data[data["Split"] == "train"].copy()
-    holdout = data[data["Split"] == "holdout"].copy()
+    labeled = data[data["Forward_Return_40D_Pct"].notna()].copy()
+    train = labeled[labeled["Split"] == "train"].copy()
+    holdout = labeled[labeled["Split"] == "holdout"].copy()
     if train.empty or holdout.empty:
         raise RuntimeError("Training or holdout split is empty.")
     baseline = {"vfi_early": 20, "vfi_slope": 15, "div_early": 20, "div_slope": 15,
