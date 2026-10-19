@@ -57,9 +57,7 @@ def _features(series, slope_bars, window, near_q=0.30):
     s = pd.to_numeric(series, errors="coerce").astype(float)
     min_periods = max(30, window // 3)
     prior_abs = s.abs().shift(1).rolling(window, min_periods=min_periods)
-    near_threshold = prior_abs.apply(
-        lambda x: np.nanquantile(x, near_q) if np.isfinite(x).sum() >= min_periods else np.nan,
-        raw=True)
+    near_threshold = prior_abs.quantile(near_q)
     scale = s.shift(1).rolling(window, min_periods=min_periods).std()
     proximity = _unit(1 - (s.abs() / near_threshold.replace(0, np.nan)))
     early = np.where(s < 0, proximity, 0.0)
