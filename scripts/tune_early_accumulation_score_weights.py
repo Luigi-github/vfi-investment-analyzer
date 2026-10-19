@@ -89,23 +89,26 @@ def build_asset_rows(symbol, daily):
     divergence = VolumeDivergenceMM().calculate(daily)["Volume_Divergence_MM"].dropna()
     if len(weekly) < 90 or len(divergence) < MIN_ROWS_ASSET:
         raise ValueError(f"insufficient history: weekly VFI={len(weekly)}, daily divergence={len(divergence)}")
+    # Calculate weekly features on weekly bars first, then carry the latest
+    # completed weekly value into daily snapshots. This preserves a true weekly slope.
+    wf_weekly = _features(weekly, slope_bars=4, window=156)
     weekly_daily = weekly.reindex(daily.index, method="ffill")
-    wf = _features(weekly_daily, slope_bars=4, window=156)
-    df = _features(divergence, slope_bars=5, window=252)
+    wf = wf_weekly.reindex(daily.index, method="ffill")
+    df = _features(divergence, slope_bars=5, window=252).reindex(daily.index, method="ffill")
     idx = daily.index
     feat = pd.DataFrame(index=idx)
-    feat["vfi_early"] = wf["early"].reindex(idx)
-    feat["vfi_slope"] = wf["slope"].reindex(idx)
-    feat["div_early"] = df["early"].reindex(idx)
-    feat["div_slope"] = df["slope"].reindex(idx)
-    feat["ema_structure"] = 0.5 * wf["ema"].reindex(idx) + 0.5 * df["ema"].reindex(idx)
-    feat["persistence"] = 0.5 * wf["persistence"].reindex(idx) + 0.5 * df["persistence"].reindex(idx)
-    feat["extension_penalty"] = wf["extension"].reindex(idx)
+    feat["vfi_early"] = wf["early"]
+    feat["vfi_slope"] = wf["slope"]
+    feat["div_early"] = df["early"]
+    feat["div_slope"] = df["slope"]
+    feat["ema_structure"] = 0.5 * wf["ema"] + 0.5 * df["ema"]
+    feat["persistence"] = 0.5 * wf["persistence"] + 0.5 * df["persistence"]
+    feat["extension_penalty"] = wf["extension"]
     feat["bearish_penalty"] = 0.5 * (
-        (wf["raw_slope"] < 0).astype(float).reindex(idx)
-        + (df["raw_slope"] < 0).astype(float).reindex(idx))
+        (wf["raw_slope"] < 0).astype(float)
+        + (df["raw_slope"] < 0).astype(float))
     feat["VFI_130"] = weekly_daily
-    feat["VFI_Slope_1W"] = wf["raw_slope"].reindex(idx)
+    feat["VFI_Slope_1W"] = wf["raw_slope"]
     feat["Volume_Divergence_MM"] = divergence.reindex(idx)
     feat["Volume_Div_Slope_5D"] = df["raw_slope"].reindex(idx)
     close = daily["Close"].astype(float)
