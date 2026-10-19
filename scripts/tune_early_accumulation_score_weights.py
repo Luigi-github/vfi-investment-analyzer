@@ -142,6 +142,13 @@ def metrics(frame, score, split):
         "Top20_Win_Rate_40D_Pct": float((top["Forward_Return_40D_Pct"] > 0).mean() * 100),
         "Top20_Asset_Balanced_Mean_40D_Pct": float(by_asset.mean()) if len(by_asset) else np.nan,
         "Spearman_Score_Return": float(x[["Score", "Forward_Return_40D_Pct"]].corr(method="spearman").iloc[0, 1]),
+        # Balance average/asset-balanced returns with win-rate robustness so one
+        # exceptional asset cannot dominate weight selection.
+        "Selection_Objective_Score": float(
+            0.5 * top["Forward_Return_40D_Pct"].mean()
+            + 0.5 * by_asset.mean()
+            + 0.1 * ((top["Forward_Return_40D_Pct"] > 0).mean() * 100 - 50)
+        ) if len(by_asset) else np.nan,
     }
 
 
@@ -209,7 +216,7 @@ def main():
         m = metrics(train, score_features(train, weights), "train")
         results.append({**weights, **m})
     ranked = pd.DataFrame(results).sort_values(
-        ["Top20_Asset_Balanced_Mean_40D_Pct", "Top20_Win_Rate_40D_Pct", "Spearman_Score_Return"],
+        ["Selection_Objective_Score", "Top20_Median_Return_40D_Pct", "Spearman_Score_Return"],
         ascending=False, na_position="last").reset_index(drop=True)
     ranked.insert(0, "Train_Rank", np.arange(1, len(ranked) + 1))
     best = {k: float(ranked.iloc[0][k]) for k in FEATURES}
@@ -244,7 +251,7 @@ def main():
         "baseline_weights": baseline, "optimized_weights": best,
         "baseline_train": baseline_train, "baseline_holdout": baseline_test,
         "optimized_train": best_train, "optimized_holdout": best_test,
-        "selection_objective": "maximize training top-20%-score asset-balanced mean 40-trading-day forward return; tie-break on win rate and score/return rank correlation",
+        "selection_objective": "maximize a training-only robust objective: 50% top-20% mean forward return + 50% asset-balanced mean forward return + 0.1 times the top-20% win-rate percentage-point excess over 50%; tie-break on median return and score/return rank correlation",
         "caveat": "Weights can overfit the finite example universe. Holdout is a historical test, not a guarantee. Score ranks all assets without excluding them.",
     }
     (out / "metadata.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
