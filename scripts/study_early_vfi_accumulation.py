@@ -383,12 +383,13 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
     """Choose the strongest combo per asset; eligibility is never inferred from score."""
     summaries = []
     for symbol, group in all_combos.groupby("Symbol", sort=False):
-        # Prioritize a qualified combo, then score; nonqualified rows are diagnostic only.
+        # Do not gate or prioritize assets by a binary pass/fail flag.
+        # Choose the highest-scoring EMA combination; retain pass flags as diagnostics.
         ranked = group.sort_values(
-            ["Final_Filter_Pass", "Accumulation_Score",
+            ["Accumulation_Score",
              "VFI_Negative_Positive_Slope_Streak_Weeks",
              "Divergence_Negative_Positive_Slope_Streak_Days"],
-            ascending=[False, False, False, False],
+            ascending=[False, False, False],
         )
         best = ranked.iloc[0]
         summaries.append({
@@ -454,8 +455,8 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
             summary["Accumulation_Score"].rank(method="average", pct=True) * 100
         ).round(2)
         summary = summary.sort_values(
-            ["Eligible", "Accumulation_Score", "Rank"],
-            ascending=[False, False, True],
+            ["Accumulation_Score", "Rank"],
+            ascending=[False, True],
         ).reset_index(drop=True)
     return summary
 
@@ -527,10 +528,10 @@ def main(argv=None):
     )
     print(f"Reports written to: {output}")
     qualified_count = int(summary["Eligible"].sum()) if rows else 0
-    print(f"Qualified assets (strict weekly + daily filters): {qualified_count}")
-    print(f"Assets scanned: {len(set(r['Symbol'] for r in rows))}; EMA combinations per asset: {len(ema_combinations())}")
+    print(f"Assets with diagnostic weekly + daily pass flags: {qualified_count}")
+    print(f"Assets ranked: {len(set(r['Symbol'] for r in rows))}; EMA combinations per asset: {len(ema_combinations())}")
+    print("All assets are ranked by score; pass/fail columns are diagnostics only, not filters.")
     print("Score is comparative, not a probability of profit.")
-    print("Use Eligible=True for strict weekly + daily confirmation; diagnostic rows are not qualified signals.")
 
 
 if __name__ == "__main__":
