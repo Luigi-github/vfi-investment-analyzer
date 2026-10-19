@@ -152,7 +152,9 @@ def candidate_weights():
                 "div_slope": dslope, "ema_structure": ema, "persistence": persistence}
         if sum(vals.values()) != 100:
             continue
-        for extension, bearish in itertools.product((5, 10, 15, 20, 25), (0, 5, 10, 15)):
+        # Preserve the strategy's intended behavior: positive VFI extension and
+        # negative slopes must always carry a meaningful deduction.
+        for extension, bearish in itertools.product((10, 15, 20, 25), (5, 10, 15, 20)):
             yield {**vals, "extension_penalty": extension, "bearish_penalty": bearish}
 
 
