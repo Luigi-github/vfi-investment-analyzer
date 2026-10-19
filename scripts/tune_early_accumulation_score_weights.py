@@ -63,7 +63,9 @@ def _features(series, slope_bars, window, near_q=0.30):
     early = np.where(s < 0, proximity, 0.0)
     slope = (s - s.shift(slope_bars)) / slope_bars
     slope_scale = scale / max(1, np.sqrt(slope_bars))
-    slope_strength = _unit(0.5 + 0.5 * (slope / slope_scale.replace(0, np.nan)))
+    # Zero slope earns zero points; positive slopes add points, while negative
+    # slopes are deducted separately by the bearish-penalty feature.
+    slope_strength = _unit(slope / slope_scale.replace(0, np.nan))
     slope_feature = np.where(s < 0, slope_strength, 0.0)
     extension = _unit(s.clip(lower=0) / (scale.replace(0, np.nan) * 2.0))
     e5 = s.ewm(span=5, adjust=False, min_periods=5).mean()
