@@ -114,7 +114,7 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             "VFI": [-3.0, -2.5, -2.0, -1.5, -1.6],
             "EMA_short": [-2.8, -2.3, -1.8, -1.4, -1.7],
             "EMA_medium": [-3.0, -2.4, -1.9, -1.5, -1.6],
-            "EMA_long": [-3.5, -3.0, -2.8, -2.0, -1.8],
+            "EMA_long": [-3.5, -3.0, -2.8, -2.0, -1.65],
             "Indicator_Slope_1Bar": [0.2, 0.5, 0.5, 0.5, -0.1],
         })
         penalty = weekly_vfi_trend_penalty(frame)
