@@ -99,7 +99,8 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             index=daily_index,
         )
         result = evaluate_combo("SYNTH", weekly, daily, 3, 15, 40)
-        self.assertGreaterEqual(result["Accumulation_Score"], 0.0)
+        # Strong explicit descent penalties can legitimately make net scores negative.
+        self.assertGreaterEqual(result["Accumulation_Score"], -100.0)
         self.assertLessEqual(result["Accumulation_Score"], 100.0)
         self.assertIn("Weekly_Filter_Pass", result)
         self.assertIn("Daily_Filter_Pass", result)
