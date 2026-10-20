@@ -197,6 +197,74 @@ def positive_long_ema_penalty(long_ema: float) -> dict:
     }
 
 
+def _linear_regression_slope_and_r2(series: pd.Series) -> tuple[float, float]:
+    """Return linear-regression slope and R² for one indicator series only."""
+    values = _clean_history(series).to_numpy(dtype=float)
+    if len(values) < 3:
+        return float("nan"), float("nan")
+    x = np.arange(len(values), dtype=float)
+    slope, intercept = np.polyfit(x, values, 1)
+    fitted = intercept + slope * x
+    total = float(np.sum((values - values.mean()) ** 2))
+    residual = float(np.sum((values - fitted) ** 2))
+    r2 = 1.0 - residual / total if total > 0 else 0.0
+    return float(slope), float(np.clip(r2, 0.0, 1.0))
+
+
+def descending_slope_penalty(series: pd.Series, scale: float, window: int,
+                             max_penalty: float) -> float:
+    """Scale-aware penalty for a descending indicator line over the given bars."""
+    values = _clean_history(series).tail(window)
+    if len(values) < max(3, window - 1) or not np.isfinite(scale) or scale <= 0:
+        return 0.0
+    slope, _ = _linear_regression_slope_and_r2(values)
+    if not np.isfinite(slope) or slope >= 0:
+        return 0.0
+    return float(max_penalty * np.clip(-slope / scale, 0.0, 1.0))
+
+
+def descending_ema_penalty(frame: pd.DataFrame, scale: float,
+                           window: int = 4, max_per_ema: float = 5.0) -> dict:
+    """Penalize descending short, medium and long EMA curves progressively."""
+    result = {
+        "EMA_short_Descending_Penalty": descending_slope_penalty(frame["EMA_short"], scale, window, max_per_ema),
+        "EMA_medium_Descending_Penalty": descending_slope_penalty(frame["EMA_medium"], scale, window, max_per_ema),
+        "EMA_long_Descending_Penalty": descending_slope_penalty(frame["EMA_long"], scale, window, max_per_ema),
+    }
+    result["Total_Descending_EMA_Penalty"] = float(sum(result.values()))
+    return result
+
+
+def vfi_smoothness_reward(vfi_series: pd.Series, scale: float,
+                          window: int = 12, max_reward: float = 10.0) -> dict:
+    """Reward a straight, positive-slope trend only on the weekly VFI line.
+
+    R² is calculated exclusively from weekly VFI observations. The reward is
+    zero unless the current VFI is negative and the regression slope is positive.
+    Stronger positive slopes, smoother paths and negative values near zero score
+    more; no divergence or price series is used for R².
+    """
+    clean = _clean_history(vfi_series)
+    recent = clean.tail(window)
+    slope, r2 = _linear_regression_slope_and_r2(recent)
+    current = float(recent.iloc[-1]) if len(recent) else float("nan")
+    result = {
+        "VFI_Trend_R2": r2,
+        "VFI_Trend_Regression_Slope": slope,
+        "VFI_Smoothness_Reward": 0.0,
+    }
+    if len(recent) < window or not np.isfinite(scale) or scale <= 0:
+        return result
+    if not np.isfinite(current) or current >= 0 or not np.isfinite(slope) or slope <= 0:
+        return result
+    slope_strength = float(np.clip(slope / (0.10 * scale), 0.0, 1.0))
+    negative_near_zero_factor = float(np.clip(1.0 - abs(current) / scale, 0.0, 1.0))
+    positive_step_fraction = float((recent.diff().dropna() > 0).mean())
+    reward = max_reward * float(r2) * slope_strength * negative_near_zero_factor * positive_step_fraction
+    result["VFI_Smoothness_Reward"] = float(np.clip(reward, 0.0, max_reward))
+    return result
+
+
 def weekly_vfi_trend_penalty(weekly_with_emas: pd.DataFrame) -> dict:
     """Penalize recent bearish EMA crossovers and loss of VFI upslope.
 
@@ -305,13 +373,23 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         8.0 * min(vfi_streak / 8.0, 1.0)
         + 7.0 * min(divergence_streak / 10.0, 1.0)
     )
-    # A bearish recross and a confirmed loss of the VFI upslope reduce the
-    # gross accumulation score. These are separate from eligibility gates.
+    # Explicitly penalize descending raw VFI slopes and all six EMA curves.
+    # Penalties are normalized by each indicator's own trailing scale.
     trend_penalty = weekly_vfi_trend_penalty(w)
     extension_penalty = vfi_positive_extension_penalty(
         weekly_value, w["VFI"], WEEKLY_LOOKBACK, MIN_WEEKLY_BASELINE
     )
     long_ema_penalty = positive_long_ema_penalty(float(wl["EMA_long"]))
+    vfi_slope_penalties = {
+        "VFI_Slope_1W_Penalty": descending_slope_penalty(w["VFI"], weekly_scale, 2, 5.0),
+        "VFI_Slope_4W_Penalty": descending_slope_penalty(w["VFI"], weekly_scale, 4, 5.0),
+        "VFI_Slope_8W_Penalty": descending_slope_penalty(w["VFI"], weekly_scale, 8, 5.0),
+    }
+    vfi_slope_penalties["VFI_Descending_Slope_Penalty"] = float(sum(vfi_slope_penalties.values()))
+    weekly_ema_descending = descending_ema_penalty(w, weekly_scale)
+    daily_ema_descending = descending_ema_penalty(d, daily_scale)
+    smoothness = vfi_smoothness_reward(w["VFI"], weekly_scale, window=12, max_reward=10.0)
+
     gross_score = (
         w_state["score"] + weekly_ema_score + d_state["score"]
         + daily_ema_score + persistence_score
@@ -320,10 +398,12 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         trend_penalty["Weekly_Trend_Penalty"]
         + extension_penalty["VFI_Positive_Extension_Penalty"]
         + long_ema_penalty["VFI_Long_EMA_Positive_Penalty"]
+        + vfi_slope_penalties["VFI_Descending_Slope_Penalty"]
+        + weekly_ema_descending["Total_Descending_EMA_Penalty"]
+        + daily_ema_descending["Total_Descending_EMA_Penalty"]
     )
-    # Preserve negative scores so deductions can still distinguish weak assets;
-    # no score-based eligibility gate is applied.
-    score = float(np.clip(gross_score - total_penalty, -100, 100))
+    # Preserve negative scores so descending setups remain visibly penalized.
+    score = float(np.clip(gross_score - total_penalty + smoothness["VFI_Smoothness_Reward"], -100, 100))
 
     return {
         "Symbol": symbol, "EMA_short": short, "EMA_medium": medium, "EMA_long": long,
@@ -375,6 +455,18 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         "VFI_Positive_Extension_Penalty": round(extension_penalty["VFI_Positive_Extension_Penalty"], 4),
         "VFI_Long_EMA_Positive": long_ema_penalty["VFI_Long_EMA_Positive"],
         "VFI_Long_EMA_Positive_Penalty": long_ema_penalty["VFI_Long_EMA_Positive_Penalty"],
+        **vfi_slope_penalties,
+        "VFI_EMA_short_Descending_Penalty": round(weekly_ema_descending["EMA_short_Descending_Penalty"], 4),
+        "VFI_EMA_medium_Descending_Penalty": round(weekly_ema_descending["EMA_medium_Descending_Penalty"], 4),
+        "VFI_EMA_long_Descending_Penalty": round(weekly_ema_descending["EMA_long_Descending_Penalty"], 4),
+        "VFI_Total_Descending_EMA_Penalty": round(weekly_ema_descending["Total_Descending_EMA_Penalty"], 4),
+        "Divergence_EMA_short_Descending_Penalty": round(daily_ema_descending["EMA_short_Descending_Penalty"], 4),
+        "Divergence_EMA_medium_Descending_Penalty": round(daily_ema_descending["EMA_medium_Descending_Penalty"], 4),
+        "Divergence_EMA_long_Descending_Penalty": round(daily_ema_descending["EMA_long_Descending_Penalty"], 4),
+        "Divergence_Total_Descending_EMA_Penalty": round(daily_ema_descending["Total_Descending_EMA_Penalty"], 4),
+        "VFI_Trend_R2": round(smoothness["VFI_Trend_R2"], 6) if np.isfinite(smoothness["VFI_Trend_R2"]) else float("nan"),
+        "VFI_Trend_Regression_Slope": smoothness["VFI_Trend_Regression_Slope"],
+        "VFI_Smoothness_Reward": round(smoothness["VFI_Smoothness_Reward"], 4),
         "Total_Score_Penalty": round(total_penalty, 4),
         "Accumulation_Score": round(score, 4),
         "Final_Filter_Pass": bool(weekly_pass and daily_pass),
@@ -421,6 +513,21 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
             "VFI_Positive_Extension_Penalty": float(best["VFI_Positive_Extension_Penalty"]),
             "VFI_Long_EMA_Positive": bool(best["VFI_Long_EMA_Positive"]),
             "VFI_Long_EMA_Positive_Penalty": float(best["VFI_Long_EMA_Positive_Penalty"]),
+            "VFI_Slope_1W_Penalty": float(best["VFI_Slope_1W_Penalty"]),
+            "VFI_Slope_4W_Penalty": float(best["VFI_Slope_4W_Penalty"]),
+            "VFI_Slope_8W_Penalty": float(best["VFI_Slope_8W_Penalty"]),
+            "VFI_Descending_Slope_Penalty": float(best["VFI_Descending_Slope_Penalty"]),
+            "VFI_EMA_short_Descending_Penalty": float(best["VFI_EMA_short_Descending_Penalty"]),
+            "VFI_EMA_medium_Descending_Penalty": float(best["VFI_EMA_medium_Descending_Penalty"]),
+            "VFI_EMA_long_Descending_Penalty": float(best["VFI_EMA_long_Descending_Penalty"]),
+            "VFI_Total_Descending_EMA_Penalty": float(best["VFI_Total_Descending_EMA_Penalty"]),
+            "Divergence_EMA_short_Descending_Penalty": float(best["Divergence_EMA_short_Descending_Penalty"]),
+            "Divergence_EMA_medium_Descending_Penalty": float(best["Divergence_EMA_medium_Descending_Penalty"]),
+            "Divergence_EMA_long_Descending_Penalty": float(best["Divergence_EMA_long_Descending_Penalty"]),
+            "Divergence_Total_Descending_EMA_Penalty": float(best["Divergence_Total_Descending_EMA_Penalty"]),
+            "VFI_Trend_R2": float(best["VFI_Trend_R2"]),
+            "VFI_Trend_Regression_Slope": float(best["VFI_Trend_Regression_Slope"]),
+            "VFI_Smoothness_Reward": float(best["VFI_Smoothness_Reward"]),
             "Total_Score_Penalty": float(best["Total_Score_Penalty"]),
             "Weekly_Combos_Passing": int(group["Weekly_Filter_Pass"].sum()),
             "Daily_Combos_Passing": int(group["Daily_Filter_Pass"].sum()),
