@@ -215,7 +215,7 @@ def descending_slope_penalty(series: pd.Series, scale: float, window: int,
                              max_penalty: float) -> float:
     """Scale-aware penalty for a descending indicator line over the given bars."""
     values = _clean_history(series).tail(window)
-    if len(values) < max(2, window - 1) or not np.isfinite(scale) or scale <= 0:
+    if len(values) < window or not np.isfinite(scale) or scale <= 0:
         return 0.0
     # Two observations are enough to measure a one-bar descent; R² is not
     # needed for penalties, so the slope helper's 3-point R² minimum is avoided.
