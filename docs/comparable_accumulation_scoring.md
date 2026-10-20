@@ -21,7 +21,7 @@ Raw values from different assets are not compared directly. The script estimates
 | Weekly EMA structure | 20 | Negative short/medium EMAs above long EMA, with partial credit for the structure |
 | Daily Volume Divergence state | 25 | Same scale-aware state criteria applied to the divergence indicator |
 | Daily EMA structure | 15 | Same EMA structure on daily divergence |
-| Persistence | 15 | Consecutive weekly/daily bars where the indicator remains negative but rises |
+| Persistence | 15 | Consecutive weekly/daily bars where the indicator remains negative but rises; weekly VFI persistence saturates over 26 weeks |
 
 The grid retains 64 combinations: short EMA (3, 5, 7, 9), medium (15, 20, 25, 30), long (40, 50, 60, 80), with short < medium < long.
 
@@ -35,6 +35,14 @@ The score applies cumulative penalties when weekly VFI EMAs have recently crosse
 - **7 points:** the latest VFI slope is non-positive after the average slope of the previous 3 completed weekly bars was positive (loss of the VFI upslope).
 
 The EMA crossover penalties stack, so all three bearish crosses together subtract **65 points**; including loss of VFI upslope, the weekly trend penalty can reach **72 points**. These are intentionally strong penalties for deterioration in the accumulation structure. Individual flags and penalties are exported in the ranking and EMA-combination CSVs. The penalty lowers the score but does not itself decide eligibility; strict weekly and daily gates remain separate.
+
+### Duration reward for negative rising VFI and its EMAs
+
+The persistence bonus now increases with the **consecutive number of completed weekly bars** where the raw VFI remains below zero and rises. It saturates at 26 consecutive weeks (up to 8 points), so a longer orderly recovery is rewarded more than a short-lived bounce.
+
+The weekly VFI EMA component remains capped at 20 points: 14 points are allocated to the EMA structure and up to 2 additional points to each of the short, medium and long VFI EMA curves according to their own consecutive negative-and-rising streaks. Each EMA streak saturates at 26 weeks. If an EMA reaches or crosses zero, or its slope stops rising, its current streak resets. The CSV exports all three streak lengths and the structure/persistence sub-scores.
+
+The daily Volume Divergence persistence component retains its existing 10-day cap. This duration reward is for the raw weekly VFI and its weekly EMA curves; it does not introduce an R² calculation on divergence.
 
 ### Descending slopes and VFI-only smoothness reward
 
