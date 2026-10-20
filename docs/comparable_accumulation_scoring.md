@@ -36,6 +36,19 @@ The score applies cumulative penalties when weekly VFI EMAs have recently crosse
 
 The EMA crossover penalties stack, so all three bearish crosses together subtract **65 points**; including loss of VFI upslope, the weekly trend penalty can reach **72 points**. These are intentionally strong penalties for deterioration in the accumulation structure. Individual flags and penalties are exported in the ranking and EMA-combination CSVs. The penalty lowers the score but does not itself decide eligibility; strict weekly and daily gates remain separate.
 
+### Descending slopes and VFI-only smoothness reward
+
+Descending slopes now receive explicit, scale-aware deductions instead of relying only on bearish EMA recrosses:
+
+- **VFI raw line:** separate penalties for 1-, 4- and 8-week descending slopes, each up to 5 points (up to 15 combined).
+- **Weekly VFI EMAs:** short, medium and long EMA lines each incur up to 5 points for a descending 4-bar regression slope.
+- **Daily Volume Divergence EMAs:** the same separate 0–5 point penalty is applied to each of its short, medium and long EMA lines. This penalizes declining EMA curves but does not apply R² to divergence.
+- Each penalty is normalized by that indicator's own trailing median absolute scale, so raw amplitudes across assets are not compared directly. Penalties grow with the size of the descent and are capped per component.
+
+The scanner also calculates a 12-completed-week linear regression **R² on the weekly VFI line only**. A reward of up to 10 points is possible only when the current VFI remains negative and its regression slope is positive. Reward increases with a straighter path, meaningful positive slope and a level that has not moved too far from zero; downward, flat, or already-positive VFI earns no smoothness reward. **No R² is calculated or rewarded for Volume Divergence or price.**
+
+The final score subtracts the new descending-slope penalties and adds the VFI smoothness reward. These values are exported as separate columns for auditability.
+
 ### Relative VFI extension and positive long-EMA penalties
 
 To avoid ranking an already mature upward move as an early accumulation opportunity:
