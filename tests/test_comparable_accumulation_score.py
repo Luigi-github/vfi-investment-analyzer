@@ -11,6 +11,9 @@ from scripts.study_early_vfi_accumulation import (
     historical_near_zero_threshold,
     historical_percentile,
     positive_long_ema_penalty,
+    descending_slope_penalty,
+    descending_ema_penalty,
+    vfi_smoothness_reward,
     evaluate_combo,
     weekly_vfi_trend_penalty,
     vfi_positive_extension_penalty,
@@ -106,6 +109,10 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             + result["Persistence_Score"] - result["Weekly_Trend_Penalty"]
             - result["VFI_Positive_Extension_Penalty"]
             - result["VFI_Long_EMA_Positive_Penalty"]
+            - result["VFI_Descending_Slope_Penalty"]
+            - result["VFI_Total_Descending_EMA_Penalty"]
+            - result["Divergence_Total_Descending_EMA_Penalty"]
+            + result["VFI_Smoothness_Reward"]
         )
         self.assertAlmostEqual(component_sum, result["Accumulation_Score"], places=3)
 
@@ -142,6 +149,48 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
         self.assertFalse(penalty["VFI_Uptrend_Lost"])
         self.assertEqual(penalty["Weekly_Trend_Penalty"], 0.0)
 
+
+    def test_descending_slope_is_penalized_more_than_flat_or_rising(self):
+        scale = 10.0
+        falling = descending_slope_penalty(pd.Series([0, -1, -2, -3, -4], dtype=float), scale, 4, 5.0)
+        flat = descending_slope_penalty(pd.Series([-2, -2, -2, -2, -2], dtype=float), scale, 4, 5.0)
+        rising = descending_slope_penalty(pd.Series([-4, -3, -2, -1, 0], dtype=float), scale, 4, 5.0)
+        self.assertGreater(falling, 0.0)
+        self.assertEqual(flat, 0.0)
+        self.assertEqual(rising, 0.0)
+
+    def test_descending_penalties_cover_each_ema_curve(self):
+        frame = pd.DataFrame({
+            "EMA_short": [-1, -2, -3, -4],
+            "EMA_medium": [-1, -1.5, -2, -2.5],
+            "EMA_long": [-1, -1.2, -1.4, -1.6],
+        }, dtype=float)
+        result = descending_ema_penalty(frame, scale=10.0)
+        self.assertGreater(result["EMA_short_Descending_Penalty"], 0.0)
+        self.assertGreater(result["EMA_medium_Descending_Penalty"], 0.0)
+        self.assertGreater(result["EMA_long_Descending_Penalty"], 0.0)
+        self.assertAlmostEqual(
+            result["Total_Descending_EMA_Penalty"],
+            result["EMA_short_Descending_Penalty"]
+            + result["EMA_medium_Descending_Penalty"]
+            + result["EMA_long_Descending_Penalty"],
+        )
+
+    def test_vfi_smoothness_reward_requires_rising_negative_vfi(self):
+        smooth_rising_negative = pd.Series(np.linspace(-2.0, -0.2, 12))
+        choppy_rising_negative = pd.Series([-2.0, -1.0, -1.8, -0.8, -1.4, -0.6, -1.0, -0.5, -0.9, -0.4, -0.7, -0.2])
+        falling_negative = pd.Series(np.linspace(-0.2, -2.0, 12))
+        already_positive = pd.Series(np.linspace(0.2, 2.0, 12))
+        smooth = vfi_smoothness_reward(smooth_rising_negative, scale=10.0)
+        choppy = vfi_smoothness_reward(choppy_rising_negative, scale=10.0)
+        falling = vfi_smoothness_reward(falling_negative, scale=10.0)
+        positive = vfi_smoothness_reward(already_positive, scale=10.0)
+        self.assertGreater(smooth["VFI_Smoothness_Reward"], 0.0)
+        self.assertGreater(smooth["VFI_Smoothness_Reward"], choppy["VFI_Smoothness_Reward"])
+        self.assertEqual(falling["VFI_Smoothness_Reward"], 0.0)
+        self.assertEqual(positive["VFI_Smoothness_Reward"], 0.0)
+        self.assertGreaterEqual(smooth["VFI_Trend_R2"], 0.99)
+
     def test_asset_summary_separates_score_from_eligibility(self):
         rows = []
         for symbol, score, eligible in [("A", 80.0, True), ("B", 95.0, False)]:
@@ -163,7 +212,19 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
                 "VFI_Positive_Extended": False, "VFI_Historical_Percentile": 0.5,
                 "VFI_Extension_Threshold": 1.0, "VFI_Extreme_Threshold": 2.0,
                 "VFI_Positive_Extension_Penalty": 0.0, "VFI_Long_EMA_Positive": False,
-                "VFI_Long_EMA_Positive_Penalty": 0.0, "Total_Score_Penalty": 0.0,
+                "VFI_Long_EMA_Positive_Penalty": 0.0,
+                "VFI_Slope_1W_Penalty": 0.0, "VFI_Slope_4W_Penalty": 0.0,
+                "VFI_Slope_8W_Penalty": 0.0, "VFI_Descending_Slope_Penalty": 0.0,
+                "VFI_EMA_short_Descending_Penalty": 0.0,
+                "VFI_EMA_medium_Descending_Penalty": 0.0,
+                "VFI_EMA_long_Descending_Penalty": 0.0,
+                "VFI_Total_Descending_EMA_Penalty": 0.0,
+                "Divergence_EMA_short_Descending_Penalty": 0.0,
+                "Divergence_EMA_medium_Descending_Penalty": 0.0,
+                "Divergence_EMA_long_Descending_Penalty": 0.0,
+                "Divergence_Total_Descending_EMA_Penalty": 0.0,
+                "VFI_Trend_R2": 0.8, "VFI_Trend_Regression_Slope": 0.2,
+                "VFI_Smoothness_Reward": 0.0, "Total_Score_Penalty": 0.0,
                 "Weekly_Filter_Pass": eligible,
                 "Daily_Filter_Pass": eligible, "Final_Filter_Pass": eligible,
                 "EMA_short": 3, "EMA_medium": 15, "EMA_long": 40,
