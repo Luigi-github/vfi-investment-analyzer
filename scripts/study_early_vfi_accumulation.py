@@ -214,16 +214,20 @@ def _linear_regression_slope_and_r2(series: pd.Series) -> tuple[float, float]:
 def descending_slope_penalty(series: pd.Series, scale: float, window: int,
                              max_penalty: float) -> float:
     """Scale-aware penalty for a descending indicator line over the given bars."""
-    values = _clean_history(series).tail(window)
+    clean = _clean_history(series)
+    values = clean.tail(window)
     if len(values) < window or not np.isfinite(scale) or scale <= 0:
         return 0.0
-    # Two observations are enough to measure a one-bar descent; R² is not
-    # needed for penalties, so the slope helper's 3-point R² minimum is avoided.
+    # Normalize by typical one-bar movement, not indicator level.
+    prior_diffs = clean.diff().iloc[:-1].tail(156).abs().dropna()
+    slope_scale = float(prior_diffs.median()) if len(prior_diffs) else float("nan")
+    if not np.isfinite(slope_scale) or slope_scale <= 0:
+        slope_scale = scale
     x = np.arange(len(values), dtype=float)
     slope = float(np.polyfit(x, values.to_numpy(dtype=float), 1)[0])
     if not np.isfinite(slope) or slope >= 0:
         return 0.0
-    return float(max_penalty * np.clip(-slope / scale, 0.0, 1.0))
+    return float(max_penalty * np.clip(-slope / slope_scale, 0.0, 1.0))
 
 
 def descending_ema_penalty(frame: pd.DataFrame, scale: float,
@@ -261,7 +265,8 @@ def vfi_smoothness_reward(vfi_series: pd.Series, scale: float,
     if not np.isfinite(current) or current >= 0 or not np.isfinite(slope) or slope <= 0:
         return result
     slope_strength = float(np.clip(slope / (0.10 * scale), 0.0, 1.0))
-    negative_near_zero_factor = float(np.clip(1.0 - abs(current) / scale, 0.0, 1.0))
+    # Proximity to zero boosts the reward, but does not disable it for deeper negative VFI.
+    negative_near_zero_factor = float(1.0 / (1.0 + abs(current) / scale))
     positive_step_fraction = float((recent.diff().dropna() > 0).mean())
     reward = max_reward * float(r2) * slope_strength * negative_near_zero_factor * positive_step_fraction
     result["VFI_Smoothness_Reward"] = float(np.clip(reward, 0.0, max_reward))
