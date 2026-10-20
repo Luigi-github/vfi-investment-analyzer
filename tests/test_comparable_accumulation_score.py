@@ -14,6 +14,7 @@ from scripts.study_early_vfi_accumulation import (
     descending_slope_penalty,
     descending_ema_penalty,
     vfi_smoothness_reward,
+    positive_negative_streak,
     evaluate_combo,
     weekly_vfi_trend_penalty,
     vfi_positive_extension_penalty,
@@ -176,6 +177,24 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             + result["EMA_medium_Descending_Penalty"]
             + result["EMA_long_Descending_Penalty"],
         )
+
+    def test_longer_negative_rising_vfi_streak_gets_more_persistence(self):
+        short = pd.Series([-4.0, -3.0, -2.0])
+        long = pd.Series(np.linspace(-8.0, -1.0, 27))
+        self.assertEqual(positive_negative_streak(short), 2)
+        self.assertEqual(positive_negative_streak(long), 26)
+        self.assertGreater(
+            8.0 * min(positive_negative_streak(long) / 26.0, 1.0),
+            8.0 * min(positive_negative_streak(short) / 26.0, 1.0),
+        )
+
+    def test_each_vfi_ema_streak_requires_negative_and_rising(self):
+        rising_negative = pd.Series(np.linspace(-10.0, -1.0, 27))
+        falling_negative = pd.Series(np.linspace(-1.0, -10.0, 27))
+        crosses_zero = pd.Series(np.linspace(-10.0, 1.0, 27))
+        self.assertEqual(positive_negative_streak(rising_negative), 26)
+        self.assertEqual(positive_negative_streak(falling_negative), 0)
+        self.assertEqual(positive_negative_streak(crosses_zero), 0)
 
     def test_vfi_smoothness_reward_requires_rising_negative_vfi(self):
         smooth_rising_negative = pd.Series(np.linspace(-2.0, -0.2, 12))
