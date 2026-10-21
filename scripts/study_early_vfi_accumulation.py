@@ -363,16 +363,18 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     weekly_scale = _latest_scale(w["VFI"], WEEKLY_LOOKBACK, MIN_WEEKLY_BASELINE)
     daily_scale = _latest_scale(d["Volume_Divergence_MM"], DAILY_LOOKBACK, MIN_DAILY_BASELINE)
 
-    # Keep the weekly EMA component capped at 20: 14 points for negative/fan
-    # structure and up to 2 points per EMA for persistent negative upslopes.
+    # Keep the weekly EMA component capped at 20, prioritizing persistence:
+    # 9.5 points for negative/fan structure and up to 3.5 points per EMA
+    # for a sustained negative upslope.
     vfi_ema_streaks = {
         "VFI_EMA_short_Negative_Rising_Streak_Weeks": positive_negative_streak(w["EMA_short"]),
         "VFI_EMA_medium_Negative_Rising_Streak_Weeks": positive_negative_streak(w["EMA_medium"]),
         "VFI_EMA_long_Negative_Rising_Streak_Weeks": positive_negative_streak(w["EMA_long"]),
     }
-    weekly_ema_structure_score = 14.0 * _ema_structure_score(wl, weekly_scale)
+    weekly_ema_structure_score = 9.5 * _ema_structure_score(wl, weekly_scale)
     weekly_ema_persistence_score = sum(
-        2.0 * min(streak / 26.0, 1.0) for streak in vfi_ema_streaks.values()
+        (10.5 / 3.0) * min(streak / 26.0, 1.0)
+        for streak in vfi_ema_streaks.values()
     )
     weekly_ema_score = weekly_ema_structure_score + weekly_ema_persistence_score
     daily_ema_score = 15.0 * _ema_structure_score(dl, daily_scale)
@@ -390,9 +392,10 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     vfi_streak = positive_negative_streak(w["VFI"])
     divergence_streak = positive_negative_streak(d["Volume_Divergence_MM"])
     # Persistence is rewarded over a longer weekly horizon, not just a few bars.
-    # VFI's negative rising streak can earn up to 8 points over 26 weeks.
+    # Give weekly VFI persistence more weight: up to 12 points over 26 weeks.
+    # Daily divergence remains capped at 7 points over 10 days.
     persistence_score = (
-        8.0 * min(vfi_streak / 26.0, 1.0)
+        12.0 * min(vfi_streak / 26.0, 1.0)
         + 7.0 * min(divergence_streak / 10.0, 1.0)
     )
     # Explicitly penalize descending raw VFI slopes and all six EMA curves.
@@ -410,7 +413,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     vfi_slope_penalties["VFI_Descending_Slope_Penalty"] = float(sum(vfi_slope_penalties.values()))
     weekly_ema_descending = descending_ema_penalty(w, weekly_scale)
     daily_ema_descending = descending_ema_penalty(d, daily_scale)
-    smoothness = vfi_smoothness_reward(w["VFI"], weekly_scale, window=12, max_reward=10.0)
+    smoothness = vfi_smoothness_reward(w["VFI"], weekly_scale, window=12, max_reward=15.0)
 
     gross_score = (
         w_state["score"] + weekly_ema_score + d_state["score"]
