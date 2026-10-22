@@ -70,16 +70,34 @@ def positive_falling_streak(indicator: pd.Series) -> int:
     return count
 
 
-def weekly_vfi_streak_adjustment(indicator: pd.Series, points_per_week: float = 2.0) -> dict:
-    """Uncapped weekly adjustment: reward negative/rising VFI and penalize positive/falling VFI."""
-    rising_negative = positive_negative_streak(indicator)
-    falling_positive = positive_falling_streak(indicator)
+def weekly_vfi_streak_adjustment(
+    indicator: pd.Series,
+    points_per_week: float = 2.0,
+    lookback: int = WEEKLY_LOOKBACK,
+    min_periods: int = MIN_WEEKLY_BASELINE,
+) -> dict:
+    """Uncapped streak reward; positive/falling penalty grows with historically high VFI."""
+    values = _clean_history(indicator)
+    rising_negative = positive_negative_streak(values)
+    falling_positive = positive_falling_streak(values)
+    current = float(values.iloc[-1]) if len(values) else float("nan")
+    prior = values.iloc[:-1].tail(lookback)
+    percentile = (
+        float((prior <= current).mean())
+        if np.isfinite(current) and len(prior) >= min_periods
+        else 0.5
+    )
+    # Base penalty remains 2 points/week. Above the historical median, scale it
+    # progressively up to 3x at the 100th percentile (6 points/week).
+    high_vfi_multiplier = 1.0 + 2.0 * float(np.clip((percentile - 0.50) / 0.50, 0.0, 1.0))
     reward = points_per_week * rising_negative
-    penalty = points_per_week * falling_positive
+    penalty = points_per_week * falling_positive * high_vfi_multiplier
     return {
         "VFI_Negative_Rising_Streak_Weeks": rising_negative,
         "VFI_Positive_Falling_Streak_Weeks": falling_positive,
         "VFI_Negative_Rising_Reward": float(reward),
+        "VFI_Historical_Percentile_For_Streak_Penalty": float(percentile),
+        "VFI_High_Value_Penalty_Multiplier": float(high_vfi_multiplier),
         "VFI_Positive_Falling_Penalty": float(penalty),
         "VFI_Weekly_Streak_Adjustment": float(reward - penalty),
     }
