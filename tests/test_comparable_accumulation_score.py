@@ -91,7 +91,7 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
         self.assertGreaterEqual(p_a, 0.0)
         self.assertLessEqual(p_a, 1.0)
 
-    def test_evaluate_combo_returns_bounded_score_on_synthetic_data(self):
+    def test_evaluate_combo_score_includes_uncapped_streak_adjustment(self):
         weekly_index = pd.date_range("2018-01-05", periods=400, freq="W-FRI")
         daily_index = pd.date_range("2024-01-01", periods=500, freq="B")
         weekly = pd.DataFrame({"VFI": 2.0 * np.sin(np.arange(400) / 10.0)}, index=weekly_index)
@@ -100,9 +100,9 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             index=daily_index,
         )
         result = evaluate_combo("SYNTH", weekly, daily, 3, 15, 40)
-        # Strong explicit descent penalties can legitimately make net scores negative.
-        self.assertGreaterEqual(result["Accumulation_Score"], -100.0)
-        self.assertLessEqual(result["Accumulation_Score"], 100.0)
+        # Final score is intentionally unbounded and includes the raw weekly streak adjustment.
+        self.assertTrue(np.isfinite(result["Accumulation_Score"]))
+        self.assertIn("VFI_Weekly_Streak_Adjustment", result)
         self.assertIn("Weekly_Filter_Pass", result)
         self.assertIn("Daily_Filter_Pass", result)
         component_sum = (
@@ -115,6 +115,7 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             - result["VFI_Total_Descending_EMA_Penalty"]
             - result["Divergence_Total_Descending_EMA_Penalty"]
             + result["VFI_Smoothness_Reward"]
+            + result["VFI_Weekly_Streak_Adjustment"]
         )
         self.assertAlmostEqual(component_sum, result["Accumulation_Score"], places=3)
 
