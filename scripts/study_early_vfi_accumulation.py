@@ -58,6 +58,32 @@ def positive_negative_streak(indicator: pd.Series) -> int:
         count += 1
     return count
 
+def positive_falling_streak(indicator: pd.Series) -> int:
+    """Consecutive completed bars ending now with value > 0 and slope < 0."""
+    values = _clean_history(indicator)
+    ok = (values > 0) & (values.diff() < 0)
+    count = 0
+    for flag in ok.iloc[::-1]:
+        if not bool(flag):
+            break
+        count += 1
+    return count
+
+
+def weekly_vfi_streak_adjustment(indicator: pd.Series, points_per_week: float = 2.0) -> dict:
+    """Uncapped weekly adjustment: reward negative/rising VFI and penalize positive/falling VFI."""
+    rising_negative = positive_negative_streak(indicator)
+    falling_positive = positive_falling_streak(indicator)
+    reward = points_per_week * rising_negative
+    penalty = points_per_week * falling_positive
+    return {
+        "VFI_Negative_Rising_Streak_Weeks": rising_negative,
+        "VFI_Positive_Falling_Streak_Weeks": falling_positive,
+        "VFI_Negative_Rising_Reward": float(reward),
+        "VFI_Positive_Falling_Penalty": float(penalty),
+        "VFI_Weekly_Streak_Adjustment": float(reward - penalty),
+    }
+
 
 def add_indicator_emas(frame: pd.DataFrame, value_column: str,
                        short: int, medium: int, long: int) -> pd.DataFrame:
@@ -427,8 +453,15 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         + weekly_ema_descending["Total_Descending_EMA_Penalty"]
         + daily_ema_descending["Total_Descending_EMA_Penalty"]
     )
-    # Preserve negative scores so descending setups remain visibly penalized.
-    score = float(np.clip(gross_score - total_penalty + smoothness["VFI_Smoothness_Reward"], -100, 100))
+    # Add an uncapped, explicit weekly VFI streak adjustment. Scores may exceed
+    # 100 or fall below zero by design; this adjustment is +2 per negative/rising
+    # week and -2 per positive/falling week.
+    streak_adjustment = weekly_vfi_streak_adjustment(w["VFI"])
+    score = float(
+        gross_score - total_penalty
+        + smoothness["VFI_Smoothness_Reward"]
+        + streak_adjustment["VFI_Weekly_Streak_Adjustment"]
+    )
 
     return {
         "Symbol": symbol, "EMA_short": short, "EMA_medium": medium, "EMA_long": long,
@@ -455,6 +488,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         "Daily_Divergence_Positive_Slope": d_state["slope_positive"],
         "Daily_Filter_Pass": daily_pass,
         "VFI_Negative_Positive_Slope_Streak_Weeks": int(vfi_streak),
+        **streak_adjustment,
         **vfi_ema_streaks,
         "Divergence_Negative_Positive_Slope_Streak_Days": int(divergence_streak),
         "Weekly_EMA_Structure_Base_Score": round(weekly_ema_structure_score, 4),
