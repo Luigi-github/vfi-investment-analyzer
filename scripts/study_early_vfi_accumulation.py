@@ -107,9 +107,11 @@ def add_indicator_emas(frame: pd.DataFrame, value_column: str,
                        short: int, medium: int, long: int) -> pd.DataFrame:
     result = frame.copy()
     values = pd.to_numeric(result[value_column], errors="coerce")
-    result["EMA_short"] = values.ewm(span=short, adjust=False, min_periods=short).mean()
-    result["EMA_medium"] = values.ewm(span=medium, adjust=False, min_periods=medium).mean()
-    result["EMA_long"] = values.ewm(span=long, adjust=False, min_periods=long).mean()
+    # If the available history is shorter than an EMA span, allow a provisional
+    # value for ranking but retain EMA 200 as unavailable until 200 full bars exist.
+    result["EMA_short"] = values.ewm(span=short, adjust=False, min_periods=min(short, max(1, len(values)))).mean()
+    result["EMA_medium"] = values.ewm(span=medium, adjust=False, min_periods=min(medium, max(1, len(values)))).mean()
+    result["EMA_long"] = values.ewm(span=long, adjust=False, min_periods=min(long, max(1, len(values)))).mean()
     result["EMA_200"] = values.ewm(span=200, adjust=False, min_periods=200).mean()
     result["Indicator_Slope_1Bar"] = values.diff()
     return result
