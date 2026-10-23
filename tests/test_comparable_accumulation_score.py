@@ -115,7 +115,6 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             - result["VFI_Total_Descending_EMA_Penalty"]
             - result["Divergence_Total_Descending_EMA_Penalty"]
             - result["VFI_EMA_200_Descending_Penalty"]
-            - result["Divergence_EMA_200_Descending_Penalty"]
             + result["VFI_Smoothness_Reward"]
             + result["VFI_Weekly_Streak_Adjustment"]
             + result["VFI_Relative_Position_Adjustment"]
