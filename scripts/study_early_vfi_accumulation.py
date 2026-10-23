@@ -449,7 +449,7 @@ def weekly_vfi_trend_penalty(weekly_with_emas: pd.DataFrame) -> dict:
 def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     w = add_indicator_emas(weekly, "VFI", short, medium, long)
     d = add_indicator_emas(daily_div, "Volume_Divergence_MM", short, medium, long)
-    w_valid = w.dropna(subset=["VFI", "EMA_short", "EMA_medium", "EMA_long", "EMA_200", "Indicator_Slope_1Bar"])
+    w_valid = w.dropna(subset=["VFI", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
     d_valid = d.dropna(subset=["Volume_Divergence_MM", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
     if w_valid.empty or d_valid.empty:
         raise ValueError(f"{symbol}: insufficient history for EMA combination {short}/{medium}/{long}.")
@@ -488,7 +488,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     )
     weekly_ema_score = weekly_ema_structure_score + weekly_ema_persistence_score
     daily_ema_score = 15.0 * _ema_structure_score(dl, daily_scale)
-    weekly_ema_structure = bool(wl["EMA_long"] < 0 and wl["EMA_200"] < 0 and wl["EMA_long"] > wl["EMA_200"])
+    weekly_ema_structure = bool(wl["EMA_long"] < 0 and (not np.isfinite(wl["EMA_200"]) or wl["EMA_long"] > wl["EMA_200"]))
     daily_ema_structure = bool(dl["EMA_long"] < 0 and (not np.isfinite(dl["EMA_200"]) or dl["EMA_long"] > dl["EMA_200"]))
     weekly_pass = bool(weekly_ema_structure and w_state["near_zero"] and w_state["slope_positive"])
     daily_pass = bool(daily_ema_structure and d_state["near_zero"] and d_state["slope_positive"])
