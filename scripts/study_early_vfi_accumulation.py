@@ -233,6 +233,60 @@ def vfi_positive_extension_penalty(
     return result
 
 
+
+def vfi_relative_position_adjustment(
+    current_vfi: float,
+    vfi_history: pd.Series,
+    current_slope: float,
+    lookback: int = WEEKLY_LOOKBACK,
+    min_periods: int = MIN_WEEKLY_BASELINE,
+    max_reward: float = 15.0,
+    max_penalty: float = 15.0,
+) -> dict:
+    """Reward low-vs-own-mean VFI only when rising; penalize historically high VFI.
+
+    The reference mean and standard deviation use prior completed weekly VFI
+    observations only. A z-score below zero means VFI is below its own trailing
+    mean. A rising VFI below the mean can earn up to +15; high VFI above the
+    mean loses points progressively, reaching -15 at +2 standard deviations.
+    """
+    clean = _clean_history(vfi_history)
+    prior = clean.iloc[:-1].tail(lookback)
+    result = {
+        "VFI_Historical_Mean": float("nan"),
+        "VFI_Historical_Std": float("nan"),
+        "VFI_Relative_ZScore": float("nan"),
+        "VFI_Relative_Position_Reward": 0.0,
+        "VFI_Relative_Position_Penalty": 0.0,
+        "VFI_Relative_Position_Adjustment": 0.0,
+    }
+    if not np.isfinite(current_vfi) or len(prior) < min_periods:
+        return result
+    mean = float(prior.mean())
+    std = float(prior.std(ddof=0))
+    if not np.isfinite(std) or std <= 1e-12:
+        return result
+    z = (current_vfi - mean) / std
+    reward = 0.0
+    penalty = 0.0
+    if z < 0 and np.isfinite(current_slope) and current_slope > 0:
+        # More deeply below its normal level means more potential rebound,
+        # but cap the effect at -2 standard deviations.
+        reward = max_reward * float(np.clip(-z / 2.0, 0.0, 1.0))
+    elif z > 0:
+        # Above-mean VFI is increasingly extended; cap the penalty at +2 SD.
+        penalty = max_penalty * float(np.clip(z / 2.0, 0.0, 1.0))
+    result.update({
+        "VFI_Historical_Mean": mean,
+        "VFI_Historical_Std": std,
+        "VFI_Relative_ZScore": float(z),
+        "VFI_Relative_Position_Reward": float(reward),
+        "VFI_Relative_Position_Penalty": float(penalty),
+        "VFI_Relative_Position_Adjustment": float(reward - penalty),
+    })
+    return result
+
+
 def positive_long_ema_penalty(long_ema: float) -> dict:
     """Apply a strong penalty when the long-period weekly VFI EMA is above zero."""
     is_positive = bool(np.isfinite(long_ema) and long_ema > 0)
@@ -475,10 +529,14 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     # 100 or fall below zero by design; this adjustment is +2 per negative/rising
     # week and -2 per positive/falling week.
     streak_adjustment = weekly_vfi_streak_adjustment(w["VFI"])
+    relative_position = vfi_relative_position_adjustment(
+        weekly_value, w["VFI"], weekly_slope, WEEKLY_LOOKBACK, MIN_WEEKLY_BASELINE
+    )
     score = float(
         gross_score - total_penalty
         + smoothness["VFI_Smoothness_Reward"]
         + streak_adjustment["VFI_Weekly_Streak_Adjustment"]
+        + relative_position["VFI_Relative_Position_Adjustment"]
     )
 
     return {
@@ -507,6 +565,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         "Daily_Filter_Pass": daily_pass,
         "VFI_Negative_Positive_Slope_Streak_Weeks": int(vfi_streak),
         **streak_adjustment,
+        **relative_position,
         **vfi_ema_streaks,
         "Divergence_Negative_Positive_Slope_Streak_Days": int(divergence_streak),
         "Weekly_EMA_Structure_Base_Score": round(weekly_ema_structure_score, 4),
@@ -586,7 +645,13 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
             "Weekly_EMA_Medium_Long_Cross_Penalty": float(best["Weekly_EMA_Medium_Long_Cross_Penalty"]),
             "VFI_Uptrend_Loss_Penalty": float(best["VFI_Uptrend_Loss_Penalty"]),
             "Weekly_Trend_Penalty": float(best["Weekly_Trend_Penalty"]),
-            "VFI_Positive_Extended": bool(best["VFI_Positive_Extended"]),
+            "VFI_Historical_Mean": float(best["VFI_Historical_Mean"]),
+        "VFI_Historical_Std": float(best["VFI_Historical_Std"]),
+        "VFI_Relative_ZScore": float(best["VFI_Relative_ZScore"]),
+        "VFI_Relative_Position_Reward": float(best["VFI_Relative_Position_Reward"]),
+        "VFI_Relative_Position_Penalty": float(best["VFI_Relative_Position_Penalty"]),
+        "VFI_Relative_Position_Adjustment": float(best["VFI_Relative_Position_Adjustment"]),
+        "VFI_Positive_Extended": bool(best["VFI_Positive_Extended"]),
             "VFI_Historical_Percentile": float(best["VFI_Historical_Percentile"]),
             "VFI_Extension_Threshold": best["VFI_Extension_Threshold"],
             "VFI_Extreme_Threshold": best["VFI_Extreme_Threshold"],
