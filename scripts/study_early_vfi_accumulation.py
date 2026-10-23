@@ -104,7 +104,8 @@ def weekly_vfi_streak_adjustment(
 
 
 def add_indicator_emas(frame: pd.DataFrame, value_column: str,
-                       short: int, medium: int, long: int) -> pd.DataFrame:
+                       short: int, medium: int, long: int,
+                       include_ema_200: bool = False) -> pd.DataFrame:
     result = frame.copy()
     values = pd.to_numeric(result[value_column], errors="coerce")
     # If the available history is shorter than an EMA span, allow a provisional
@@ -112,7 +113,8 @@ def add_indicator_emas(frame: pd.DataFrame, value_column: str,
     result["EMA_short"] = values.ewm(span=short, adjust=False, min_periods=min(short, max(1, len(values)))).mean()
     result["EMA_medium"] = values.ewm(span=medium, adjust=False, min_periods=min(medium, max(1, len(values)))).mean()
     result["EMA_long"] = values.ewm(span=long, adjust=False, min_periods=min(long, max(1, len(values)))).mean()
-    result["EMA_200"] = values.ewm(span=200, adjust=False, min_periods=200).mean()
+    if include_ema_200:
+        result["EMA_200"] = values.ewm(span=200, adjust=False, min_periods=200).mean()
     result["Indicator_Slope_1Bar"] = values.diff()
     return result
 
@@ -449,8 +451,8 @@ def weekly_vfi_trend_penalty(weekly_with_emas: pd.DataFrame) -> dict:
 
 
 def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
-    w = add_indicator_emas(weekly, "VFI", short, medium, long)
-    d = add_indicator_emas(daily_div, "Volume_Divergence_MM", short, medium, long)
+    w = add_indicator_emas(weekly, "VFI", short, medium, long, include_ema_200=True)
+    d = add_indicator_emas(daily_div, "Volume_Divergence_MM", short, medium, long, include_ema_200=False)
     w_valid = w.dropna(subset=["VFI", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
     d_valid = d.dropna(subset=["Volume_Divergence_MM", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
     if w_valid.empty or d_valid.empty:
@@ -520,7 +522,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     weekly_ema_descending = descending_ema_penalty(w, weekly_scale)
     daily_ema_descending = descending_ema_penalty(d, daily_scale)
     weekly_ema_200_penalty = descending_slope_penalty(w["EMA_200"], weekly_scale, 8, 10.0)
-    monthly_ema_200_penalty = descending_slope_penalty(d["EMA_200"], daily_scale, 6, 10.0)
+
     smoothness = vfi_smoothness_reward(w["VFI"], weekly_scale, window=12, max_reward=15.0)
 
     gross_score = (
@@ -534,7 +536,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         + vfi_slope_penalties["VFI_Descending_Slope_Penalty"]
         + weekly_ema_descending["Total_Descending_EMA_Penalty"]
         + daily_ema_descending["Total_Descending_EMA_Penalty"]
-        + weekly_ema_200_penalty + monthly_ema_200_penalty
+        + weekly_ema_200_penalty
     )
     # Add an uncapped, explicit weekly VFI streak adjustment. Scores may exceed
     # 100 or fall below zero by design; this adjustment is +2 per negative/rising
@@ -568,7 +570,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         "Divergence_Slope_Historical_Percentile": d_state["slope_percentile"],
         "EMA_short_Volume_Div": float(dl["EMA_short"]),
         "EMA_medium_Volume_Div": float(dl["EMA_medium"]),
-        "EMA_long_Volume_Div": float(dl["EMA_long"]), "EMA_200_Volume_Div": float(dl["EMA_200"]),
+        "EMA_long_Volume_Div": float(dl["EMA_long"]),
         "Daily_EMA_Structure_Pass": daily_ema_structure,
         "Daily_Divergence_Negative": d_state["negative"],
         "Daily_Divergence_Near_Zero": d_state["near_zero"],
@@ -611,7 +613,6 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
         "VFI_EMA_long_Descending_Penalty": round(weekly_ema_descending["EMA_long_Descending_Penalty"], 4),
         "VFI_Total_Descending_EMA_Penalty": round(weekly_ema_descending["Total_Descending_EMA_Penalty"], 4),
         "VFI_EMA_200_Descending_Penalty": round(weekly_ema_200_penalty, 4),
-        "Divergence_EMA_200_Descending_Penalty": round(monthly_ema_200_penalty, 4),
         "Divergence_EMA_short_Descending_Penalty": round(daily_ema_descending["EMA_short_Descending_Penalty"], 4),
         "Divergence_EMA_medium_Descending_Penalty": round(daily_ema_descending["EMA_medium_Descending_Penalty"], 4),
         "Divergence_EMA_long_Descending_Penalty": round(daily_ema_descending["EMA_long_Descending_Penalty"], 4),
@@ -680,7 +681,6 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
             "VFI_EMA_long_Descending_Penalty": float(best["VFI_EMA_long_Descending_Penalty"]),
             "VFI_Total_Descending_EMA_Penalty": float(best["VFI_Total_Descending_EMA_Penalty"]),
             "VFI_EMA_200_Descending_Penalty": float(best.get("VFI_EMA_200_Descending_Penalty", 0.0)),
-            "Divergence_EMA_200_Descending_Penalty": float(best.get("Divergence_EMA_200_Descending_Penalty", 0.0)),
             "Divergence_EMA_short_Descending_Penalty": float(best["Divergence_EMA_short_Descending_Penalty"]),
             "Divergence_EMA_medium_Descending_Penalty": float(best["Divergence_EMA_medium_Descending_Penalty"]),
             "Divergence_EMA_long_Descending_Penalty": float(best["Divergence_EMA_long_Descending_Penalty"]),
@@ -701,7 +701,6 @@ def build_asset_summary(all_combos: pd.DataFrame) -> pd.DataFrame:
             "Best_EMA_long": int(best["EMA_long"]),
             "EMA_200_Period": 200,
             "EMA_200_VFI": float(best.get("EMA_200_VFI", np.nan)),
-            "EMA_200_Volume_Div": float(best.get("EMA_200_Volume_Div", np.nan)),
             "VFI_130": float(best["VFI_130"]),
             "VFI_Slope_1W": float(best["VFI_Slope_1W"]),
             "VFI_Slope_Historical_Percentile": float(best["VFI_Slope_Historical_Percentile"]),
