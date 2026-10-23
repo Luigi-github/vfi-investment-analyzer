@@ -1,9 +1,6 @@
-"""Rank early accumulation candidates using one shared EMA configuration.
-
-All assets use the same spans for both weekly VFI and daily Volume Divergence:
-5 / 20 / 80 bars in their respective timeframe. This avoids choosing a
-different EMA configuration per asset and makes the ranking method comparable.
-The score remains a research ranking, not a probability of profit or a buy signal.
+"""Rank early accumulation using weekly VFI and monthly Volume Divergence.
+EMA 5/20/80/200 are weighted toward slower periods; monthly bars are completed only.
+The score is a research ranking, not a probability of profit or a buy signal.
 """
 from pathlib import Path
 import sys
@@ -29,6 +26,8 @@ DEFAULT_SYMBOLS = (
     "ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL"
 ).split(",")
 EMA_SHORT, EMA_MEDIUM, EMA_LONG = 5, 20, 80
+EMA_VERY_LONG = 200
+MIN_MONTHLY_BASELINE = 36
 VFI_LENGTH = 130
 OUT = ROOT / "reports" / "early_vfi_accumulation"
 
@@ -60,10 +59,19 @@ def main(argv=None):
             weekly_ohlcv = market.convert_to_weekly(daily).sort_index()
             weekly = VFIIndicator(length=VFI_LENGTH).calculate(weekly_ohlcv)
             weekly = weekly.replace([np.inf, -np.inf], np.nan).dropna(subset=["VFI"])
-            daily_div = VolumeDivergenceMM().calculate(daily)
-            daily_div = daily_div.replace([np.inf, -np.inf], np.nan).dropna(subset=["Volume_Divergence_MM"])
-            if weekly.empty or daily_div.empty:
-                raise ValueError("No valid data after indicator warm-up.")
+            monthly_ohlcv = daily.resample("ME").agg({
+                "Open": "first", "High": "max", "Low": "min",
+                "Close": "last", "Volume": "sum",
+            }).dropna(subset=["Open", "High", "Low", "Close"])
+            current_month = pd.Timestamp.now().to_period("M")
+            monthly_ohlcv = monthly_ohlcv[monthly_ohlcv.index.to_period("M") < current_month]
+            monthly_div = VolumeDivergenceMM().calculate(monthly_ohlcv)
+            monthly_div = monthly_div.replace([np.inf, -np.inf], np.nan).dropna(subset=["Volume_Divergence_MM"])
+            if weekly.empty or monthly_div.empty:
+                raise ValueError("No valid data after VFI/monthly-divergence warm-up.")
+            minimum_valid_monthly = EMA_VERY_LONG + MIN_MONTHLY_BASELINE
+            if len(monthly_div) < minimum_valid_monthly:
+                raise ValueError(f"Insufficient monthly history: {len(monthly_div)} bars; need {minimum_valid_monthly} for EMA 200 and baseline.")
             minimum_valid_weekly = MIN_WEEKLY_BASELINE + EMA_LONG + 1
             if len(weekly) < minimum_valid_weekly:
                 raise ValueError(
@@ -71,11 +79,11 @@ def main(argv=None):
                     f"need at least {minimum_valid_weekly} after VFI warm-up."
                 )
             rows.append(evaluate_combo(
-                symbol, weekly, daily_div, EMA_SHORT, EMA_MEDIUM, EMA_LONG
+                symbol, weekly, monthly_div, EMA_SHORT, EMA_MEDIUM, EMA_LONG
             ))
             print(
-                f"Weekly bars: {len(weekly)}; daily divergence bars: {len(daily_div)}; "
-                f"data through {daily_div.index[-1].date()}", flush=True
+                f"Weekly VFI bars: {len(weekly)}; completed monthly divergence bars: {len(monthly_div)}; "
+                f"monthly data through {monthly_div.index[-1].date()}", flush=True
             )
         except Exception as exc:
             errors.append({"Symbol": symbol, "Error": str(exc)})
@@ -102,7 +110,8 @@ def main(argv=None):
         output / "early_vfi_accumulation_errors.csv", index=False
     )
     print(f"Reports written to: {output}")
-    print(f"EMA configuration shared by every asset: {EMA_SHORT}/{EMA_MEDIUM}/{EMA_LONG}")
+    print(f"Indicator EMA configuration: {EMA_SHORT}/{EMA_MEDIUM}/{EMA_LONG}/{EMA_VERY_LONG}; weights 5%/15%/30%/50%")
+    print("Divergence timeframe: completed monthly candles; current month excluded.")
     print(f"Assets ranked: {len(rows)}; qualified candidates: {int(summary['Eligible'].sum()) if rows else 0}")
     print("All assets are ranked by score; pass/fail columns are diagnostics only.")
     print("Score is comparative, not a probability of profit.")
