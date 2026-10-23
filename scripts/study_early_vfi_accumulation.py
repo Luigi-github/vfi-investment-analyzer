@@ -158,15 +158,25 @@ def _latest_scale(series: pd.Series, lookback: int, min_periods: int) -> float:
 
 
 def _ema_structure_score(row: pd.Series, scale: float) -> float:
-    """Weighted EMA structure; slow periods dominate recent short-term behavior."""
+    """Weighted EMA structure; renormalize weights when EMA 200 history is unavailable."""
     names = ("EMA_short", "EMA_medium", "EMA_long", "EMA_200")
-    vals = [float(row[name]) for name in names]
-    if not np.all(np.isfinite(vals)) or not np.isfinite(scale) or scale <= 0:
+    raw_weights = {"EMA_short": 0.05, "EMA_medium": 0.15, "EMA_long": 0.30, "EMA_200": 0.50}
+    available = [(name, float(row[name]), raw_weights[name]) for name in names
+                 if name in row.index and np.isfinite(float(row[name]))]
+    if len(available) < 2 or not np.isfinite(scale) or scale <= 0:
         return 0.0
-    short, medium, long, very_long = vals
-    negative = 0.05 * (short < 0) + 0.15 * (medium < 0) + 0.30 * (long < 0) + 0.50 * (very_long < 0)
-    ordering = 0.05 * (short > medium) + 0.15 * (medium > long) + 0.30 * (long > very_long) + 0.50 * (short > very_long and medium > very_long and long > very_long)
-    separation = _clip01(((short + medium + long) / 3.0 - very_long) / scale)
+    total_weight = sum(item[2] for item in available)
+    weights = {name: weight / total_weight for name, _, weight in available}
+    negative = sum(weights[name] * float(value < 0) for name, value, _ in available)
+    ordering_terms = []
+    ordered = [item for item in available]
+    for (name_a, value_a, _), (name_b, value_b, _) in zip(ordered, ordered[1:]):
+        pair_weight = (weights[name_a] + weights[name_b]) / 2.0
+        ordering_terms.append(pair_weight * float(value_a > value_b))
+    ordering = sum(ordering_terms) / sum((weights[a[0]] + weights[b[0]]) / 2.0 for a, b in zip(ordered, ordered[1:]))
+    slowest = available[-1][1]
+    faster_mean = float(np.mean([value for _, value, _ in available[:-1]]))
+    separation = _clip01((faster_mean - slowest) / scale)
     return _clip01(0.50 * negative + 0.35 * ordering + 0.15 * separation)
 
 
@@ -440,7 +450,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     w = add_indicator_emas(weekly, "VFI", short, medium, long)
     d = add_indicator_emas(daily_div, "Volume_Divergence_MM", short, medium, long)
     w_valid = w.dropna(subset=["VFI", "EMA_short", "EMA_medium", "EMA_long", "EMA_200", "Indicator_Slope_1Bar"])
-    d_valid = d.dropna(subset=["Volume_Divergence_MM", "EMA_short", "EMA_medium", "EMA_long", "EMA_200", "Indicator_Slope_1Bar"])
+    d_valid = d.dropna(subset=["Volume_Divergence_MM", "EMA_short", "EMA_medium", "EMA_long", "Indicator_Slope_1Bar"])
     if w_valid.empty or d_valid.empty:
         raise ValueError(f"{symbol}: insufficient history for EMA combination {short}/{medium}/{long}.")
 
@@ -479,7 +489,7 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     weekly_ema_score = weekly_ema_structure_score + weekly_ema_persistence_score
     daily_ema_score = 15.0 * _ema_structure_score(dl, daily_scale)
     weekly_ema_structure = bool(wl["EMA_long"] < 0 and wl["EMA_200"] < 0 and wl["EMA_long"] > wl["EMA_200"])
-    daily_ema_structure = bool(dl["EMA_long"] < 0 and dl["EMA_200"] < 0 and dl["EMA_long"] > dl["EMA_200"])
+    daily_ema_structure = bool(dl["EMA_long"] < 0 and (not np.isfinite(dl["EMA_200"]) or dl["EMA_long"] > dl["EMA_200"]))
     weekly_pass = bool(weekly_ema_structure and w_state["near_zero"] and w_state["slope_positive"])
     daily_pass = bool(daily_ema_structure and d_state["near_zero"] and d_state["slope_positive"])
 
