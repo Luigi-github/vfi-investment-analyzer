@@ -26,7 +26,6 @@ DEFAULT_SYMBOLS = (
     "ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL"
 ).split(",")
 EMA_SHORT, EMA_MEDIUM, EMA_LONG = 5, 20, 80
-EMA_VERY_LONG = 200
 MIN_MONTHLY_BASELINE = 36
 VFI_LENGTH = 130
 OUT = ROOT / "reports" / "early_vfi_accumulation"
@@ -47,7 +46,7 @@ def main(argv=None):
 
     for symbol in symbols:
         print("=" * 72)
-        print(f"EARLY ACCUMULATION SCAN (EMA {EMA_SHORT}/{EMA_MEDIUM}/{EMA_LONG}): {symbol}", flush=True)
+        print(f"EARLY ACCUMULATION SCAN (VFI EMA {EMA_SHORT}/{EMA_MEDIUM}/{EMA_LONG}/200): {symbol}", flush=True)
         try:
             daily = market.get_daily_data(symbol, period="max").sort_index()
             if daily.empty:
@@ -110,7 +109,8 @@ def main(argv=None):
         output / "early_vfi_accumulation_errors.csv", index=False
     )
     print(f"Reports written to: {output}")
-    print(f"Indicator EMA configuration: {EMA_SHORT}/{EMA_MEDIUM}/{EMA_LONG}/{EMA_VERY_LONG}; weights 5%/15%/30%/50%")
+    print(f"VFI EMA configuration: {EMA_SHORT}/{EMA_MEDIUM}/{EMA_LONG}/200; weights 5%/15%/30%/50%.")
+    print(f"Monthly divergence EMA configuration: {EMA_SHORT}/{EMA_MEDIUM}/{EMA_LONG}; no EMA 200.")
     print("Divergence timeframe: completed monthly candles; current month excluded.")
     print(f"Assets ranked: {len(rows)}; qualified candidates: {int(summary['Eligible'].sum()) if rows else 0}")
     print("All assets are ranked by score; pass/fail columns are diagnostics only.")
