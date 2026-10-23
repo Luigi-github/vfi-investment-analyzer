@@ -118,6 +118,7 @@ class ComparableAccumulationScoreTests(unittest.TestCase):
             - result["Divergence_EMA_200_Descending_Penalty"]
             + result["VFI_Smoothness_Reward"]
             + result["VFI_Weekly_Streak_Adjustment"]
+            + result["VFI_Relative_Position_Adjustment"]
         )
         self.assertAlmostEqual(component_sum, result["Accumulation_Score"], places=3)
 
