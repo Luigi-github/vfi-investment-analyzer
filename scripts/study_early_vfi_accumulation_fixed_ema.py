@@ -1,7 +1,7 @@
 """Rank early accumulation candidates using one shared EMA configuration.
 
 All assets use the same spans for both weekly VFI and daily Volume Divergence:
-5 / 20 / 50 bars in their respective timeframe. This avoids choosing a
+5 / 20 / 80 bars in their respective timeframe. This avoids choosing a
 different EMA configuration per asset and makes the ranking method comparable.
 The score remains a research ranking, not a probability of profit or a buy signal.
 """
@@ -28,7 +28,7 @@ DEFAULT_SYMBOLS = (
     "DDD,INTC,NVDA,BTC-USD,EC,CIB,MSFT,EEM,SQM,LTC-USD,AU,SPY,AMZN,PBR,NU,QQQ,"
     "ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL"
 ).split(",")
-EMA_SHORT, EMA_MEDIUM, EMA_LONG = 5, 20, 50
+EMA_SHORT, EMA_MEDIUM, EMA_LONG = 5, 20, 80
 VFI_LENGTH = 130
 OUT = ROOT / "reports" / "early_vfi_accumulation"
 
