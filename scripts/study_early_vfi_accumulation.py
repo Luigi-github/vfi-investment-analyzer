@@ -493,7 +493,13 @@ def evaluate_combo(symbol, weekly, daily_div, short, medium, long):
     weekly_ema_score = weekly_ema_structure_score + weekly_ema_persistence_score
     daily_ema_score = 15.0 * _ema_structure_score(dl, daily_scale)
     weekly_ema_structure = bool(wl["EMA_long"] < 0 and (not np.isfinite(wl["EMA_200"]) or wl["EMA_long"] > wl["EMA_200"]))
-    daily_ema_structure = bool(dl["EMA_long"] < 0 and (not np.isfinite(dl["EMA_200"]) or dl["EMA_long"] > dl["EMA_200"]))
+    daily_ema_structure = bool(
+        dl["EMA_short"] < 0
+        and dl["EMA_medium"] < 0
+        and dl["EMA_long"] < 0
+        and dl["EMA_short"] > dl["EMA_long"]
+        and dl["EMA_medium"] > dl["EMA_long"]
+    )
     weekly_pass = bool(weekly_ema_structure and w_state["near_zero"] and w_state["slope_positive"])
     daily_pass = bool(daily_ema_structure and d_state["near_zero"] and d_state["slope_positive"])
 
