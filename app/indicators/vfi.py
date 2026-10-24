@@ -9,7 +9,7 @@ class VFIIndicator:
         length: int = 130,
         coef: float = 0.2,
         vcoef: float = 2.5,
-        signal_length: int = 20,
+        signal_length: int = 5,
         signal_length_50: int = 50,
         smooth_vfi: bool = False,
         context_window: int = 52
@@ -77,7 +77,7 @@ class VFIIndicator:
                 window=30,
                 min_periods=30
             )
-            .std()
+            .std(ddof=0)
         )
 
         # ==========================================================

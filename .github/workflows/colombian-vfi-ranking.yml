@@ -1,0 +1,49 @@
+name: Colombian VFI Early Accumulation Ranking
+
+on:
+  pull_request:
+    paths:
+      - "scripts/study_early_vfi_accumulation.py"
+      - "scripts/study_early_vfi_accumulation_fixed_ema.py"
+      - "app/data/market_data.py"
+      - "app/indicators/vfi.py"
+      - "app/indicators/volume_divergence_mm.py"
+      - ".github/workflows/colombian-vfi-ranking.yml"
+  workflow_dispatch:
+    inputs:
+      symbols:
+        description: "Yahoo Finance symbols for Colombian-listed assets"
+        required: false
+        default: "ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL"
+
+permissions:
+  contents: read
+
+jobs:
+  colombian-ranking:
+    name: Rank Colombian-listed assets
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    env:
+      COLOMBIAN_SYMBOLS: ${{ github.event.inputs.symbols || 'ISA.CL,GEB.CL,MINEROS.CL,PFAVAL.CL,PFDAVVNDA.CL,TERPEL.CL' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.10"
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+      - name: Compile project
+        run: python -m compileall app scripts
+      - name: Run Colombian early-accumulation ranking with shared EMAs
+        run: python scripts/study_early_vfi_accumulation_fixed_ema.py --symbols "$COLOMBIAN_SYMBOLS"
+      - name: Upload Colombian ranking report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colombian-early-vfi-accumulation-ranking
+          path: reports/early_vfi_accumulation/
+          if-no-files-found: warn
+          retention-days: 30
