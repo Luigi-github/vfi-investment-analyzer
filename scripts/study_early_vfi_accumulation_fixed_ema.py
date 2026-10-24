@@ -68,9 +68,9 @@ def main(argv=None):
             monthly_div = monthly_div.replace([np.inf, -np.inf], np.nan).dropna(subset=["Volume_Divergence_MM"])
             if weekly.empty or monthly_div.empty:
                 raise ValueError("No valid data after VFI/monthly-divergence warm-up.")
-            minimum_valid_monthly = MIN_MONTHLY_BASELINE  # EMA 200 is optional when the asset has shorter history
+            minimum_valid_monthly = MIN_MONTHLY_BASELINE  # Monthly divergence uses only EMA 5/20/80; EMA 200 is VFI-only
             if len(monthly_div) < minimum_valid_monthly:
-                raise ValueError(f"Insufficient monthly divergence baseline: {len(monthly_div)} bars; need {minimum_valid_monthly}. EMA 200 will be treated as unavailable when history is shorter than 200 months.")
+                raise ValueError(f"Insufficient monthly divergence baseline: {len(monthly_div)} bars; need {minimum_valid_monthly}. EMA 200 is used only for weekly VFI, never for monthly divergence.")
             minimum_valid_weekly = MIN_WEEKLY_BASELINE + EMA_LONG + 1
             if len(weekly) < minimum_valid_weekly:
                 raise ValueError(
