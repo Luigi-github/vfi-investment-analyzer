@@ -1,0 +1,41 @@
+name: Weekly VFI EMA comparison
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "scripts/calculate_vfi_weekly_emas.py"
+      - "app/data/market_data.py"
+      - "app/indicators/vfi.py"
+      - ".github/workflows/weekly-vfi-ema-comparison.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  calculate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install dependencies
+        run: python -m pip install --upgrade pip pandas numpy yfinance
+
+      - name: Calculate latest completed weekly VFI and EMAs
+        run: python scripts/calculate_vfi_weekly_emas.py --period max
+
+      - name: Upload CSV report
+        uses: actions/upload-artifact@v4
+        with:
+          name: vfi-weekly-ema-comparison
+          path: reports/vfi_weekly_ema_comparison.csv
+          if-no-files-found: error
+          retention-days: 14

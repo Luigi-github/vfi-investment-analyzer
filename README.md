@@ -236,6 +236,24 @@ Instalar dependencias:
 python -m pip install -r requirements.txt
 ```
 
+## Comparación semanal de VFI y EMA del VFI
+
+Para obtener el VFI semanal más reciente y sus EMA de **5, 20, 80 y 200 semanas** para MSFT, NVDA, SPY y AMZN, ejecuta desde la raíz del repositorio:
+
+```powershell
+.\\venv\\Scripts\\python.exe scripts\\calculate_vfi_weekly_emas.py
+```
+
+El script descarga el máximo historial disponible de Yahoo Finance, reutiliza `MarketDataService` y `VFIIndicator`, convierte OHLCV diario a semanal y excluye la semana incompleta según la lógica del proyecto. Las EMA se calculan **sobre la serie VFI semanal, no sobre el precio**. El CSV se guarda por defecto en `reports/vfi_weekly_ema_comparison.csv`; la carpeta se crea automáticamente.
+
+Se pueden cambiar símbolos, periodo histórico, ventanas EMA o destino del reporte:
+
+```powershell
+python scripts\\calculate_vfi_weekly_emas.py --symbols MSFT,NVDA,SPY,AMZN --period max --ema-periods 5,20,80,200 --output reports/vfi_weekly_ema_comparison.csv
+```
+
+La EMA de 200 semanas requiere al menos 200 observaciones semanales válidas de VFI, además del historial previo que exige el cálculo del propio VFI. Si un activo no dispone de datos suficientes, el script informa el problema en lugar de inventar un valor.
+
 ## Ejecución
 
 Para ejecutar la investigación multi-activo:
