@@ -78,6 +78,13 @@ class MarketDataService:
         return dict(self.last_metadata)
 
     def convert_to_weekly(self, data: pd.DataFrame) -> pd.DataFrame:
+        """Aggregate daily data into Friday-ended weeks and fill missing weeks.
+
+        If a week has no market data, repeat the prior week's OHLCV values so
+        indicators use a continuous weekly timeline. Corporate-action fields
+        are set to zero on synthetic weeks to avoid duplicating dividends or
+        stock splits.
+        """
         required = ["Open", "High", "Low", "Close", "Volume"]
         missing = [column for column in required if column not in data.columns]
         if missing:
@@ -104,6 +111,21 @@ class MarketDataService:
         today = pd.Timestamp.now().normalize()
         current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
         weekly = weekly[weekly.index < current_friday]
+
+        if not weekly.empty:
+            full_index = pd.date_range(
+                start=weekly.index.min(),
+                end=weekly.index.max(),
+                freq="W-FRI",
+                name=weekly.index.name,
+            )
+            missing_weeks = ~full_index.isin(weekly.index)
+            weekly = weekly.reindex(full_index).ffill()
+
+            # A repeated OHLCV row is synthetic; don't repeat one-off actions.
+            for column in ("Dividends", "Stock Splits"):
+                if column in weekly.columns:
+                    weekly.loc[missing_weeks, column] = 0
 
         return weekly
 
