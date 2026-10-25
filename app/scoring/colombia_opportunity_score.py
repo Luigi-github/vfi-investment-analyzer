@@ -141,14 +141,16 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
     current_bearish_negative = (vfi < 0) & (slope_1 < 0) & (slope_4 < 0)
     current_bearish_positive = (vfi >= 0) & (slope_1 < 0) & (slope_4 < 0)
     current_extended_weakening = (vfi > 5) & (slope_1 < 0) & (slope_4 < 0)
+    mixed_near_zero_trend = (vfi.abs() <= 5) & (slope_1 > 0) & (slope_4 < 0)
     df["Current_Setup_Bonus"] = (
         early_negative_recovery.astype(float) * 15
-        + near_zero_recovery.astype(float) * 15
+        + near_zero_recovery.astype(float) * 20
     )
     df["Current_Weakening_Penalty"] = (
         current_bearish_negative.astype(float) * 25
         + current_bearish_positive.astype(float) * 15
         + current_extended_weakening.astype(float) * 8
+        + mixed_near_zero_trend.astype(float) * 5
     )
 
     df["VFI_Opportunity_Score"] = (
