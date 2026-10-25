@@ -427,7 +427,7 @@ def main(argv=None):
                 "VFI_EMA_Long_50": row.get("VFI_EMA_Long"),
                 "EMA_Bullish_Alignment": row.get("EMA_Bullish_Alignment"),
                 "VFI_R2_26W": row.get("VFI_R2_26W"),
-                "Base_52W_Score": row.get("Base_52W_Score"),
+                "Base_26W_Score": row.get("Base_26W_Score"),
                 "EMA_Structure_Points": row.get("EMA_Structure_Points"),
                 "Slope_Points": row.get("Slope_Points"),
                 "VFI_Quality_Points": row.get("VFI_Quality_Points"),
