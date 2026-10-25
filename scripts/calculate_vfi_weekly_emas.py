@@ -1,7 +1,9 @@
 """Report the latest weekly VFI and EMAs of VFI for selected market symbols.
 
 The EMA spans are measured in weekly bars and are applied to the VFI series,
-not to price. The current/incomplete week is excluded by MarketDataService.
+not to price. MarketDataService fills missing weeks with the prior weekly
+OHLCV row before calculating the indicator. The current/incomplete week is
+excluded by MarketDataService.
 """
 from argparse import ArgumentParser
 from pathlib import Path
