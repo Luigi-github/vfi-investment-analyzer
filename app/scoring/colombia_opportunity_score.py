@@ -109,7 +109,7 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
     expanding_p95 = vfi.expanding(min_periods=52).quantile(0.95)
     denominator = (expanding_p95 - expanding_p80).replace(0, np.nan)
     historical_extension = ((vfi - expanding_p80) / denominator).clip(0, 1).fillna(0)
-    absolute_extension = ((vfi - 5.0) / 25.0).clip(0, 1)
+    absolute_extension = ((vfi - 3.0) / 15.0).clip(0, 1)
     extension = pd.concat([historical_extension, absolute_extension], axis=1).max(axis=1)
     df["VFI_Extension_Factor"] = extension
     df["Positive_Points_Before_Penalty"] = (
@@ -143,7 +143,7 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
     current_extended_weakening = (vfi > 5) & (slope_1 < 0) & (slope_4 < 0)
     df["Current_Setup_Bonus"] = (
         early_negative_recovery.astype(float) * 15
-        + near_zero_recovery.astype(float) * 10
+        + near_zero_recovery.astype(float) * 15
     )
     df["Current_Weakening_Penalty"] = (
         current_bearish_negative.astype(float) * 25
