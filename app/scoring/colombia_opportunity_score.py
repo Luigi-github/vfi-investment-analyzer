@@ -59,10 +59,11 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
         + df["Weekly_Negative_Early_Recovery_Points"]
         - df["Weekly_Positive_Decline_Penalty"]
     )
-    # Recent weeks matter more than an old accumulation cycle that has ended.
-    df["Base_52W_Score"] = (
+    # Focus on the latest 26 weeks; weight the most recent 13 weeks twice
+    # so a completed historical cycle cannot dominate today's setup.
+    df["Base_26W_Score"] = (
         weekly_points.rolling(13, min_periods=1).sum() * 2.0
-        + weekly_points.shift(13).rolling(39, min_periods=1).sum()
+        + weekly_points.shift(13).rolling(13, min_periods=1).sum()
     )
 
     ema_short = df["VFI_EMA_Short"]
@@ -112,7 +113,7 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
     extension = pd.concat([historical_extension, absolute_extension], axis=1).max(axis=1)
     df["VFI_Extension_Factor"] = extension
     df["Positive_Points_Before_Penalty"] = (
-        df["Base_52W_Score"].clip(lower=0)
+        df["Base_26W_Score"].clip(lower=0)
         + df["EMA_Structure_Points"].clip(lower=0)
         + df["Slope_Points"].clip(lower=0)
         + df["VFI_Quality_Points"].clip(lower=0)
@@ -151,7 +152,7 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
     )
 
     df["VFI_Opportunity_Score"] = (
-        df["Base_52W_Score"]
+        df["Base_26W_Score"]
         + df["EMA_Structure_Points"]
         + df["Slope_Points"]
         + df["VFI_Quality_Points"]
