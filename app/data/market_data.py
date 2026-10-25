@@ -130,12 +130,8 @@ class MarketDataService:
             missing_weeks = ~full_index.isin(weekly.index)
             weekly = weekly.reindex(full_index).ffill()
 
-            # A synthetic week had no trades: preserve previous OHLC/Adj Close,
-            # but do not fabricate volume or duplicate corporate actions.
-            if "Volume" in weekly.columns:
-                weekly.loc[missing_weeks, "Volume"] = 0
-
-            # A repeated OHLCV row is synthetic; don't repeat one-off actions.
+            # A repeated OHLCV row is synthetic; repeat the prior OHLCV values
+            # as requested, but don't repeat one-off corporate actions.
             for column in ("Dividends", "Stock Splits"):
                 if column in weekly.columns:
                     weekly.loc[missing_weeks, column] = 0
