@@ -113,14 +113,27 @@ class MarketDataService:
         weekly = weekly[weekly.index < current_friday]
 
         if not weekly.empty:
+            # Extend through the most recent fully completed Friday, even if
+            # this symbol had no trade/quote in its final week(s). Forward-fill
+            # OHLC prices and keep synthetic-week volume at zero so stale weeks
+            # are not mistaken for actual trading activity.
+            today = pd.Timestamp.now().normalize()
+            current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
+            last_completed_friday = current_friday - pd.Timedelta(days=7)
+            weekly_end = max(weekly.index.max(), last_completed_friday)
             full_index = pd.date_range(
                 start=weekly.index.min(),
-                end=weekly.index.max(),
+                end=weekly_end,
                 freq="W-FRI",
                 name=weekly.index.name,
             )
             missing_weeks = ~full_index.isin(weekly.index)
             weekly = weekly.reindex(full_index).ffill()
+
+            # A synthetic week had no trades: preserve previous OHLC/Adj Close,
+            # but do not fabricate volume or duplicate corporate actions.
+            if "Volume" in weekly.columns:
+                weekly.loc[missing_weeks, "Volume"] = 0
 
             # A repeated OHLCV row is synthetic; don't repeat one-off actions.
             for column in ("Dividends", "Stock Splits"):
