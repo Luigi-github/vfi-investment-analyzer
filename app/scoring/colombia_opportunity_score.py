@@ -54,11 +54,16 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
     df["Weekly_Positive_Decline_Penalty"] = np.where(sustained_positive_down, 1.0, 0.0)
 
     # Score the last 52 complete weekly observations to emphasize recent regimes.
-    df["Base_52W_Score"] = (
+    weekly_points = (
         df["Weekly_Negative_Sustained_Up_Points"]
         + df["Weekly_Negative_Early_Recovery_Points"]
         - df["Weekly_Positive_Decline_Penalty"]
-    ).rolling(52, min_periods=1).sum()
+    )
+    # Recent weeks matter more than an old accumulation cycle that has ended.
+    df["Base_52W_Score"] = (
+        weekly_points.rolling(13, min_periods=1).sum() * 2.0
+        + weekly_points.shift(13).rolling(39, min_periods=1).sum()
+    )
 
     ema_short = df["VFI_EMA_Short"]
     ema_medium = df["VFI_EMA_Medium"]
@@ -96,11 +101,15 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
     df["VFI_Quality_Points"] = df["VFI_R2_26W"].fillna(0).clip(0, 1) * 10
     df.loc[~((slope_4 > 0) & (slope_8 > 0)), "VFI_Quality_Points"] *= 0.5
 
-    # Extension is relative to this asset's own VFI history, not a shared raw threshold.
+    # Extension combines the asset's own historical distribution with an
+    # absolute early-entry guardrail: positive VFI above +5 is progressively
+    # penalized, with a stronger penalty above +20.
     expanding_p80 = vfi.expanding(min_periods=52).quantile(0.80)
     expanding_p95 = vfi.expanding(min_periods=52).quantile(0.95)
     denominator = (expanding_p95 - expanding_p80).replace(0, np.nan)
-    extension = ((vfi - expanding_p80) / denominator).clip(0, 1).fillna(0)
+    historical_extension = ((vfi - expanding_p80) / denominator).clip(0, 1).fillna(0)
+    absolute_extension = ((vfi - 5.0) / 25.0).clip(0, 1)
+    extension = pd.concat([historical_extension, absolute_extension], axis=1).max(axis=1)
     df["VFI_Extension_Factor"] = extension
     df["Positive_Points_Before_Penalty"] = (
         df["Base_52W_Score"].clip(lower=0)
@@ -124,11 +133,28 @@ def add_colombia_opportunity_score(data: pd.DataFrame) -> pd.DataFrame:
     )
     df["Lost_Uptrend_Penalty"] = lost_uptrend.astype(float) * 5
 
+    # A setup bonus/penalty based on the current regime keeps a stale historical
+    # score from ranking above a fresh signal that is actually improving now.
+    early_negative_recovery = (vfi < 0) & (slope_1 > 0) & (slope_4 > 0) & (slope_8 > 0)
+    near_zero_recovery = (vfi.abs() <= 5) & (slope_1 > 0) & (slope_4 > 0)
+    current_bearish = (slope_1 < 0) & (slope_4 < 0)
+    current_extended_weakening = (vfi > 5) & (slope_1 < 0) & (slope_4 < 0)
+    df["Current_Setup_Bonus"] = (
+        early_negative_recovery.astype(float) * 15
+        + near_zero_recovery.astype(float) * 10
+    )
+    df["Current_Weakening_Penalty"] = (
+        current_bearish.astype(float) * 10
+        + current_extended_weakening.astype(float) * 8
+    )
+
     df["VFI_Opportunity_Score"] = (
         df["Base_52W_Score"]
         + df["EMA_Structure_Points"]
         + df["Slope_Points"]
         + df["VFI_Quality_Points"]
+        + df["Current_Setup_Bonus"]
+        - df["Current_Weakening_Penalty"]
         - df["VFI_Extension_Penalty"]
         - df["All_EMAs_Positive_Penalty"]
         - df["Zero_Cross_Up_Penalty"]
