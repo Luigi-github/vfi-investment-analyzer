@@ -23,10 +23,12 @@ class TestWeeklyMissingDataFill(unittest.TestCase):
 
         weekly = MarketDataService().convert_to_weekly(daily)
 
-        self.assertEqual(
-            list(weekly.index.strftime("%Y-%m-%d")),
-            ["2024-01-05", "2024-01-12", "2024-01-19"],
-        )
+        today = pd.Timestamp.now().normalize()
+        current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
+        last_completed_friday = current_friday - pd.Timedelta(days=7)
+        self.assertEqual(weekly.index[0], pd.Timestamp("2024-01-05"))
+        self.assertEqual(weekly.index[-1], last_completed_friday)
+        self.assertIn(pd.Timestamp("2024-01-12"), weekly.index)
         # The empty week repeats the prior week's OHLCV, including volume,
         # as requested for continuity in weekly VFI calculations.
         for column in ("Open", "High", "Low", "Close", "Adj Close", "Volume"):
