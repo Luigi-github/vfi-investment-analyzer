@@ -12,6 +12,7 @@ from app.analysis.vfi_cycle import VFICycleAnalyzer
 from app.data.market_data import MarketDataService
 from app.indicators.vfi import VFIIndicator
 from app.scoring.vfi_score import VFIScore
+from app.scoring.colombia_opportunity_score import add_colombia_opportunity_score
 from app.backtest.multi_asset_cycle_analysis import MultiAssetCycleAnalyzer
 from app.backtest.multi_asset_recovery_analysis import MultiAssetRecoveryAnalyzer
 from app.backtest.regime_analysis import RegimeAnalyzer
@@ -27,8 +28,10 @@ OUTPUT_ROOT = ROOT / "reports" / "cycle_analysis"
 # Colombian eligibility policy: recent history + actual recent trading.
 COLOMBIA_MIN_HISTORY_DAYS = 180
 COLOMBIA_MIN_RECENT_ROWS = 30
-COLOMBIA_MIN_NONZERO_VOLUME_DAYS = 5
-COLOMBIA_MIN_MEDIAN_DAILY_VALUE_COP = 1_000_000.0
+# Exclude practically inactive shares using the raw daily feed, before weekly
+# forward-fill can make stale instruments appear current.
+COLOMBIA_MIN_NONZERO_VOLUME_DAYS = 30
+COLOMBIA_MIN_MEDIAN_DAILY_VALUE_COP = 10_000_000.0
 
 CRYPTO_MIN_HISTORY_DAYS = 180
 CRYPTO_MIN_RECENT_ROWS = 150
@@ -337,6 +340,8 @@ def main(argv=None):
             scored = scorer.calculate(analyzed)
             normalized = add_vfi_normalized_features(scored)
             data = cycle_stage_analyzer.analyze(normalized)
+            if args.universe == "COLOMBIA":
+                data = add_colombia_opportunity_score(data)
             daily_rows = len(daily)
         except Exception as exc:
             print(f"ERROR {symbol}: {exc}")
@@ -398,6 +403,56 @@ def main(argv=None):
 
     if not asset_data:
         raise RuntimeError("No asset could be analyzed successfully.")
+
+    # Export one reproducible, fully scored row per eligible Colombian asset.
+    # All symbols are evaluated through the last completed Friday after weekly
+    # gaps are filled from the preceding OHLCV observation.
+    if args.universe == "COLOMBIA":
+        ranking_rows = []
+        for symbol, frame in asset_data.items():
+            valid = frame.dropna(subset=["VFI"])
+            if valid.empty:
+                continue
+            row = valid.iloc[-1]
+            ranking_rows.append({
+                "Symbol": symbol,
+                "Latest_Date": valid.index[-1],
+                "Latest_VFI": row.get("VFI"),
+                "Latest_Cycle_Stage": row.get("VFI_Cycle_Stage"),
+                "VFI_Slope_1W": row.get("VFI_Slope"),
+                "VFI_Slope_4W": row.get("VFI_Slope_4B"),
+                "VFI_Slope_8W": row.get("VFI_Slope_8B"),
+                "VFI_EMA_Short_5": row.get("VFI_EMA_Short"),
+                "VFI_EMA_Medium_20": row.get("VFI_EMA_Medium"),
+                "VFI_EMA_Long_50": row.get("VFI_EMA_Long"),
+                "EMA_Bullish_Alignment": row.get("EMA_Bullish_Alignment"),
+                "VFI_R2_26W": row.get("VFI_R2_26W"),
+                "Base_52W_Score": row.get("Base_52W_Score"),
+                "EMA_Structure_Points": row.get("EMA_Structure_Points"),
+                "Slope_Points": row.get("Slope_Points"),
+                "VFI_Quality_Points": row.get("VFI_Quality_Points"),
+                "VFI_Extension_Factor": row.get("VFI_Extension_Factor"),
+                "VFI_Extension_Penalty": row.get("VFI_Extension_Penalty"),
+                "All_EMAs_Positive_Penalty": row.get("All_EMAs_Positive_Penalty"),
+                "Zero_Cross_Up_Penalty": row.get("Zero_Cross_Up_Penalty"),
+                "Lost_Uptrend_Penalty": row.get("Lost_Uptrend_Penalty"),
+                "VFI_Opportunity_Score": row.get("VFI_Opportunity_Score"),
+                "Weekly_Rows": len(frame),
+                "Valid_VFI_Rows": len(valid),
+            })
+        ranking = pd.DataFrame(ranking_rows)
+        if not ranking.empty:
+            ranking = ranking.sort_values(
+                ["VFI_Opportunity_Score", "VFI_R2_26W"],
+                ascending=[False, False],
+                na_position="last",
+            ).reset_index(drop=True)
+            ranking.insert(0, "Rank", range(1, len(ranking) + 1))
+        ranking.to_csv(output_dir / "colombia_opportunity_ranking.csv", index=False)
+        print("=" * 80)
+        print("COLOMBIA EARLY-ACCUMULATION OPPORTUNITY RANKING")
+        print("=" * 80)
+        print(ranking.to_string(index=False))
 
     result = cycle_analyzer.analyze(asset_data)
 
