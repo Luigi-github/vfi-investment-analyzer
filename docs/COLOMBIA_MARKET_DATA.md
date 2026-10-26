@@ -2,7 +2,9 @@
 
 ## Decision
 
-The first implementation uses Yahoo Finance through yfinance as the free OHLCV source, with a persistent local CSV cache and explicit data-quality audit. This is a practical research feed, not an official BVC feed and not guaranteed to be complete or real-time. It must be validated before using any result for a financial decision.
+The first implementation tested Yahoo Finance through yfinance as a free OHLCV source, with a persistent local CSV cache and explicit data-quality audit. It is **not currently approved as a usable Colombian OHLCV source**: the live GitHub Actions validation on 2026-10-26 rejected all 27 configured symbols because the returned historical candles contain inconsistent Open/High/Low/Close values. No Colombian ranking should be produced from that feed until a different source passes validation.
+
+This aligns with the reported upstream Nuam-market historical-data problem affecting Colombia, Chile and Peru from 2026-07-17: https://github.com/ranaroussi/yfinance/issues/2966. The issue describes stale/frozen or missing historical candles in Yahoo's chart feed despite live quotes remaining available on the website.
 
 Marketstack's published free tier is limited to end-of-day data and roughly one year of history, so it cannot alone supply the 130 weekly observations required by the current VFI length of 130. It also consumes requests per symbol, making a 25+ symbol daily universe a poor fit for its free quota. No Marketstack API key is required by this implementation.
 
@@ -24,7 +26,7 @@ The collector also queries the SFC issuer pages for the last-operation date and 
 - source_comparison.csv: date conflicts and reference differences; PPP is not treated as close.
 - metadata.json: retrieval timestamp, counts and source disclaimer.
 
-The collector fetches full history once, then refreshes an overlapping recent interval to capture corrections. The overlap is merged by date, preserving the latest provider record. A failed refresh leaves the last good cache intact and reports the error.
+The collector fetches full history once, then refreshes an overlapping recent interval to capture corrections. The overlap is merged by date, preserving the latest provider record. A failed refresh leaves the last good cache intact and reports the error. The current Yahoo collector is retained only as a diagnostic candidate; its data-quality failure means it cannot be treated as an accepted source.
 
 ## Quality controls
 
@@ -41,8 +43,8 @@ The collector fetches full history once, then refreshes an overlapping recent in
     python scripts/refresh_colombia_market_data.py
     python scripts/refresh_colombia_market_data.py --symbols ISA.CL,ECOPETROL.CL,GEB.CL
 
-The scheduled GitHub Actions workflow runs on weekdays after the Colombia market session and publishes the cache/audit as a 30-day artifact. GitHub Actions cache preserves the prior daily files between runs. A scheduled run can fail for a symbol while still producing the audit; inspect source_audit.csv before trusting the ranking.
+The GitHub Actions workflow runs on weekdays after the Colombia market session and publishes the cache/audit as a 30-day artifact. GitHub Actions cache preserves prior files between runs. The workflow now fails closed when refresh validation fails; the audit is still uploaded for diagnosis. Do not trust a ranking unless the source audit shows current, internally consistent OHLCV and the analysis step completes.
 
 ## Known limitation
 
-Yahoo's Colombian symbol coverage, freshness, and exact OHLCV quality must be tested symbol by symbol. This code records failures rather than inventing values. It does not claim that all tickers have a current, valid record simply because the refresh job completed.
+A suitable replacement source remains unresolved. The SFC's official PPP and volume are useful for cross-checking, but they are not a full daily OHLCV candle. A short public history table is not enough for VFI length 130 (about 2.5 years of weekly data). Until a free source with adequate history and valid OHLCV is identified and tested, the project intentionally withholds the Colombian ranking rather than fabricating bars or publishing misleading scores.
