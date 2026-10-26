@@ -1,6 +1,14 @@
 name: Refresh Colombia Market Data (Free)
 
 on:
+  pull_request:
+    paths:
+      - "app/data/market_data.py"
+      - "app/data/market_data_store.py"
+      - "app/data/sfc_reference.py"
+      - "scripts/refresh_colombia_market_data.py"
+      - "scripts/run_cycle_analysis.py"
+      - ".github/workflows/refresh-colombia-market-data.yml"
   workflow_dispatch:
   schedule:
     # 16:30 Colombia time (UTC-5), after the local market session.
