@@ -4,6 +4,7 @@ import unittest
 import pandas as pd
 
 from app.data.market_data_store import ColombiaMarketDataStore, STORE_COLUMNS
+from app.data.sfc_reference import parse_sfc_detail
 
 
 def sample_frame():
@@ -57,6 +58,23 @@ class TestColombiaMarketDataStore(unittest.TestCase):
             self.assertEqual(len(loaded), 2)
             self.assertListEqual(list(loaded.columns), STORE_COLUMNS)
             self.assertEqual(float(loaded.iloc[-1]["Close"]), 12.0)
+
+    def test_sfc_parser_extracts_report_date_operation_date_and_ppp(self):
+        html = """
+        <html><body>
+        AO PEC ECOPETROL S.A. | Fecha de reporte : 22/10/2026
+        Fecha de la ultima operación : 22/10/2026
+        Precios PROMEDIO PONDERADO | MAX | MIN | Vr. PATRIMONIAL
+        22/10/2026 | 15/10/2026 | 26/08/2026
+        2,695.82 | 2,832.97 | 2,594.33 | 1.00
+        Suspensiones TEMPORAL LIBERACION
+        </body></html>
+        """
+        result = parse_sfc_detail(html, "ECOPETROL.CL")
+        self.assertEqual(result["SFC_Report_Date"], "2026-10-22")
+        self.assertEqual(result["SFC_Last_Operation_Date"], "2026-10-22")
+        self.assertAlmostEqual(result["SFC_PPP_COP"], 2695.82)
+        self.assertEqual(result["SFC_Status"], "OK")
 
 
 if __name__ == "__main__":
