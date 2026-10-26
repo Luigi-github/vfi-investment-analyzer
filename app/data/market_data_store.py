@@ -157,9 +157,21 @@ class ColombiaMarketDataStore:
             combined = combined[STORE_COLUMNS]
             quality = self.validate(combined, max_stale_calendar_days=max_stale_calendar_days)
             if not quality["Valid"]:
+                numeric = combined[PRICE_COLUMNS].apply(pd.to_numeric, errors="coerce")
+                high_bad = numeric["High"] < numeric[["Open", "Low", "Close"]].max(axis=1)
+                low_bad = numeric["Low"] > numeric[["Open", "High", "Close"]].min(axis=1)
+                null_bad = numeric.isna().any(axis=1)
+                bad_rows = combined.loc[high_bad | low_bad | null_bad, PRICE_COLUMNS].head(3)
+                sample = {
+                    pd.Timestamp(index).date().isoformat(): {
+                        key: (None if pd.isna(value) else float(value))
+                        for key, value in row.items()
+                    }
+                    for index, row in bad_rows.iterrows()
+                }
                 raise ValueError(
                     f"{symbol}: refusing to overwrite cache with invalid OHLCV: "
-                    f"{quality['Issues']}"
+                    f"{quality['Issues']}; sample_bad_rows={sample}"
                 )
             # Only replace the persisted cache after the complete merged series
             # passes OHLCV validation; malformed provider responses must not
