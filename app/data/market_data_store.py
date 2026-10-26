@@ -134,12 +134,13 @@ class ColombiaMarketDataStore:
         end = pd.Timestamp.now().normalize() + pd.Timedelta(days=1)
         if start is None:
             downloaded = ticker.history(
-                period="max", interval="1d", auto_adjust=False, actions=True
+                period="max", interval="1d", auto_adjust=False, actions=True,
+                repair=True,
             )
         else:
             downloaded = ticker.history(
                 start=start.date().isoformat(), end=end.date().isoformat(),
-                interval="1d", auto_adjust=False, actions=True,
+                interval="1d", auto_adjust=False, actions=True, repair=True,
             )
         return ColombiaMarketDataStore._normalize_download(downloaded, symbol)
 
