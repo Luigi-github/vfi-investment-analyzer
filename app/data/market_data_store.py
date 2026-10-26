@@ -134,7 +134,9 @@ class ColombiaMarketDataStore:
         end = pd.Timestamp.now().normalize() + pd.Timedelta(days=1)
         if start is None:
             downloaded = ticker.history(
-                period="max", interval="1d", auto_adjust=False, actions=True,
+                # Five years covers the 200-week EMA warm-up while avoiding
+                # decades of obsolete rows that are irrelevant to this study.
+                period="5y", interval="1d", auto_adjust=False, actions=True,
                 repair=True,
             )
         else:
