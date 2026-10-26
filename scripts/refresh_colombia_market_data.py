@@ -31,7 +31,7 @@ def main() -> int:
         else [symbol for symbol in get_universe("COLOMBIA") if symbol != "CIB"]
     )
     store = ColombiaMarketDataStore(args.data_dir)
-    audit, _quotes = store.refresh_many(
+    audit, quotes = store.refresh_many(
         symbols, max_stale_calendar_days=args.max_stale_days,
         sleep_seconds=args.sleep_seconds,
     )
