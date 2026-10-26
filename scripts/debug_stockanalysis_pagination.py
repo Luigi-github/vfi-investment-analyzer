@@ -54,6 +54,22 @@ def main():
     except Exception as exc:
         print("READ_HTML_ERROR", type(exc).__name__, str(exc))
 
+    for term in ("1 of 3", "50 Rows", "pageSize", "pageIndex", "pagination", "nextPage", "historyData", "__NEXT_DATA__"):
+        pos = response.text.lower().find(term.lower())
+        if pos >= 0:
+            print("HTML_SNIPPET", term, response.text[max(0, pos - 180):pos + 260].replace("\\n", " ")[:500])
+
+    class Tags(HTMLParser):
+        def handle_starttag(self, tag, attrs):
+            attrs_dict = dict(attrs)
+            if tag.lower() == "script" and attrs_dict.get("src"):
+                print("SCRIPT_SRC", attrs_dict["src"])
+            elif tag.lower() in {"button", "form"}:
+                print("TAG", tag, attrs_dict)
+
+    tags = Tags()
+    tags.feed(response.text)
+
     # Probe common pagination query parameters; unchanged first/last dates mean
     # the parameter is ignored and must not be treated as a second page.
     probes = [
