@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - "app/data/market_data_store.py"
+      - "app/data/sfc_reference.py"
       - "app/data/market_data.py"
       - "scripts/refresh_colombia_market_data.py"
       - "tests/test_market_data_store.py"
