@@ -26,7 +26,7 @@ The collector also queries the SFC issuer pages for the last-operation date and 
 - source_comparison.csv: date conflicts and reference differences; PPP is not treated as close.
 - metadata.json: retrieval timestamp, counts and source disclaimer.
 
-The collector fetches full history once, then refreshes an overlapping recent interval to capture corrections. The overlap is merged by date, preserving the latest provider record. A failed refresh leaves the last good cache intact and reports the error. The current Yahoo collector is retained only as a diagnostic candidate; its data-quality failure means it cannot be treated as an accepted source.
+The collector fetches five years of daily history on the first download (enough for the 200-week EMA warm-up), then refreshes an overlapping recent interval to capture corrections. The overlap is merged by date, preserving the latest provider record. A failed refresh leaves the last good cache intact and reports the error. The current Yahoo collector is retained only as a diagnostic candidate; its data-quality failure means it cannot be treated as an accepted source.
 
 ## Quality controls
 
@@ -47,4 +47,4 @@ The GitHub Actions workflow runs on weekdays after the Colombia market session a
 
 ## Known limitation
 
-A suitable replacement source remains unresolved. The SFC's official PPP and volume are useful for cross-checking, but they are not a full daily OHLCV candle. A short public history table is not enough for VFI length 130 (about 2.5 years of weekly data). The legacy BVC download endpoint documented by the public `descargarbvc` R package was tested on 2026-10-26 and now returns the BVC site's generic Next.js HTML page rather than an XLS file, so it cannot currently be used as a direct data feed. Until a free source with adequate history and valid OHLCV is identified and tested, the project intentionally withholds the Colombian ranking rather than fabricating bars or publishing misleading scores.
+A suitable replacement source remains unresolved. The SFC's official PPP and volume are useful for cross-checking, but they are not a full daily OHLCV candle. A short public history table is not enough for VFI length 130 and a 200-week EMA warm-up (five years of daily history). The legacy BVC download endpoint documented by the public `descargarbvc` R package was tested on 2026-10-26 and now returns the BVC site's generic Next.js HTML page rather than an XLS file, so it cannot currently be used as a direct data feed. Until a free source with adequate history and valid OHLCV is identified and tested, the project intentionally withholds the Colombian ranking rather than fabricating bars or publishing misleading scores.
