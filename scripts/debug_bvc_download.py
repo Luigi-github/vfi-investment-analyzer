@@ -32,6 +32,10 @@ def main():
             print("BVC_ENDPOINT", endpoint, "STATUS", response.status_code,
                   "FINAL_URL", response.url, "TYPE", response.headers.get("content-type"),
                   "BYTES", len(response.content), "MAGIC", repr(response.content[:16]))
+            import re
+            from html import unescape
+            html_text = unescape(re.sub(r"<[^>]+>", " ", response.text))
+            print("BVC_RESPONSE_TEXT", " ".join(html_text.split())[:1800])
             if response.ok and len(response.content) > 1000:
                 try:
                     sheets = pd.read_excel(BytesIO(response.content), sheet_name=None, engine="xlrd")
