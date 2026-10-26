@@ -326,6 +326,23 @@ def main():
                 liquidity_rows.append({
                     "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
                     "Annualized_Volatility_60D": np.nan,
+                    "Valid_Weekly_VFI_Bars": 0,
+                    "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
+                    "Liquidity_Status": message,
+                })
+                continue
+
+            # Bar count alone is not enough: require sufficient valid VFI
+            # observations after the indicator's warm-up and any missing data.
+            weekly_vfi_history = VFIIndicator().calculate(weekly_history)
+            valid_vfi_bars = int(pd.to_numeric(weekly_vfi_history["VFI"], errors="coerce").notna().sum())
+            if valid_vfi_bars < 60:
+                message = f"INSUFFICIENT_VALID_WEEKLY_VFI_BARS:{valid_vfi_bars}; need >=60"
+                errors.append({"Symbol": symbol, "Stage": "LIQUIDITY", "Error": message})
+                liquidity_rows.append({
+                    "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
+                    "Annualized_Volatility_60D": np.nan,
+                    "Valid_Weekly_VFI_Bars": valid_vfi_bars,
                     "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
                     "Liquidity_Status": message,
                 })
@@ -341,6 +358,7 @@ def main():
                 liquidity_rows.append({
                     "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
                     "Annualized_Volatility_60D": annualized_volatility,
+                    "Valid_Weekly_VFI_Bars": valid_vfi_bars,
                     "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
                     "Liquidity_Status": message,
                 })
@@ -355,6 +373,7 @@ def main():
             liquidity_rows.append({
                 "Symbol": symbol, "Average_Dollar_Turnover_20D": turnover,
                 "Annualized_Volatility_60D": annualized_volatility,
+                "Valid_Weekly_VFI_Bars": valid_vfi_bars,
                 "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
                 "Liquidity_Status": "OK" if np.isfinite(turnover) else "INSUFFICIENT_DATA",
             })
