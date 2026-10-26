@@ -1,8 +1,16 @@
-name: US top-100-liquid weekly-first early accumulation screen
+name: US top-200-liquid weekly-first early accumulation screen
 
 on:
   push:
     branches: [main]
+    paths:
+      - "scripts/run_us_weekly_then_daily_screen.py"
+      - ".github/workflows/us-weekly-then-daily-screen.yml"
+      - "scripts/run_volume_accumulation_indicators.py"
+      - "app/indicators/vfi.py"
+      - "app/indicators/volume_divergence_mm.py"
+      - "tests/test_vfi_signal_lengths.py"
+  pull_request:
     paths:
       - "scripts/run_us_weekly_then_daily_screen.py"
       - ".github/workflows/us-weekly-then-daily-screen.yml"
@@ -45,12 +53,12 @@ jobs:
         run: |
           PYTHONPATH=. pytest -q tests/test_vfi_signal_lengths.py tests/test_volume_accumulation_indicators.py tests/test_volume_divergence_mm.py tests/test_vfi_conformance.py tests/test_vfi_slope_units.py
       - name: Rank liquidity and screen completed weekly VFI only
-        run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 100 --max-daily-candidates 100
+        run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 200 --max-daily-candidates 100 --refresh-cache
       - name: Upload weekly VFI ranking, daily follow-up and run summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: us-top100-weekly-vfi-daily-followup
+          name: us-top200-weekly-vfi-daily-followup
           path: reports/us_weekly_then_daily/
           if-no-files-found: warn
           retention-days: 14
