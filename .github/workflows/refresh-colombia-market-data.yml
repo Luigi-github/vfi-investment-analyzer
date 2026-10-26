@@ -49,6 +49,9 @@ jobs:
           python -m unittest discover -s tests -p "test_market_data_store.py"
           python -m unittest discover -s tests -p "test_weekly_missing_data_fill.py"
 
+      - name: Diagnose public StockAnalysis history pagination
+        run: python scripts/debug_stockanalysis_pagination.py
+
       - name: Refresh Colombian daily OHLCV
         continue-on-error: true
         run: |
