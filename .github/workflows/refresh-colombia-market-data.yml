@@ -8,7 +8,6 @@ on:
       - "app/data/sfc_reference.py"
       - "scripts/refresh_colombia_market_data.py"
       - "scripts/run_cycle_analysis.py"
-      - "scripts/debug_stockanalysis_pagination.py"
       - ".github/workflows/refresh-colombia-market-data.yml"
   workflow_dispatch:
   schedule:
@@ -50,18 +49,13 @@ jobs:
           python -m unittest discover -s tests -p "test_market_data_store.py"
           python -m unittest discover -s tests -p "test_weekly_missing_data_fill.py"
 
-      - name: Diagnose public StockAnalysis history pagination
-        run: python scripts/debug_stockanalysis_pagination.py
-
       - name: Refresh Colombian daily OHLCV
-        continue-on-error: true
         run: |
           python scripts/refresh_colombia_market_data.py \
             --data-dir data/market_cache/colombia \
             --max-stale-days 7
 
       - name: Run VFI Colombia analysis with validated data
-        continue-on-error: true
         run: |
           python scripts/run_cycle_analysis.py \
             --universe COLOMBIA \
