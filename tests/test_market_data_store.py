@@ -37,6 +37,15 @@ class TestColombiaMarketDataStore(unittest.TestCase):
         self.assertEqual(report["Status"], "STALE")
         self.assertIn("STALE_LAST_OBSERVATION", report["Issues"])
 
+    def test_quarantine_drops_bad_candles_without_rewriting_prices(self):
+        frame = sample_frame()
+        frame.loc[pd.Timestamp("2026-10-23"), "Low"] = 12.0
+        clean, removed = ColombiaMarketDataStore.quarantine_invalid_candles(frame)
+        self.assertEqual(removed, 1)
+        self.assertEqual(len(clean), 1)
+        self.assertEqual(float(clean.iloc[0]["Close"]), 11.0)
+        self.assertNotIn(pd.Timestamp("2026-10-23"), clean.index)
+
     def test_invalid_ohlc_is_rejected(self):
         frame = sample_frame()
         frame.loc[pd.Timestamp("2026-10-23"), "High"] = 9.0
