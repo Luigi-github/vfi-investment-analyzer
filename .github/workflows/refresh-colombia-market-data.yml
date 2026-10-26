@@ -1,8 +1,6 @@
 name: Refresh Colombia Market Data (Free)
 
 on:
-  push:
-    branches: [feat/free-colombia-market-data-cache]
   workflow_dispatch:
   schedule:
     # 16:30 Colombia time (UTC-5), after the local market session.
