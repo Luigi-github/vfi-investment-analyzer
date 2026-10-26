@@ -19,7 +19,15 @@ US_LIQUID_UNIVERSE = list(dict.fromkeys("""
 AAPL MSFT NVDA AMZN META GOOGL GOOG TSLA AVGO AMD INTC QCOM MU ORCL CRM PLTR NFLX
 JPM BAC WFC C GS MS V MA AXP XOM CVX COP SLB GE CAT BA HON RTX LMT UNH LLY JNJ ABBV MRK PFE AMGN COST WMT TGT HD LOW MCD KO PEP PG
 DIS CMCSA T VZ TMUS UBER ABNB SHOP COIN HOOD XYZ PYPL SOFI RIVN F FDX UPS NKE SBUX TSM ASML ARM SMCI LULU CRWD PANW NOW IBM CSCO TXN
-SPY QQQ IWM DIA TLT GLD SLV XLF XLK XLE XLV SMH SOXX HYG LQD EEM EFA IBIT
+ADBE ACN INTU NXPI MCHP ON MPWR ADI FTNT ZS OKTA MDB TEAM WDAY VEEV TTD EA TTWO EBAY ETSY
+PGR CB TRV ALL MET PRU AFL AIG COF PNC TFC BK STT NTRS MTB RF KEY CFG FITB HBAN CMA
+MO CL KMB GIS KHC KDP KR SYY DG DLTR ROST DRI DPZ ELV HUM DHR ZTS CARR EMR ITW CMI PWR
+XEL ETR AEP PCG EIX WEC AES PPL ED EQIX CCI PSA VICI SPG FIS FI GPN VRSK PAYX NDAQ CBOE MCO MSCI
+TEL GLW HPQ HPE JNPR MSI FSLR ENPH HAL BKR FANG DVN CTRA OKE EPD ET NOC GD HII LHX
+CSX NSC CNI CP DAL UAL AAL CCL RCL EXPE MAR DELL ROKU WBD FOX PARA GRAB NTES TME SE NU
+RBLX DKNG CAVA NTRA ALNY PODD IDXX ILMN IQV ZBH BDX HOLX COO WAT STE TECH RMD
+NUE STLD PKG IP CF MOS FMC IFF ECL SHW PPG APD ETRN URI FAST GWW RSG WM
+AON AJG BRO ACGL ERIE WRB L HIG CINF
 """.split() + US_CANDIDATE_UNIVERSE))
 
 def safe_cache_name(symbol: str) -> str:
@@ -172,12 +180,49 @@ def weekly_screen(symbol, daily):
     ss_total8 = float(np.sum((recent8 - recent8.mean()) ** 2)) if len(recent8) == 8 else 0.0
     r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
     slope8 = vfi["VFI_Slope_8B"]
+
+    # User-specific opportunity score over the most recent 260 completed
+    # weekly VFI observations. Positive points reward sustained recovery below
+    # zero; negative points penalize distribution above zero. This scores all
+    # liquid names rather than filtering the entire universe to qualifiers.
+    score_series = vfi_series.tail(260)
+    score_slope4 = (score_series - score_series.shift(4)) / 4.0
+    score_slope8 = (score_series - score_series.shift(8)) / 8.0
+    rising_below_zero = (score_series < 0) & (score_slope4 > 0) & (score_slope8 > 0)
+    falling_above_zero = (score_series > 0) & (score_slope4 < 0) & (score_slope8 < 0)
+    positive_points = int(rising_below_zero.sum())
+    distribution_points = int(falling_above_zero.sum())
+
+    ema5 = score_series.ewm(span=5, adjust=False, min_periods=5).mean()
+    ema20 = score_series.ewm(span=20, adjust=False, min_periods=20).mean()
+    ema50 = score_series.ewm(span=50, adjust=False, min_periods=50).mean()
+    ema5_now, ema20_now, ema50_now = float(ema5.iloc[-1]), float(ema20.iloc[-1]), float(ema50.iloc[-1])
+
+    historical_median = float(score_series.median())
+    historical_q95 = float(score_series.quantile(0.95))
+    if historical_q95 > historical_median and value > historical_median:
+        high_vfi_factor = float(np.clip((value - historical_median) / (historical_q95 - historical_median), 0.0, 1.0))
+    else:
+        high_vfi_factor = 0.0
+    high_vfi_penalty = positive_points * high_vfi_factor
+    all_emas_positive_penalty = 0.5 * positive_points if ema5_now > 0 and ema20_now > 0 and ema50_now > 0 else 0.0
+    ema_inversion_penalty = (
+        (0.5 * positive_points if ema5_now < ema20_now else 0.0)
+        + (0.5 * positive_points if ema20_now < ema50_now else 0.0)
+    )
+    current_slope_penalty = (2.0 if slope8 < 0 else 0.0) + (1.0 if vfi.get("VFI_Slope_4B", np.nan) < 0 else 0.0)
+    opportunity_score = (
+        positive_points - distribution_points - high_vfi_penalty
+        - all_emas_positive_penalty - ema_inversion_penalty - current_slope_penalty
+    )
+
     price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
     # Early weekly setup: MA20 is above MA50 while BOTH remain below zero.
     # Do not wait for the current VFI or its averages to cross zero; track those
     # crosses as subsequent events so the scan can catch the move earlier.
     qualifies = bool(
-        np.isfinite(vfi_ma50) and vfi_ma50 < 0
+        np.isfinite(value) and value < 0
+        and np.isfinite(vfi_ma50) and vfi_ma50 < 0
         and np.isfinite(vfi_ma20) and vfi_ma20 < 0
         and ma_state["VFI_MA20_Above_MA50"]
         and np.isfinite(vfi.get("VFI_Slope_4B", np.nan)) and vfi["VFI_Slope_4B"] > 0
@@ -187,11 +232,20 @@ def weekly_screen(symbol, daily):
     )
     # Rank by MA20 proximity to zero, positive MA spread, then slope quality.
     ma_spread = vfi_ma20 - vfi_ma50 if np.isfinite(vfi_ma20) and np.isfinite(vfi_ma50) else float("nan")
-    score = float(100.0 / (1.0 + abs(vfi_ma20)) + max(0.0, ma_spread)) if np.isfinite(vfi_ma20) else 0.0
+    score = float(opportunity_score)
     return {
         "Symbol": symbol,
         "Weekly_Screen_Status": "CANDIDATE" if qualifies else "NOT_SELECTED",
         "Weekly_Score": score,
+        "Weekly_Opportunity_Score": score,
+        "Weekly_Negative_Uptrend_Weeks_260W": positive_points,
+        "Weekly_Positive_Downtrend_Weeks_260W": distribution_points,
+        "Weekly_High_VFI_Penalty": high_vfi_penalty,
+        "Weekly_All_EMAs_Positive_Penalty": all_emas_positive_penalty,
+        "Weekly_EMA_Inversion_Penalty": ema_inversion_penalty,
+        "Weekly_EMA5_VFI": ema5_now,
+        "Weekly_EMA20_VFI": ema20_now,
+        "Weekly_EMA50_VFI": ema50_now,
         "Weekly_VFI": value,
         "Weekly_VFI_MA50": vfi_ma50,
         "Weekly_VFI_MA20": vfi_ma20,
@@ -262,6 +316,18 @@ def main():
             daily = completed_daily(raw_daily)
             if daily.empty or not {"Close", "Volume"}.issubset(daily.columns):
                 raise ValueError("No usable OHLCV data")
+            # VFI(130) needs about 160 weekly bars to produce values; the
+            # 50-week VFI trend needs roughly 210 weekly bars to warm up.
+            weekly_history = to_weekly(daily)
+            if len(weekly_history) < 210:
+                message = f"INSUFFICIENT_WEEKLY_HISTORY:{len(weekly_history)}_bars; need >=210"
+                errors.append({"Symbol": symbol, "Stage": "LIQUIDITY", "Error": message})
+                liquidity_rows.append({
+                    "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
+                    "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
+                    "Liquidity_Status": message,
+                })
+                continue
             raw_data[symbol] = daily
             dollar_turnover = (
                 pd.to_numeric(daily["Close"], errors="coerce") *
@@ -303,6 +369,11 @@ def main():
     weekly_df = pd.DataFrame(weekly_rows)
     if "_qualifies" in weekly_df:
         weekly_df = weekly_df.drop(columns=["_qualifies"])
+    weekly_df = weekly_df.sort_values(
+        ["Weekly_Opportunity_Score", "Weekly_Screen_Status", "Average_Dollar_Turnover_20D"],
+        ascending=[False, True, False], na_position="last"
+    ).reset_index(drop=True)
+    weekly_df.insert(0, "Opportunity_Rank", range(1, len(weekly_df) + 1))
     weekly_df.to_csv(out / f"us_top_{args.top}_weekly_screen.csv", index=False)
     liquidity_df.sort_values("Average_Dollar_Turnover_20D", ascending=False).to_csv(out / f"us_top_{args.top}_liquidity_universe.csv", index=False)
 
@@ -311,8 +382,8 @@ def main():
         candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
     candidates["VFI_Distance_To_Zero"] = candidates["Weekly_VFI"].abs()
     candidates = candidates.sort_values(
-        ["Weekly_VFI_MA20", "Weekly_VFI_MA_Spread", "Weekly_VFI_Slope_20W",
-         "Weekly_VFI_Slope_50W", "Weekly_VFI_R2_4W", "Weekly_VFI_Slope_8W"],
+        ["Weekly_Opportunity_Score", "Weekly_VFI_MA20", "Weekly_VFI_MA_Spread",
+         "Weekly_VFI_Slope_20W", "Weekly_VFI_Slope_50W", "Weekly_VFI_R2_4W"],
         ascending=[False, False, False, False, False, False],
     ).reset_index(drop=True)
     candidates.insert(0, "Rank", range(1, len(candidates) + 1))
@@ -441,10 +512,10 @@ def main():
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; VFI MA20 > MA50 while BOTH averages remain below zero; positive 4W/8W VFI slopes; 20W and 50W slopes are contextual ranking information rather than hard positive filters, so early turns are not discarded just because the longer slope remains negative; last 4 weekly VFI values strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%; zero-crosses are tracked as subsequent confirmation",
+        "weekly_rule": "completed weekly candles; all eligible assets receive an opportunity score based on weeks with VFI below zero and positive 4W/8W slopes, less weeks with VFI above zero and negative slopes; proportional penalty when current VFI is high versus its own recent history; penalties when all VFI EMAs are positive or EMA ordering inverts. A strict early-accumulation candidate additionally requires VFI<0, VFI MA20>MA50 with both below zero, positive 4W/8W slopes, last 4 VFI values strictly rising with R2>=0.65 and 13W price return<=+10%. At least 210 completed weekly bars are required.",
         "daily_rule": "only strict weekly candidates are followed up on completed daily candles; if there are none, no daily analysis is performed; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
-        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; default N=20; not all US listings.",
+        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within an expanded curated US-listed common-stock/ADR seed universe; ETFs are excluded; at least 210 completed weekly bars are required before liquidity ranking. This is a reproducible universe screen, not a claim to rank every US listing.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
         "errors": errors,
     }
