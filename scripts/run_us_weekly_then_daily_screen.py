@@ -432,16 +432,17 @@ def main():
     print("\nWEEKLY VFI CANDIDATES: VFI MA20 > MA50, both averages below zero, rising VFI, price not extended", flush=True)
     print(candidates.to_string(index=False) if not candidates.empty else "No assets passed the exact weekly VFI filter.", flush=True)
 
-    # Stage 2 is strictly conditional: only assets passing the completed-weekly
-    # filter are eligible for daily confirmation. Never substitute near-misses.
+    # Stage 2 follows the highest-scoring weekly opportunities even when no
+    # stock passes every binary setup condition. This preserves the requested
+    # score-all workflow; the daily strict-signal flag remains a separate field.
     daily_rows = []
     weekly_rank_map = {
-        row.Symbol: int(row.Rank)
-        for row in candidates[["Symbol", "Rank"]].itertuples(index=False)
-    } if not candidates.empty else {}
-    followup_symbols = candidates["Symbol"].head(max(0, args.max_daily_candidates)).tolist()
-    followup_mode = "STRICT_WEEKLY_CANDIDATES_ONLY"
-    print(f"\\nDAILY FOLLOW-UP for {len(followup_symbols)} weekly-qualified assets ({followup_mode})", flush=True)
+        row.Symbol: int(row.Opportunity_Rank)
+        for row in weekly_df[["Symbol", "Opportunity_Rank"]].itertuples(index=False)
+    } if not weekly_df.empty else {}
+    followup_symbols = weekly_df["Symbol"].head(max(0, args.max_daily_candidates)).tolist()
+    followup_mode = "TOP_WEEKLY_OPPORTUNITY_SCORES"
+    print(f"\\nDAILY FOLLOW-UP for {len(followup_symbols)} top-scored weekly assets ({followup_mode})", flush=True)
     for i, symbol in enumerate(followup_symbols, 1):
         print(f"[DAILY {i}/{len(followup_symbols)}] {symbol}", flush=True)
         try:
@@ -555,7 +556,7 @@ def main():
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
         "weekly_rule": "completed weekly candles; all eligible assets receive an opportunity score based on weeks with VFI below zero and positive 4W/8W slopes, less weeks with VFI above zero and negative slopes; proportional penalty when current VFI is high versus its own recent history; penalties when all VFI EMAs are positive or EMA ordering inverts. A strict early-accumulation candidate additionally requires VFI<0, VFI MA20>MA50 with both below zero, positive 4W/8W slopes, last 4 VFI values strictly rising with R2>=0.65 and 13W price return<=+10%. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
-        "daily_rule": "only strict weekly candidates are followed up on completed daily candles; if there are none, no daily analysis is performed; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
+        "daily_rule": "the top weekly opportunity-score names are followed up on completed daily candles, even when none passes the strict weekly binary setup; daily early-signal flag requires VFI MA20 > MA50 while both are below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; scores are heuristics, not probabilities",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within an expanded curated US-listed common-stock/ADR seed universe; ETFs are excluded; at least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required before liquidity ranking. This is a reproducible universe screen, not a claim to rank every US listing.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
