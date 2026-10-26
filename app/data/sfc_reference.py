@@ -195,7 +195,14 @@ def collect_sfc_references(
                 record["SFC_Last_Operation_After_Yahoo"] = None
                 record["Yahoo_Date_vs_SFC_Operation_Days"] = None
             ppp = record.get("SFC_PPP_COP")
-            if pd.notna(quote.get("Close")) and ppp and ppp > 0:
+            # PPP and Yahoo close are only compared numerically when both refer
+            # to the same last-operation date; otherwise show no percentage.
+            same_date = (
+                pd.notna(yahoo_date)
+                and pd.notna(sfc_operation)
+                and yahoo_date.normalize() == sfc_operation.normalize()
+            )
+            if same_date and pd.notna(quote.get("Close")) and ppp and ppp > 0:
                 record["Yahoo_Close_vs_SFC_PPP_Pct"] = round((float(quote["Close"]) / float(ppp) - 1) * 100, 4)
             else:
                 record["Yahoo_Close_vs_SFC_PPP_Pct"] = None
