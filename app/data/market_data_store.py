@@ -155,8 +155,16 @@ class ColombiaMarketDataStore:
             combined = pd.concat([cached, fresh_rows])
             combined = combined[~combined.index.duplicated(keep="last")].sort_index()
             combined = combined[STORE_COLUMNS]
-            combined.to_csv(self.cache_path(symbol), index_label="Date", date_format="%Y-%m-%d")
             quality = self.validate(combined, max_stale_calendar_days=max_stale_calendar_days)
+            if not quality["Valid"]:
+                raise ValueError(
+                    f"{symbol}: refusing to overwrite cache with invalid OHLCV: "
+                    f"{quality['Issues']}"
+                )
+            # Only replace the persisted cache after the complete merged series
+            # passes OHLCV validation; malformed provider responses must not
+            # destroy a previously usable history.
+            combined.to_csv(self.cache_path(symbol), index_label="Date", date_format="%Y-%m-%d")
             result = {
                 "Symbol": symbol, "Provider": PROVIDER, "Retrieved_At_UTC": retrieved_at,
                 **quality, "Cache_File": str(self.cache_path(symbol)), "Error": "",
