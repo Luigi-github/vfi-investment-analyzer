@@ -180,6 +180,7 @@ def weekly_screen(symbol, daily):
     ss_total8 = float(np.sum((recent8 - recent8.mean()) ** 2)) if len(recent8) == 8 else 0.0
     r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
     slope8 = vfi["VFI_Slope_8B"]
+    price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
 
     # User-specific opportunity score over the most recent 260 completed
     # weekly VFI observations. Positive points reward sustained recovery below
@@ -205,6 +206,10 @@ def weekly_screen(symbol, daily):
     else:
         high_vfi_factor = 0.0
     high_vfi_penalty = positive_points * high_vfi_factor
+    # Penalize assets whose price has already advanced substantially over the
+    # last 13 weeks, even if VFI remains negative after a volatile run.
+    price_extension_factor = float(np.clip((price_return_13w - 0.10) / 0.40, 0.0, 1.0))
+    price_extension_penalty = positive_points * price_extension_factor
     all_emas_positive_penalty = 0.5 * positive_points if ema5_now > 0 and ema20_now > 0 and ema50_now > 0 else 0.0
     ema_inversion_penalty = (
         (0.5 * positive_points if ema5_now < ema20_now else 0.0)
@@ -212,11 +217,10 @@ def weekly_screen(symbol, daily):
     )
     current_slope_penalty = (2.0 if slope8 < 0 else 0.0) + (1.0 if vfi.get("VFI_Slope_4B", np.nan) < 0 else 0.0)
     opportunity_score = (
-        positive_points - distribution_points - high_vfi_penalty
+        positive_points - distribution_points - high_vfi_penalty - price_extension_penalty
         - all_emas_positive_penalty - ema_inversion_penalty - current_slope_penalty
     )
 
-    price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
     # Early weekly setup: MA20 is above MA50 while BOTH remain below zero.
     # Do not wait for the current VFI or its averages to cross zero; track those
     # crosses as subsequent events so the scan can catch the move earlier.
@@ -241,6 +245,7 @@ def weekly_screen(symbol, daily):
         "Weekly_Negative_Uptrend_Weeks_260W": positive_points,
         "Weekly_Positive_Downtrend_Weeks_260W": distribution_points,
         "Weekly_High_VFI_Penalty": high_vfi_penalty,
+        "Weekly_Price_Extension_Penalty": price_extension_penalty,
         "Weekly_All_EMAs_Positive_Penalty": all_emas_positive_penalty,
         "Weekly_EMA_Inversion_Penalty": ema_inversion_penalty,
         "Weekly_EMA5_VFI": ema5_now,
