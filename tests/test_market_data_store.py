@@ -1,5 +1,6 @@
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import pandas as pd
 
@@ -58,6 +59,20 @@ class TestColombiaMarketDataStore(unittest.TestCase):
             self.assertEqual(len(loaded), 2)
             self.assertListEqual(list(loaded.columns), STORE_COLUMNS)
             self.assertEqual(float(loaded.iloc[-1]["Close"]), 12.0)
+
+    def test_invalid_refresh_does_not_overwrite_existing_cache(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            store = ColombiaMarketDataStore(tmp)
+            original = sample_frame()
+            original.to_csv(store.cache_path("ISA.CL"), index_label="Date", date_format="%Y-%m-%d")
+            invalid = sample_frame()
+            invalid.loc[pd.Timestamp("2026-10-23"), "High"] = 9.0
+            with patch.object(store, "_fetch", return_value=invalid):
+                audit = store.refresh_symbol("ISA.CL", sleep_seconds=0)
+            loaded = store.load_cached("ISA.CL")
+            self.assertEqual(float(loaded.loc[pd.Timestamp("2026-10-23"), "High"]), 13.0)
+            self.assertTrue(audit["Error"])
+            self.assertEqual(audit["Status"], "OK")
 
     def test_sfc_parser_extracts_report_date_operation_date_and_ppp(self):
         html = """
