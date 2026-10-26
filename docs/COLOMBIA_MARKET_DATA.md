@@ -26,11 +26,13 @@ The collector also queries the SFC issuer pages for the last-operation date and 
 - source_comparison.csv: date conflicts and reference differences; PPP is not treated as close.
 - metadata.json: retrieval timestamp, counts and source disclaimer.
 
-The collector fetches five years of daily history on the first download (enough for the 200-week EMA warm-up), then refreshes an overlapping recent interval to capture corrections. The overlap is merged by date, preserving the latest provider record. A failed refresh leaves the last good cache intact and reports the error. The current Yahoo collector is retained only as a diagnostic candidate; its data-quality failure means it cannot be treated as an accepted source.
+The collector fetches five years of daily history on the first download (enough for the 200-week EMA warm-up), then refreshes an overlapping recent interval to capture corrections. The overlap is merged by date, preserving the latest provider record. A failed refresh leaves the last good cache intact and reports the error. The current Yahoo collector remains an unapproved candidate. A transparent quarantine now drops malformed candles without inventing OHLC values and rejects a response if more than 2% of its rows are malformed. This mitigation still requires live validation and does not, by itself, certify Yahoo as an accepted source.
 
 ## Quality controls
 
 - OHLCV must be numeric, positive where appropriate, and internally consistent.
+- A malformed provider candle is quarantined (dropped), never rewritten to force High/Low consistency. The audit records downloaded and quarantined row counts and rate.
+- The Yahoo feed is rejected if more than 2% of the returned candles need quarantine; this is a conservative operational guardrail, not proof that the remaining source is accurate.
 - Duplicate and unsorted dates are reported.
 - Missing daily records are not filled.
 - Each symbol is checked independently for freshness; stale data is never labelled current.
