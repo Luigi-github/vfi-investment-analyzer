@@ -1,4 +1,4 @@
-"""Two-stage US equity/ETF accumulation screen: weekly universe -> daily shortlist."""
+"""Two-stage US equity accumulation screen: liquid, volatile, long-history stocks -> weekly VFI ranking -> daily shortlist."""
 from __future__ import annotations
 import json, sys
 from pathlib import Path
@@ -13,8 +13,8 @@ from app.indicators.volume_divergence_mm import VolumeDivergenceMM
 from scripts.run_volume_accumulation_indicators import calculate_indicators, completed_daily, to_weekly
 from scripts.run_us_top100_liquid_screen import US_CANDIDATE_UNIVERSE
 
-# Combine a broad curated stock universe with heavily traded ETFs, then rank
-# the full seed universe by 20-session dollar turnover before weekly analysis.
+# Combine a broad curated US-listed stock/ADR universe; ETFs are excluded.
+# Rank eligible names by 20-session dollar turnover before weekly analysis.
 US_LIQUID_UNIVERSE = list(dict.fromkeys("""
 AAPL MSFT NVDA AMZN META GOOGL GOOG TSLA AVGO AMD INTC QCOM MU ORCL CRM PLTR NFLX
 JPM BAC WFC C GS MS V MA AXP XOM CVX COP SLB GE CAT BA HON RTX LMT UNH LLY JNJ ABBV MRK PFE AMGN COST WMT TGT HD LOW MCD KO PEP PG
@@ -303,7 +303,7 @@ def main():
     raw_data, liquidity_rows, errors = {}, [], []
     cache_hits = 0
     downloaded_count = 0
-    print(f"Downloading daily history for {len(symbols)} US-listed symbols to rank liquidity...", flush=True)
+    print(f"Downloading daily history for {len(symbols)} US-listed stocks/ADRs to rank liquidity...", flush=True)
     for i, symbol in enumerate(symbols, 1):
         print(f"[LIQUIDITY {i}/{len(symbols)}] {symbol}", flush=True)
         try:
@@ -316,18 +316,36 @@ def main():
             daily = completed_daily(raw_daily)
             if daily.empty or not {"Close", "Volume"}.issubset(daily.columns):
                 raise ValueError("No usable OHLCV data")
-            # VFI(130) needs about 160 weekly bars to produce values; the
-            # 50-week VFI trend needs roughly 210 weekly bars to warm up.
+            # VFI(130), its rolling volatility/volume windows, and a 50-week
+            # VFI EMA require a long warm-up. Enforce at least five years of
+            # completed weekly candles before a symbol can enter the top 200.
             weekly_history = to_weekly(daily)
-            if len(weekly_history) < 210:
-                message = f"INSUFFICIENT_WEEKLY_HISTORY:{len(weekly_history)}_bars; need >=210"
+            if len(weekly_history) < 260:
+                message = f"INSUFFICIENT_WEEKLY_HISTORY:{len(weekly_history)}_bars; need >=260"
                 errors.append({"Symbol": symbol, "Stage": "LIQUIDITY", "Error": message})
                 liquidity_rows.append({
                     "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
+                    "Annualized_Volatility_60D": np.nan,
                     "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
                     "Liquidity_Status": message,
                 })
                 continue
+
+            close_for_vol = pd.to_numeric(daily["Close"], errors="coerce")
+            returns_60d = close_for_vol.pct_change().replace([np.inf, -np.inf], np.nan).dropna().tail(60)
+            annualized_volatility = float(returns_60d.std(ddof=1) * np.sqrt(252)) if len(returns_60d) >= 50 else np.nan
+            min_volatility = 0.15
+            if not np.isfinite(annualized_volatility) or annualized_volatility < min_volatility:
+                message = f"LOW_OR_UNAVAILABLE_60D_VOLATILITY:{annualized_volatility:.4f}; need >=0.15" if np.isfinite(annualized_volatility) else "UNAVAILABLE_60D_VOLATILITY"
+                errors.append({"Symbol": symbol, "Stage": "LIQUIDITY", "Error": message})
+                liquidity_rows.append({
+                    "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
+                    "Annualized_Volatility_60D": annualized_volatility,
+                    "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
+                    "Liquidity_Status": message,
+                })
+                continue
+
             raw_data[symbol] = daily
             dollar_turnover = (
                 pd.to_numeric(daily["Close"], errors="coerce") *
@@ -336,6 +354,7 @@ def main():
             turnover = float(dollar_turnover.mean()) if len(dollar_turnover) >= 10 else float("nan")
             liquidity_rows.append({
                 "Symbol": symbol, "Average_Dollar_Turnover_20D": turnover,
+                "Annualized_Volatility_60D": annualized_volatility,
                 "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
                 "Liquidity_Status": "OK" if np.isfinite(turnover) else "INSUFFICIENT_DATA",
             })
@@ -348,8 +367,10 @@ def main():
     eligible = liquidity_df[np.isfinite(pd.to_numeric(liquidity_df["Average_Dollar_Turnover_20D"], errors="coerce"))]
     selected = eligible.sort_values("Average_Dollar_Turnover_20D", ascending=False).head(args.top).copy()
     selected_symbols = selected["Symbol"].tolist()
-    liquidity_rank = {r.Symbol: (rank, float(r.Average_Dollar_Turnover_20D))
-                      for rank, r in enumerate(selected.itertuples(index=False), 1)}
+    liquidity_rank = {
+        r.Symbol: (rank, float(r.Average_Dollar_Turnover_20D), float(r.Annualized_Volatility_60D))
+        for rank, r in enumerate(selected.itertuples(index=False), 1)
+    }
     print(f"Selected {len(selected_symbols)} assets by 20-session dollar turnover.", flush=True)
 
     weekly_rows, frames = [], {}
@@ -359,13 +380,14 @@ def main():
             row = weekly_screen(symbol, raw_data[symbol])
             frames[symbol] = (row.pop("_daily"), row.pop("_weekly"))
             row["_qualifies"] = bool(row.pop("_qualifies"))
-            row["Liquidity_Rank"], row["Average_Dollar_Turnover_20D"] = liquidity_rank[symbol]
+            row["Liquidity_Rank"], row["Average_Dollar_Turnover_20D"], row["Annualized_Volatility_60D"] = liquidity_rank[symbol]
             weekly_rows.append(row)
         except Exception as exc:
             errors.append({"Symbol": symbol, "Stage": "WEEKLY_VFI", "Error": repr(exc)})
             weekly_rows.append({"Symbol": symbol, "Weekly_Screen_Status": "ERROR",
                                 "Error": repr(exc), "Liquidity_Rank": liquidity_rank[symbol][0],
-                                "Average_Dollar_Turnover_20D": liquidity_rank[symbol][1]})
+                                "Average_Dollar_Turnover_20D": liquidity_rank[symbol][1],
+                                "Annualized_Volatility_60D": liquidity_rank[symbol][2]})
     weekly_df = pd.DataFrame(weekly_rows)
     if "_qualifies" in weekly_df:
         weekly_df = weekly_df.drop(columns=["_qualifies"])
@@ -443,6 +465,7 @@ def main():
             daily_rows.append({
                 "Symbol": symbol,
                 "Weekly_Rank": int(weekly_rank_map[symbol]),
+                "Weekly_Annualized_Volatility_60D": liquidity_rank[symbol][2],
                 "Daily_Early_Accumulation_Candidate": early,
                 "Daily_Score": daily_score,
                 "Daily_Candle_Date": daily.index[-1].strftime("%Y-%m-%d"),
@@ -512,10 +535,10 @@ def main():
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; all eligible assets receive an opportunity score based on weeks with VFI below zero and positive 4W/8W slopes, less weeks with VFI above zero and negative slopes; proportional penalty when current VFI is high versus its own recent history; penalties when all VFI EMAs are positive or EMA ordering inverts. A strict early-accumulation candidate additionally requires VFI<0, VFI MA20>MA50 with both below zero, positive 4W/8W slopes, last 4 VFI values strictly rising with R2>=0.65 and 13W price return<=+10%. At least 210 completed weekly bars are required.",
+        "weekly_rule": "completed weekly candles; all eligible assets receive an opportunity score based on weeks with VFI below zero and positive 4W/8W slopes, less weeks with VFI above zero and negative slopes; proportional penalty when current VFI is high versus its own recent history; penalties when all VFI EMAs are positive or EMA ordering inverts. A strict early-accumulation candidate additionally requires VFI<0, VFI MA20>MA50 with both below zero, positive 4W/8W slopes, last 4 VFI values strictly rising with R2>=0.65 and 13W price return<=+10%. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
         "daily_rule": "only strict weekly candidates are followed up on completed daily candles; if there are none, no daily analysis is performed; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
-        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within an expanded curated US-listed common-stock/ADR seed universe; ETFs are excluded; at least 210 completed weekly bars are required before liquidity ranking. This is a reproducible universe screen, not a claim to rank every US listing.",
+        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within an expanded curated US-listed common-stock/ADR seed universe; ETFs are excluded; at least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required before liquidity ranking. This is a reproducible universe screen, not a claim to rank every US listing.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
         "errors": errors,
     }
