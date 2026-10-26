@@ -9,6 +9,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.data.market_data_store import ColombiaMarketDataStore
+from app.data.sfc_reference import collect_sfc_references
 from app.research.universes import get_universe
 
 
@@ -18,6 +19,7 @@ def parse_args():
     parser.add_argument("--data-dir", default="data/market_cache/colombia")
     parser.add_argument("--max-stale-days", type=int, default=7)
     parser.add_argument("--sleep-seconds", type=float, default=0.25)
+    parser.add_argument("--skip-sfc", action="store_true", help="Skip the secondary SFC reference check.")
     return parser.parse_args()
 
 
@@ -40,6 +42,17 @@ def main() -> int:
     print(f"Con problemas: {int(problems.sum())}")
     print(f"Auditoría: {store.audit_path}")
     print(f"Últimas cotizaciones: {store.quotes_path}")
+    if not args.skip_sfc:
+        try:
+            reference, comparison = collect_sfc_references(
+                symbols, quotes, store.root, sleep_seconds=0.1
+            )
+            print(f"Referencias SFC consultadas: {len(reference)}")
+            print(f"Comparación de fuentes: {store.root / 'source_comparison.csv'}")
+        except Exception as exc:
+            # SFC is a secondary validation source; its outage must not erase
+            # valid Yahoo data or prevent the per-symbol audit from being saved.
+            print(f"AVISO: no se pudo completar el contraste SFC: {type(exc).__name__}: {exc}")
     print(audit[["Symbol", "Last_Date", "Status", "Age_Calendar_Days", "Issues", "Error"]].to_string(index=False))
     return 1 if problems.any() else 0
 
