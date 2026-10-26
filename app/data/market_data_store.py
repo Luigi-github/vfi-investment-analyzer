@@ -129,6 +129,24 @@ class ColombiaMarketDataStore:
         }
 
     @staticmethod
+    def quarantine_invalid_candles(data: pd.DataFrame) -> tuple[pd.DataFrame, int]:
+        """Drop malformed provider candles without correcting or inventing prices.
+
+        The returned count must be written to the source audit. This is a
+        transparent quarantine, not a repair of OHLC values.
+        """
+        if data.empty:
+            return data.copy(), 0
+        numeric = data[PRICE_COLUMNS].apply(pd.to_numeric, errors="coerce")
+        bad = numeric.isna().any(axis=1)
+        prices = numeric[["Open", "High", "Low", "Close"]]
+        bad |= (prices <= 0).any(axis=1)
+        bad |= numeric["Volume"] < 0
+        bad |= numeric["High"] < numeric[["Open", "Low", "Close"]].max(axis=1)
+        bad |= numeric["Low"] > numeric[["Open", "High", "Close"]].min(axis=1)
+        return data.loc[~bad].copy(), int(bad.sum())
+
+    @staticmethod
     def _fetch(symbol: str, start: pd.Timestamp | None = None) -> pd.DataFrame:
         ticker = yf.Ticker(symbol)
         end = pd.Timestamp.now().normalize() + pd.Timedelta(days=1)
@@ -152,9 +170,23 @@ class ColombiaMarketDataStore:
     ) -> dict:
         retrieved_at = pd.Timestamp.now(tz="UTC").isoformat()
         cached = self.load_cached(symbol)
+        raw_rows = 0
+        quarantined_rows = 0
+        quarantine_rate = 0.0
         try:
             start = cached.index.max() - pd.Timedelta(days=10) if not cached.empty else None
-            fresh_rows = self._fetch(symbol, start=start)
+            fresh_raw = self._fetch(symbol, start=start)
+            raw_rows = len(fresh_raw)
+            fresh_rows, quarantined_rows = self.quarantine_invalid_candles(fresh_raw)
+            quarantine_rate = quarantined_rows / raw_rows if raw_rows else 1.0
+            # Do not accept a feed that needs more than 2% of its returned
+            # candles discarded. Bad candles are excluded, never corrected.
+            if quarantine_rate > 0.02:
+                raise ValueError(
+                    f"{symbol}: quarantined {quarantined_rows}/{raw_rows} malformed "
+                    f"candles ({quarantine_rate:.2%}), above 2.00% safety limit"
+                )
+            cached, cached_bad = self.quarantine_invalid_candles(cached)
             combined = pd.concat([cached, fresh_rows])
             combined = combined[~combined.index.duplicated(keep="last")].sort_index()
             combined = combined[STORE_COLUMNS]
@@ -183,6 +215,8 @@ class ColombiaMarketDataStore:
             result = {
                 "Symbol": symbol, "Provider": PROVIDER, "Retrieved_At_UTC": retrieved_at,
                 **quality, "Cache_File": str(self.cache_path(symbol)), "Error": "",
+                "Downloaded_Rows": raw_rows, "Quarantined_Rows": quarantined_rows,
+                "Quarantined_Rate": round(quarantine_rate, 6),
             }
             if sleep_seconds:
                 time.sleep(sleep_seconds)
@@ -193,6 +227,8 @@ class ColombiaMarketDataStore:
                 "Symbol": symbol, "Provider": PROVIDER, "Retrieved_At_UTC": retrieved_at,
                 **quality, "Cache_File": str(self.cache_path(symbol)),
                 "Error": f"{type(exc).__name__}: {exc}",
+                "Downloaded_Rows": raw_rows, "Quarantined_Rows": quarantined_rows,
+                "Quarantined_Rate": round(quarantine_rate, 6),
             }
 
     def refresh_many(
