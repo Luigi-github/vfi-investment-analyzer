@@ -7,6 +7,7 @@ on:
       - "app/data/market_data_store.py"
       - "app/data/sfc_reference.py"
       - "scripts/refresh_colombia_market_data.py"
+      - "scripts/debug_bvc_download.py"
       - "scripts/run_cycle_analysis.py"
       - ".github/workflows/refresh-colombia-market-data.yml"
   workflow_dispatch:
@@ -48,6 +49,9 @@ jobs:
         run: |
           python -m unittest discover -s tests -p "test_market_data_store.py"
           python -m unittest discover -s tests -p "test_weekly_missing_data_fill.py"
+
+      - name: Test official BVC historical XLS download
+        run: python scripts/debug_bvc_download.py
 
       - name: Refresh Colombian daily OHLCV
         run: |
