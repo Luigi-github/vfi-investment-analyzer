@@ -1,6 +1,16 @@
 name: Test Free Market Data Cache
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - "app/data/market_data_store.py"
+      - "app/data/sfc_reference.py"
+      - "app/data/market_data.py"
+      - "scripts/refresh_colombia_market_data.py"
+      - "tests/test_market_data_store.py"
+      - "tests/test_weekly_missing_data_fill.py"
+      - ".github/workflows/test-market-data.yml"
   pull_request:
     paths:
       - "app/data/market_data_store.py"
