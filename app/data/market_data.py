@@ -174,13 +174,17 @@ class MarketDataService:
             )
             missing_weeks = ~full_index.isin(weekly.index)
             weekly = weekly.reindex(full_index).ffill()
+            # Keep the requested prior-week OHLCV carry-forward, but expose
+            # which rows are synthetic so reports can disclose this limitation.
+            weekly["Is_Synthetic_Week"] = missing_weeks
 
-            # A repeated OHLCV row is synthetic; repeat the prior OHLCV values
-            # as requested, but don't repeat one-off corporate actions.
+            # One-off corporate actions must never be copied into synthetic weeks.
             for column in ("Dividends", "Stock Splits"):
                 if column in weekly.columns:
                     weekly.loc[missing_weeks, column] = 0
 
+        if "Is_Synthetic_Week" not in weekly.columns:
+            weekly["Is_Synthetic_Week"] = False
         return weekly
 
     @staticmethod
