@@ -50,9 +50,28 @@ def main():
         for i, table in enumerate(tables):
             print("TABLE", i, "SHAPE", table.shape, "COLUMNS", list(table.columns))
             if len(table):
-                print(table.head(2).to_string(index=False))
+                print("TABLE_RANGE", table.iloc[0]["Date"], table.iloc[-1]["Date"])
     except Exception as exc:
         print("READ_HTML_ERROR", type(exc).__name__, str(exc))
+
+    # Probe common pagination query parameters; unchanged first/last dates mean
+    # the parameter is ignored and must not be treated as a second page.
+    probes = [
+        {"p": "2"}, {"page": "2"}, {"offset": "50"},
+        {"pageNumber": "2"}, {"page": "2", "period": "6m"},
+        {"p": "2", "period": "6m"}, {"start": "50"},
+    ]
+    for params in probes:
+        try:
+            page = requests.get(url, params=params, timeout=20, headers={
+                "User-Agent": "Mozilla/5.0 VFI-Investment-Analyzer research"
+            })
+            table = pd.read_html(StringIO(page.text))[0]
+            print("PROBE", params, "STATUS", page.status_code, "URL", page.url,
+                  "ROWS", len(table), "FIRST", table.iloc[0]["Date"],
+                  "LAST", table.iloc[-1]["Date"])
+        except Exception as exc:
+            print("PROBE_ERROR", params, type(exc).__name__, str(exc))
 
 
 if __name__ == "__main__":
