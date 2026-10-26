@@ -8,6 +8,7 @@ on:
       - "app/data/sfc_reference.py"
       - "scripts/refresh_colombia_market_data.py"
       - "scripts/run_cycle_analysis.py"
+      - "scripts/debug_stockanalysis_pagination.py"
       - ".github/workflows/refresh-colombia-market-data.yml"
   workflow_dispatch:
   schedule:
