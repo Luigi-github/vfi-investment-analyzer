@@ -1,0 +1,57 @@
+name: Refresh Colombia Market Data (Free)
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 16:30 Colombia time (UTC-5), after the local market session.
+    - cron: "30 21 * * 1-5"
+
+permissions:
+  contents: read
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Install free data dependencies
+        run: python -m pip install --upgrade pip pandas yfinance
+
+      - name: Restore previous local cache
+        uses: actions/cache/restore@v4
+        with:
+          path: data/market_cache/colombia
+          key: colombia-market-cache-${{ github.run_id }}
+          restore-keys: |
+            colombia-market-cache-
+
+      - name: Refresh Colombian daily OHLCV
+        run: |
+          python scripts/refresh_colombia_market_data.py \
+            --data-dir data/market_cache/colombia \
+            --max-stale-days 7
+
+      - name: Upload data and audit
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: colombia-market-data-${{ github.run_id }}
+          path: data/market_cache/colombia/
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Save updated cache for next run
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: data/market_cache/colombia
+          key: colombia-market-cache-${{ github.run_id }}
