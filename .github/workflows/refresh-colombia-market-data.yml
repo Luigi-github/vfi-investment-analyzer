@@ -54,12 +54,14 @@ jobs:
         run: python scripts/debug_bvc_download.py
 
       - name: Refresh Colombian daily OHLCV
+        if: false # temporary while inspecting the official endpoint response
         run: |
           python scripts/refresh_colombia_market_data.py \
             --data-dir data/market_cache/colombia \
             --max-stale-days 7
 
       - name: Run VFI Colombia analysis with validated data
+        if: false # temporary while inspecting the official endpoint response
         run: |
           python scripts/run_cycle_analysis.py \
             --universe COLOMBIA \
