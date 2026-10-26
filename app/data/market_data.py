@@ -159,9 +159,10 @@ class MarketDataService:
 
         if not weekly.empty:
             # Extend through the most recent fully completed Friday, even if
-            # this symbol had no trade/quote in its final week(s). Forward-fill
-            # OHLC prices and keep synthetic-week volume at zero so stale weeks
-            # are not mistaken for actual trading activity.
+            # this symbol had no row in its final week(s). Carry forward the
+            # prior OHLCV as requested, but explicitly flag each synthetic week
+            # because repeated volume can affect VFI normalization and is not a
+            # substitute for an actual traded candle.
             today = pd.Timestamp.now().normalize()
             current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
             last_completed_friday = current_friday - pd.Timedelta(days=7)
