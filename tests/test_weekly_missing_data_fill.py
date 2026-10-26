@@ -35,6 +35,8 @@ class TestWeeklyMissingDataFill(unittest.TestCase):
             self.assertEqual(weekly.loc["2024-01-12", column], weekly.loc["2024-01-05", column])
         self.assertEqual(weekly.loc["2024-01-12", "Dividends"], 0.0)
         self.assertEqual(weekly.loc["2024-01-12", "Stock Splits"], 0.0)
+        self.assertTrue(bool(weekly.loc["2024-01-12", "Is_Synthetic_Week"]))
+        self.assertFalse(bool(weekly.loc["2024-01-05", "Is_Synthetic_Week"]))
 
 
 if __name__ == "__main__":
