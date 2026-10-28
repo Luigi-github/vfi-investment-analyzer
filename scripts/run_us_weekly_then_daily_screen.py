@@ -309,7 +309,7 @@ def weekly_screen(symbol, daily):
     )
     opportunity_score = (
         positive_points - distribution_points
-        + ema_structure_bonus + ema_duration_bonus + ema20_r2_bonus + ema80_r2_bonus + ema200_r2_bonus
+        + ema_structure_bonus + ema_duration_bonus + ema_r2_bonus
         + r2_4_bonus + r2_8_bonus + slope20_bonus + slope50_bonus
         - high_vfi_penalty - price_extension_penalty
         - all_emas_positive_penalty - ema_inversion_penalty
@@ -346,7 +346,8 @@ def weekly_screen(symbol, daily):
         "Weekly_EMA_Structure_Bonus": ema_structure_bonus,
         "Weekly_EMA_Long_Bullish_Below_Zero_Streak_Weeks": ema_long_bullish_streak,
         "Weekly_EMA_Duration_Bonus": ema_duration_bonus,
-        "Weekly_EMA5_R2_26W": ema5_r2_26w,\n        "Weekly_EMA20_R2_26W": ema20_r2_26w,
+        "Weekly_EMA5_R2_26W": ema5_r2_26w,
+        "Weekly_EMA20_R2_26W": ema20_r2_26w,
         "Weekly_EMA80_R2_26W": ema80_r2_26w,
         "Weekly_EMA200_R2_26W": ema200_r2_26w,
         "Weekly_EMA_R2_Bonus": ema_r2_bonus,
