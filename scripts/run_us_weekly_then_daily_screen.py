@@ -253,7 +253,7 @@ def weekly_screen(symbol, daily):
     ema80_rising = ema80_slope8 > 0
     ema200_rising = ema200_slope8 > 0
     ema_bullish_quality = (
-        ema_weights["ema5"] * float(ema5_now < ema20_now and ema5_rising and ema5_now < 0)
+        ema_weights["ema5"] * float(ema5_now > ema20_now and ema5_rising and ema5_now < 0)
         + ema_weights["ema20"] * float(ema20_now > ema80_now and ema20_rising and ema20_now < 0)
         + ema_weights["ema80"] * float(ema80_now > ema200_now and ema80_rising and ema80_now < 0)
         + ema_weights["ema200"] * float(ema200_rising and ema200_now < 0)
@@ -349,9 +349,9 @@ def weekly_screen(symbol, daily):
         "Weekly_EMA5_R2_26W": ema5_r2_26w,\n        "Weekly_EMA20_R2_26W": ema20_r2_26w,
         "Weekly_EMA80_R2_26W": ema80_r2_26w,
         "Weekly_EMA200_R2_26W": ema200_r2_26w,
-        "Weekly_EMA20_R2_Bonus": ema20_r2_bonus,
-        "Weekly_EMA80_R2_Bonus": ema80_r2_bonus,
-        "Weekly_EMA200_R2_Bonus": ema200_r2_bonus,
+        "Weekly_EMA_R2_Bonus": ema_r2_bonus,
+        
+        
         "Weekly_EMA80_Slope_8W": ema80_slope8,
         "Weekly_EMA200_Slope_8W": ema200_slope8,
         "Weekly_R2_4W_Bonus": r2_4_bonus,
