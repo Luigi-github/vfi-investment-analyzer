@@ -13,10 +13,10 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
-from app.indicators.volume_divergence_mm import VolumeDivergenceMM
-
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+
+from app.indicators.volume_divergence_mm import VolumeDivergenceMM
 REPORTS = ROOT / "reports/us_weekly_then_daily"
 CACHE = ROOT / "data/market_cache/us_equities"
 
