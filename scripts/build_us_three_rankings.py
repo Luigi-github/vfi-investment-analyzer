@@ -50,18 +50,18 @@ def slope(series: pd.Series, bars: int) -> float:
 
 def score_monthly(symbol: str, daily: pd.DataFrame) -> dict:
     monthly = completed_monthly(daily)
-    if len(monthly) < 90:
-        raise ValueError(f"insufficient completed monthly candles: {len(monthly)}; need >=90")
+    if len(monthly) < 77:
+        raise ValueError(f"insufficient completed monthly candles: {len(monthly)}; need >=77 for the indicator warm-up")
     frame = VolumeDivergenceMM(
         ema_short=5, ema_medium=20, ema_long=80
     ).calculate(monthly)
     s = pd.to_numeric(frame["Volume_Divergence_MM"], errors="coerce").dropna()
-    if len(s) < 80:
-        raise ValueError(f"insufficient valid monthly divergence observations: {len(s)}")
+    if len(s) < 1:
+        raise ValueError("no valid monthly divergence observations after the WMA warm-up")
     s = s.tail(120)
-    e5 = s.ewm(span=5, adjust=False, min_periods=5).mean()
-    e20 = s.ewm(span=20, adjust=False, min_periods=20).mean()
-    e80 = s.ewm(span=80, adjust=False, min_periods=80).mean()
+    e5 = s.ewm(span=5, adjust=False, min_periods=min(5, len(s))).mean()
+    e20 = s.ewm(span=20, adjust=False, min_periods=min(20, len(s))).mean()
+    e80 = s.ewm(span=80, adjust=False, min_periods=min(80, len(s))).mean()
     slope1, slope3, slope6 = slope(s, 1), slope(s, 3), slope(s, 6)
     rising_negative = (s < 0) & (slope_series(s, 1) > 0) & (slope_series(s, 3) > 0)
     falling_positive = (s > 0) & (slope_series(s, 1) < 0) & (slope_series(s, 3) < 0)
@@ -114,6 +114,8 @@ def score_monthly(symbol: str, daily: pd.DataFrame) -> dict:
         "Overextension_Penalty": 0.50 * scale_points * overextension,
         "Monthly_Candle_Date": monthly.index[-1].strftime("%Y-%m-%d"),
         "Monthly_Bars": int(len(monthly)),
+        "Valid_Monthly_Divergence_Bars": int(len(pd.to_numeric(frame["Volume_Divergence_MM"], errors="coerce").dropna())),
+        "EMA80_Warmup_Complete": bool(len(s) >= 80),
     }
 
 
@@ -163,7 +165,7 @@ def main() -> None:
                               on="Symbol", how="left", validate="one_to_one")
     n = len(combined)
     combined["Weekly_Percentile"] = 100.0 * (n - combined["Opportunity_Rank"]) / max(n - 1, 1)
-    valid_monthly = combined["Monthly_Rank"].notna()
+    valid_monthly = combined["Monthly_Score"].notna()
     combined["Monthly_Percentile"] = np.where(
         valid_monthly, 100.0 * (n - combined["Monthly_Rank"]) / max(n - 1, 1), 0.0
     )
