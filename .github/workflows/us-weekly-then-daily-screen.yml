@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "scripts/run_us_weekly_then_daily_screen.py"
+      - "scripts/build_us_three_rankings.py"
       - ".github/workflows/us-weekly-then-daily-screen.yml"
       - "scripts/run_volume_accumulation_indicators.py"
       - "app/indicators/vfi.py"
@@ -54,11 +55,13 @@ jobs:
           PYTHONPATH=. pytest -q tests/test_vfi_signal_lengths.py tests/test_volume_accumulation_indicators.py tests/test_volume_divergence_mm.py tests/test_vfi_conformance.py tests/test_vfi_slope_units.py
       - name: Rank liquidity and screen completed weekly VFI only
         run: python scripts/run_us_weekly_then_daily_screen.py --period max --top 200 --max-daily-candidates 100 --refresh-cache
-      - name: Upload weekly VFI ranking, daily follow-up and run summary
+      - name: Calculate monthly Volume Divergence MM and combined rankings for the same 200 assets
+        run: python scripts/build_us_three_rankings.py
+      - name: Upload weekly, monthly, combined rankings and run summary
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: us-top200-weekly-vfi-daily-followup
+          name: us-top200-three-rankings
           path: reports/us_weekly_then_daily/
           if-no-files-found: warn
           retention-days: 14
