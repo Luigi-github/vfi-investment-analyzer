@@ -14,6 +14,7 @@ on:
   pull_request:
     paths:
       - "scripts/run_us_weekly_then_daily_screen.py"
+      - "scripts/build_us_three_rankings.py"
       - ".github/workflows/us-weekly-then-daily-screen.yml"
       - "scripts/run_volume_accumulation_indicators.py"
       - "app/indicators/vfi.py"
