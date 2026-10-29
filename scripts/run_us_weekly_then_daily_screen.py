@@ -1,4 +1,4 @@
-"""Two-stage US equity/ETF accumulation screen: weekly universe -> daily shortlist."""
+"""Two-stage US equity accumulation screen: liquid, volatile, long-history stocks -> weekly VFI ranking -> daily shortlist."""
 from __future__ import annotations
 import json, sys
 from pathlib import Path
@@ -13,13 +13,21 @@ from app.indicators.volume_divergence_mm import VolumeDivergenceMM
 from scripts.run_volume_accumulation_indicators import calculate_indicators, completed_daily, to_weekly
 from scripts.run_us_top100_liquid_screen import US_CANDIDATE_UNIVERSE
 
-# Combine a broad curated stock universe with heavily traded ETFs, then rank
-# the full seed universe by 20-session dollar turnover before weekly analysis.
+# Combine a broad curated US-listed stock/ADR universe; ETFs are excluded.
+# Rank eligible names by 20-session dollar turnover before weekly analysis.
 US_LIQUID_UNIVERSE = list(dict.fromkeys("""
 AAPL MSFT NVDA AMZN META GOOGL GOOG TSLA AVGO AMD INTC QCOM MU ORCL CRM PLTR NFLX
 JPM BAC WFC C GS MS V MA AXP XOM CVX COP SLB GE CAT BA HON RTX LMT UNH LLY JNJ ABBV MRK PFE AMGN COST WMT TGT HD LOW MCD KO PEP PG
 DIS CMCSA T VZ TMUS UBER ABNB SHOP COIN HOOD XYZ PYPL SOFI RIVN F FDX UPS NKE SBUX TSM ASML ARM SMCI LULU CRWD PANW NOW IBM CSCO TXN
-SPY QQQ IWM DIA TLT GLD SLV XLF XLK XLE XLV SMH SOXX HYG LQD EEM EFA IBIT
+ADBE ACN INTU NXPI MCHP ON MPWR ADI FTNT ZS OKTA MDB TEAM WDAY VEEV TTD EA TTWO EBAY ETSY
+PGR CB TRV ALL MET PRU AFL AIG COF PNC TFC BK STT NTRS MTB RF KEY CFG FITB HBAN CMA
+MO CL KMB GIS KHC KDP KR SYY DG DLTR ROST DRI DPZ ELV HUM DHR ZTS CARR EMR ITW CMI PWR
+XEL ETR AEP PCG EIX WEC AES PPL ED EQIX CCI PSA VICI SPG FIS FI GPN VRSK PAYX NDAQ CBOE MCO MSCI
+TEL GLW HPQ HPE JNPR MSI FSLR ENPH HAL BKR FANG DVN CTRA OKE EPD ET NOC GD HII LHX
+CSX NSC CNI CP DAL UAL AAL CCL RCL EXPE MAR DELL ROKU WBD FOX PARA GRAB NTES TME SE NU
+RBLX DKNG CAVA NTRA ALNY PODD IDXX ILMN IQV ZBH BDX HOLX COO WAT STE TECH RMD
+NUE STLD PKG IP CF MOS FMC IFF ECL SHW PPG APD ETRN URI FAST GWW RSG WM
+AON AJG BRO ACGL ERIE WRB L HIG CINF
 """.split() + US_CANDIDATE_UNIVERSE))
 
 def safe_cache_name(symbol: str) -> str:
@@ -173,11 +181,147 @@ def weekly_screen(symbol, daily):
     r2_8 = float(1 - np.sum((recent8 - fit8) ** 2) / ss_total8) if ss_total8 > 0 else 0.0
     slope8 = vfi["VFI_Slope_8B"]
     price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
+
+    # User-specific opportunity score over the most recent 260 completed
+    # weekly VFI observations. Positive points reward sustained recovery below
+    # zero; negative points penalize distribution above zero. This scores all
+    # liquid names rather than filtering the entire universe to qualifiers.
+    score_series = vfi_series.tail(260)
+    score_slope4 = (score_series - score_series.shift(4)) / 4.0
+    score_slope8 = (score_series - score_series.shift(8)) / 8.0
+    rising_below_zero = (score_series < 0) & (score_slope4 > 0) & (score_slope8 > 0)
+    falling_above_zero = (score_series > 0) & (score_slope4 < 0) & (score_slope8 < 0)
+    positive_points = int(rising_below_zero.sum())
+    distribution_points = int(falling_above_zero.sum())
+
+    ema5 = score_series.ewm(span=5, adjust=False, min_periods=5).mean()
+    ema20 = score_series.ewm(span=20, adjust=False, min_periods=20).mean()
+    ema80 = score_series.ewm(span=80, adjust=False, min_periods=80).mean()
+    ema200 = score_series.ewm(span=200, adjust=False, min_periods=200).mean()
+    ema5_now, ema20_now, ema80_now, ema200_now = (
+        float(ema5.iloc[-1]), float(ema20.iloc[-1]),
+        float(ema80.iloc[-1]), float(ema200.iloc[-1])
+    )
+
+    # Long-term regime: EMA80 above EMA200, with EMA200 rising and below zero.
+    # EMA200 receives the strongest trend-quality weighting; EMA5 is only a
+    # short-term confirmation and EMA20 is an intermediate confirmation.
+    ema80_slope8 = safe_slope(ema80, 8)
+    ema200_slope8 = safe_slope(ema200, 8)
+    def linear_r2(values):
+        values = np.asarray(values, dtype=float)
+        if len(values) < 8 or not np.isfinite(values).all():
+            return 0.0
+        x = np.arange(len(values), dtype=float)
+        fit = np.polyval(np.polyfit(x, values, 1), x)
+        ss_total = float(np.sum((values - values.mean()) ** 2))
+        return float(np.clip(1.0 - np.sum((values - fit) ** 2) / ss_total, 0.0, 1.0)) if ss_total > 0 else 0.0
+    ema20_r2_26w = linear_r2(ema20.tail(26).to_numpy(dtype=float))
+    ema80_r2_26w = linear_r2(ema80.tail(26).to_numpy(dtype=float))
+    ema200_r2_26w = linear_r2(ema200.tail(26).to_numpy(dtype=float))
+
+    # Durable long-regime streak: EMA80 > EMA200, EMA200 rising, EMA200 < 0.
+    # It can persist beyond 12 weeks even if the shorter EMAs temporarily wiggle.
+    ema_long_bullish_below_zero = (
+        (ema80 > ema200) & (ema200.diff(4) > 0) & (ema200 < 0)
+    ).fillna(False)
+    ema_long_bullish_streak = 0
+    for is_bullish in ema_long_bullish_below_zero.iloc[::-1]:
+        if not bool(is_bullish):
+            break
+        ema_long_bullish_streak += 1
+    # Reward durable structures progressively for up to 52 weeks.
+    ema_duration_factor = min(ema_long_bullish_streak, 52) / 52.0
+
+    historical_median = float(score_series.median())
+    historical_q95 = float(score_series.quantile(0.95))
+    if historical_q95 > historical_median and value > historical_median:
+        high_vfi_factor = float(np.clip((value - historical_median) / (historical_q95 - historical_median), 0.0, 1.0))
+    else:
+        high_vfi_factor = 0.0
+    high_vfi_penalty = positive_points * high_vfi_factor
+    # Penalize assets whose price has already advanced substantially over the
+    # last 13 weeks, even if VFI remains negative after a volatile run.
+    price_extension_factor = float(np.clip((price_return_13w - 0.10) / 0.40, 0.0, 1.0))
+    price_extension_penalty = positive_points * price_extension_factor
+    # Keep the EMA contribution on a fixed scale as more EMAs are added.
+    # EMA weights sum to 1.0: EMA5=5%, EMA20=15%, EMA80=30%, EMA200=50%.
+    # Thus EMA200 is the most influential without inflating the score range.
+    ema_weights = {"ema5": 0.05, "ema20": 0.15, "ema80": 0.30, "ema200": 0.50}
+    ema5_rising = safe_slope(ema5, 8) > 0
+    ema20_rising = safe_slope(ema20, 8) > 0
+    ema80_rising = ema80_slope8 > 0
+    ema200_rising = ema200_slope8 > 0
+    ema_bullish_quality = (
+        ema_weights["ema5"] * float(ema5_now > ema20_now and ema5_rising and ema5_now < 0)
+        + ema_weights["ema20"] * float(ema20_now > ema80_now and ema20_rising and ema20_now < 0)
+        + ema_weights["ema80"] * float(ema80_now > ema200_now and ema80_rising and ema80_now < 0)
+        + ema_weights["ema200"] * float(ema200_rising and ema200_now < 0)
+    )
+    ema_structure_bonus = 0.75 * positive_points * ema_bullish_quality
+    ema_duration_bonus = 0.75 * positive_points * ema_duration_factor
+
+    # R² EMA quality also uses the same normalized weights and fixed budget.
+    ema20_r2_factor = float(np.clip((ema20_r2_26w - 0.50) / 0.50, 0.0, 1.0))
+    ema80_r2_factor = float(np.clip((ema80_r2_26w - 0.50) / 0.50, 0.0, 1.0))
+    ema200_r2_factor = float(np.clip((ema200_r2_26w - 0.50) / 0.50, 0.0, 1.0))
+    ema5_r2_26w = linear_r2(ema5.tail(26).to_numpy(dtype=float))
+    ema5_r2_factor = float(np.clip((ema5_r2_26w - 0.50) / 0.50, 0.0, 1.0))
+    ema_r2_quality = (
+        ema_weights["ema5"] * ema5_r2_factor * float(ema5_now < 0 and ema5_rising)
+        + ema_weights["ema20"] * ema20_r2_factor * float(ema20_now < 0 and ema20_rising)
+        + ema_weights["ema80"] * ema80_r2_factor * float(ema80_now < 0 and ema80_rising)
+        + ema_weights["ema200"] * ema200_r2_factor * float(ema200_now < 0 and ema200_rising)
+    )
+    ema_r2_bonus = 0.35 * positive_points * ema_r2_quality
+
+    # Penalties share one fixed budget, with the largest share assigned to EMA200.
+    ema_inversion_quality = (
+        ema_weights["ema5"] * float(ema5_now < ema20_now)
+        + ema_weights["ema20"] * float(ema20_now < ema80_now)
+        + ema_weights["ema80"] * float(ema80_now < ema200_now)
+        + ema_weights["ema200"] * float(ema200_now >= 0)
+    )
+    ema_inversion_penalty = 0.75 * positive_points * ema_inversion_quality
+    all_emas_positive_penalty = (
+        0.25 * positive_points
+        if ema5_now > 0 and ema20_now > 0 and ema80_now > 0 and ema200_now > 0
+        else 0.0
+    )
+
+    # R² rewards a smoother, more linear VFI recovery only when the relevant
+    # slope is positive and current VFI remains below zero. This avoids rewarding
+    # a straight but flat/falling line or an already-positive VFI regime.
+    r2_4_factor = float(np.clip((r2_4 - 0.50) / 0.50, 0.0, 1.0)) if np.isfinite(r2_4) else 0.0
+    r2_8_factor = float(np.clip((r2_8 - 0.50) / 0.50, 0.0, 1.0)) if np.isfinite(r2_8) else 0.0
+    r2_4_bonus = 0.10 * positive_points * r2_4_factor if value < 0 and vfi.get("VFI_Slope_4B", np.nan) > 0 else 0.0
+    r2_8_bonus = 0.15 * positive_points * r2_8_factor if value < 0 and slope8 > 0 else 0.0
+
+    # Long-horizon slopes are confirmations of a durable turn, not raw-value
+    # additions (which would be incomparable across symbols).
+    slope20_bonus = 0.05 * positive_points if slope20 > 0 and value < 0 else 0.0
+    slope50_bonus = 0.05 * positive_points if slope50 > 0 and value < 0 else 0.0
+    slope20_penalty = 0.05 * positive_points if slope20 < 0 else 0.0
+    slope50_penalty = 0.05 * positive_points if slope50 < 0 else 0.0
+    current_slope_penalty = (
+        (0.10 * positive_points if slope8 < 0 else 0.0)
+        + (0.05 * positive_points if vfi.get("VFI_Slope_4B", np.nan) < 0 else 0.0)
+    )
+    opportunity_score = (
+        positive_points - distribution_points
+        + ema_structure_bonus + ema_duration_bonus + ema_r2_bonus
+        + r2_4_bonus + r2_8_bonus + slope20_bonus + slope50_bonus
+        - high_vfi_penalty - price_extension_penalty
+        - all_emas_positive_penalty - ema_inversion_penalty
+        - slope20_penalty - slope50_penalty - current_slope_penalty
+    )
+
     # Early weekly setup: MA20 is above MA50 while BOTH remain below zero.
     # Do not wait for the current VFI or its averages to cross zero; track those
     # crosses as subsequent events so the scan can catch the move earlier.
     qualifies = bool(
-        np.isfinite(vfi_ma50) and vfi_ma50 < 0
+        np.isfinite(value) and value < 0
+        and np.isfinite(vfi_ma50) and vfi_ma50 < 0
         and np.isfinite(vfi_ma20) and vfi_ma20 < 0
         and ma_state["VFI_MA20_Above_MA50"]
         and np.isfinite(vfi.get("VFI_Slope_4B", np.nan)) and vfi["VFI_Slope_4B"] > 0
@@ -187,11 +331,41 @@ def weekly_screen(symbol, daily):
     )
     # Rank by MA20 proximity to zero, positive MA spread, then slope quality.
     ma_spread = vfi_ma20 - vfi_ma50 if np.isfinite(vfi_ma20) and np.isfinite(vfi_ma50) else float("nan")
-    score = float(100.0 / (1.0 + abs(vfi_ma20)) + max(0.0, ma_spread)) if np.isfinite(vfi_ma20) else 0.0
+    score = float(opportunity_score)
     return {
         "Symbol": symbol,
         "Weekly_Screen_Status": "CANDIDATE" if qualifies else "NOT_SELECTED",
         "Weekly_Score": score,
+        "Weekly_Opportunity_Score": score,
+        "Weekly_Negative_Uptrend_Weeks_260W": positive_points,
+        "Weekly_Positive_Downtrend_Weeks_260W": distribution_points,
+        "Weekly_High_VFI_Penalty": high_vfi_penalty,
+        "Weekly_Price_Extension_Penalty": price_extension_penalty,
+        "Weekly_All_EMAs_Positive_Penalty": all_emas_positive_penalty,
+        "Weekly_EMA_Inversion_Penalty": ema_inversion_penalty,
+        "Weekly_EMA_Structure_Bonus": ema_structure_bonus,
+        "Weekly_EMA_Long_Bullish_Below_Zero_Streak_Weeks": ema_long_bullish_streak,
+        "Weekly_EMA_Duration_Bonus": ema_duration_bonus,
+        "Weekly_EMA5_R2_26W": ema5_r2_26w,
+        "Weekly_EMA20_R2_26W": ema20_r2_26w,
+        "Weekly_EMA80_R2_26W": ema80_r2_26w,
+        "Weekly_EMA200_R2_26W": ema200_r2_26w,
+        "Weekly_EMA_R2_Bonus": ema_r2_bonus,
+        
+        
+        "Weekly_EMA80_Slope_8W": ema80_slope8,
+        "Weekly_EMA200_Slope_8W": ema200_slope8,
+        "Weekly_R2_4W_Bonus": r2_4_bonus,
+        "Weekly_R2_8W_Bonus": r2_8_bonus,
+        "Weekly_Slope_20W_Bonus": slope20_bonus,
+        "Weekly_Slope_50W_Bonus": slope50_bonus,
+        "Weekly_Slope_20W_Penalty": slope20_penalty,
+        "Weekly_Slope_50W_Penalty": slope50_penalty,
+        "Weekly_Current_Slope_Penalty": current_slope_penalty,
+        "Weekly_EMA5_VFI": ema5_now,
+        "Weekly_EMA20_VFI": ema20_now,
+        "Weekly_EMA80_VFI": ema80_now,
+        "Weekly_EMA200_VFI": ema200_now,
         "Weekly_VFI": value,
         "Weekly_VFI_MA50": vfi_ma50,
         "Weekly_VFI_MA20": vfi_ma20,
@@ -249,7 +423,7 @@ def main():
     raw_data, liquidity_rows, errors = {}, [], []
     cache_hits = 0
     downloaded_count = 0
-    print(f"Downloading daily history for {len(symbols)} US-listed symbols to rank liquidity...", flush=True)
+    print(f"Downloading daily history for {len(symbols)} US-listed stocks/ADRs to rank liquidity...", flush=True)
     for i, symbol in enumerate(symbols, 1):
         print(f"[LIQUIDITY {i}/{len(symbols)}] {symbol}", flush=True)
         try:
@@ -262,6 +436,54 @@ def main():
             daily = completed_daily(raw_daily)
             if daily.empty or not {"Close", "Volume"}.issubset(daily.columns):
                 raise ValueError("No usable OHLCV data")
+            # VFI(130), its rolling volatility/volume windows, and a 200-week
+            # VFI EMA require a long warm-up. Enforce at least five years of
+            # completed weekly candles before a symbol can enter the top 200.
+            weekly_history = to_weekly(daily)
+            if len(weekly_history) < 260:
+                message = f"INSUFFICIENT_WEEKLY_HISTORY:{len(weekly_history)}_bars; need >=260"
+                errors.append({"Symbol": symbol, "Stage": "LIQUIDITY", "Error": message})
+                liquidity_rows.append({
+                    "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
+                    "Annualized_Volatility_60D": np.nan,
+                    "Valid_Weekly_VFI_Bars": 0,
+                    "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
+                    "Liquidity_Status": message,
+                })
+                continue
+
+            # Bar count alone is not enough: require sufficient valid VFI
+            # observations after the indicator's warm-up and any missing data.
+            weekly_vfi_history = VFIIndicator().calculate(weekly_history)
+            valid_vfi_bars = int(pd.to_numeric(weekly_vfi_history["VFI"], errors="coerce").notna().sum())
+            if valid_vfi_bars < 60:
+                message = f"INSUFFICIENT_VALID_WEEKLY_VFI_BARS:{valid_vfi_bars}; need >=60"
+                errors.append({"Symbol": symbol, "Stage": "LIQUIDITY", "Error": message})
+                liquidity_rows.append({
+                    "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
+                    "Annualized_Volatility_60D": np.nan,
+                    "Valid_Weekly_VFI_Bars": valid_vfi_bars,
+                    "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
+                    "Liquidity_Status": message,
+                })
+                continue
+
+            close_for_vol = pd.to_numeric(daily["Close"], errors="coerce")
+            returns_60d = close_for_vol.pct_change().replace([np.inf, -np.inf], np.nan).dropna().tail(60)
+            annualized_volatility = float(returns_60d.std(ddof=1) * np.sqrt(252)) if len(returns_60d) >= 50 else np.nan
+            min_volatility = 0.15
+            if not np.isfinite(annualized_volatility) or annualized_volatility < min_volatility:
+                message = f"LOW_OR_UNAVAILABLE_60D_VOLATILITY:{annualized_volatility:.4f}; need >=0.15" if np.isfinite(annualized_volatility) else "UNAVAILABLE_60D_VOLATILITY"
+                errors.append({"Symbol": symbol, "Stage": "LIQUIDITY", "Error": message})
+                liquidity_rows.append({
+                    "Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
+                    "Annualized_Volatility_60D": annualized_volatility,
+                    "Valid_Weekly_VFI_Bars": valid_vfi_bars,
+                    "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
+                    "Liquidity_Status": message,
+                })
+                continue
+
             raw_data[symbol] = daily
             dollar_turnover = (
                 pd.to_numeric(daily["Close"], errors="coerce") *
@@ -270,6 +492,8 @@ def main():
             turnover = float(dollar_turnover.mean()) if len(dollar_turnover) >= 10 else float("nan")
             liquidity_rows.append({
                 "Symbol": symbol, "Average_Dollar_Turnover_20D": turnover,
+                "Annualized_Volatility_60D": annualized_volatility,
+                "Valid_Weekly_VFI_Bars": valid_vfi_bars,
                 "Liquidity_Data_Date": daily.index[-1].strftime("%Y-%m-%d"),
                 "Liquidity_Status": "OK" if np.isfinite(turnover) else "INSUFFICIENT_DATA",
             })
@@ -282,8 +506,10 @@ def main():
     eligible = liquidity_df[np.isfinite(pd.to_numeric(liquidity_df["Average_Dollar_Turnover_20D"], errors="coerce"))]
     selected = eligible.sort_values("Average_Dollar_Turnover_20D", ascending=False).head(args.top).copy()
     selected_symbols = selected["Symbol"].tolist()
-    liquidity_rank = {r.Symbol: (rank, float(r.Average_Dollar_Turnover_20D))
-                      for rank, r in enumerate(selected.itertuples(index=False), 1)}
+    liquidity_rank = {
+        r.Symbol: (rank, float(r.Average_Dollar_Turnover_20D), float(r.Annualized_Volatility_60D))
+        for rank, r in enumerate(selected.itertuples(index=False), 1)
+    }
     print(f"Selected {len(selected_symbols)} assets by 20-session dollar turnover.", flush=True)
 
     weekly_rows, frames = [], {}
@@ -293,16 +519,22 @@ def main():
             row = weekly_screen(symbol, raw_data[symbol])
             frames[symbol] = (row.pop("_daily"), row.pop("_weekly"))
             row["_qualifies"] = bool(row.pop("_qualifies"))
-            row["Liquidity_Rank"], row["Average_Dollar_Turnover_20D"] = liquidity_rank[symbol]
+            row["Liquidity_Rank"], row["Average_Dollar_Turnover_20D"], row["Annualized_Volatility_60D"] = liquidity_rank[symbol]
             weekly_rows.append(row)
         except Exception as exc:
             errors.append({"Symbol": symbol, "Stage": "WEEKLY_VFI", "Error": repr(exc)})
             weekly_rows.append({"Symbol": symbol, "Weekly_Screen_Status": "ERROR",
                                 "Error": repr(exc), "Liquidity_Rank": liquidity_rank[symbol][0],
-                                "Average_Dollar_Turnover_20D": liquidity_rank[symbol][1]})
+                                "Average_Dollar_Turnover_20D": liquidity_rank[symbol][1],
+                                "Annualized_Volatility_60D": liquidity_rank[symbol][2]})
     weekly_df = pd.DataFrame(weekly_rows)
     if "_qualifies" in weekly_df:
         weekly_df = weekly_df.drop(columns=["_qualifies"])
+    weekly_df = weekly_df.sort_values(
+        ["Weekly_Opportunity_Score", "Weekly_Screen_Status", "Average_Dollar_Turnover_20D"],
+        ascending=[False, True, False], na_position="last"
+    ).reset_index(drop=True)
+    weekly_df.insert(0, "Opportunity_Rank", range(1, len(weekly_df) + 1))
     weekly_df.to_csv(out / f"us_top_{args.top}_weekly_screen.csv", index=False)
     liquidity_df.sort_values("Average_Dollar_Turnover_20D", ascending=False).to_csv(out / f"us_top_{args.top}_liquidity_universe.csv", index=False)
 
@@ -311,8 +543,8 @@ def main():
         candidates[col] = pd.to_numeric(candidates[col], errors="coerce")
     candidates["VFI_Distance_To_Zero"] = candidates["Weekly_VFI"].abs()
     candidates = candidates.sort_values(
-        ["Weekly_VFI_MA20", "Weekly_VFI_MA_Spread", "Weekly_VFI_Slope_20W",
-         "Weekly_VFI_Slope_50W", "Weekly_VFI_R2_4W", "Weekly_VFI_Slope_8W"],
+        ["Weekly_Opportunity_Score", "Weekly_VFI_MA20", "Weekly_VFI_MA_Spread",
+         "Weekly_VFI_Slope_20W", "Weekly_VFI_Slope_50W", "Weekly_VFI_R2_4W"],
         ascending=[False, False, False, False, False, False],
     ).reset_index(drop=True)
     candidates.insert(0, "Rank", range(1, len(candidates) + 1))
@@ -320,16 +552,17 @@ def main():
     print("\nWEEKLY VFI CANDIDATES: VFI MA20 > MA50, both averages below zero, rising VFI, price not extended", flush=True)
     print(candidates.to_string(index=False) if not candidates.empty else "No assets passed the exact weekly VFI filter.", flush=True)
 
-    # Stage 2 is strictly conditional: only assets passing the completed-weekly
-    # filter are eligible for daily confirmation. Never substitute near-misses.
+    # Stage 2 follows the highest-scoring weekly opportunities even when no
+    # stock passes every binary setup condition. This preserves the requested
+    # score-all workflow; the daily strict-signal flag remains a separate field.
     daily_rows = []
     weekly_rank_map = {
-        row.Symbol: int(row.Rank)
-        for row in candidates[["Symbol", "Rank"]].itertuples(index=False)
-    } if not candidates.empty else {}
-    followup_symbols = candidates["Symbol"].head(max(0, args.max_daily_candidates)).tolist()
-    followup_mode = "STRICT_WEEKLY_CANDIDATES_ONLY"
-    print(f"\\nDAILY FOLLOW-UP for {len(followup_symbols)} weekly-qualified assets ({followup_mode})", flush=True)
+        row.Symbol: int(row.Opportunity_Rank)
+        for row in weekly_df[["Symbol", "Opportunity_Rank"]].itertuples(index=False)
+    } if not weekly_df.empty else {}
+    followup_symbols = weekly_df["Symbol"].head(max(0, args.max_daily_candidates)).tolist()
+    followup_mode = "TOP_WEEKLY_OPPORTUNITY_SCORES"
+    print(f"\\nDAILY FOLLOW-UP for {len(followup_symbols)} top-scored weekly assets ({followup_mode})", flush=True)
     for i, symbol in enumerate(followup_symbols, 1):
         print(f"[DAILY {i}/{len(followup_symbols)}] {symbol}", flush=True)
         try:
@@ -372,6 +605,7 @@ def main():
             daily_rows.append({
                 "Symbol": symbol,
                 "Weekly_Rank": int(weekly_rank_map[symbol]),
+                "Weekly_Annualized_Volatility_60D": liquidity_rank[symbol][2],
                 "Daily_Early_Accumulation_Candidate": early,
                 "Daily_Score": daily_score,
                 "Daily_Candle_Date": daily.index[-1].strftime("%Y-%m-%d"),
@@ -441,10 +675,10 @@ def main():
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; VFI MA20 > MA50 while BOTH averages remain below zero; positive 4W/8W VFI slopes; 20W and 50W slopes are contextual ranking information rather than hard positive filters, so early turns are not discarded just because the longer slope remains negative; last 4 weekly VFI values strictly increasing with linear-fit R2 >= 0.65; 13W price return <= +10%; zero-crosses are tracked as subsequent confirmation",
-        "daily_rule": "only strict weekly candidates are followed up on completed daily candles; if there are none, no daily analysis is performed; daily VFI MA20 > MA50 while BOTH averages remain below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; zero-cross flags are reported; score is a heuristic, not a probability",
+        "weekly_rule": "completed weekly candles; all eligible assets receive an opportunity score based on weeks with VFI below zero and positive 4W/8W slopes, less weeks with VFI above zero and negative slopes; EMA structure, inversion penalties, and EMA R2 quality use a fixed normalized weight budget (EMA5 5%, EMA20 15%, EMA80 30%, EMA200 50%) so adding EMAs does not inflate the score scale; a progressive duration bonus for the EMA80>EMA200 regime is capped at 52 weeks. VFI-line R2 and positive 20W/50W slopes also contribute; penalties for high VFI versus its own history, price extension, all-positive EMAs, inverted EMA ordering, and negative 4W/8W/20W/50W slopes. The report exposes each score component for audit. A strict early-accumulation candidate additionally requires VFI<0, VFI MA20>MA50 with both below zero, positive 4W/8W slopes, last 4 VFI values strictly rising with R2>=0.65 and 13W price return<=+10%. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
+        "daily_rule": "the top weekly opportunity-score names are followed up on completed daily candles, even when none passes the strict weekly binary setup; daily early-signal flag requires VFI MA20 > MA50 while both are below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; scores are heuristics, not probabilities",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
-        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within a curated US-listed seed universe; default N=20; not all US listings.",
+        "universe_note": "Top N by mean Close*Volume over 20 completed sessions within an expanded curated US-listed common-stock/ADR seed universe; ETFs are excluded; at least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required before liquidity ranking. This is a reproducible universe screen, not a claim to rank every US listing.",
         "method_note": "VFI-only selection. OHLCV-based volume indicator; not direct institutional-flow data.",
         "errors": errors,
     }

@@ -26,6 +26,37 @@ class MarketDataService:
         symbol: str,
         period: str = "5y"
     ) -> pd.DataFrame:
+        # For local Colombian listings, prefer the persistent free cache when
+        # it has a valid and recent observation. This makes repeated analysis
+        # reproducible and avoids unnecessary requests to Yahoo.
+        is_colombia_local = symbol.upper().endswith(".CL") and symbol.upper() != "CIB"
+        cache_quality = None
+        if is_colombia_local:
+            from app.data.market_data_store import ColombiaMarketDataStore
+
+            store = ColombiaMarketDataStore()
+            if store.cache_path(symbol).exists():
+                cached = store.load_cached(symbol)
+                cache_quality = store.validate(cached, max_stale_calendar_days=7)
+                if cache_quality["Valid"] and cache_quality["Fresh"]:
+                    data = cached.copy()
+                    self.last_metadata = {
+                        "Symbol": symbol,
+                        "Provider": "Yahoo Finance cache (free; unofficial feed)",
+                        "Retrieved_At_UTC": pd.Timestamp.now(tz="UTC").isoformat(),
+                        "Period": "cached",
+                        "Rows": int(len(data)),
+                        "First_Date": data.index.min().isoformat() if not data.empty else None,
+                        "Last_Date": data.index.max().isoformat() if not data.empty else None,
+                        "Currency": None,
+                        "Timezone": "naive",
+                        "Data_SHA256": self._hash_frame(data),
+                        "Data_Quality_Status": cache_quality["Status"],
+                        "Data_Quality_Issues": cache_quality["Issues"],
+                        "Data_Age_Calendar_Days": cache_quality["Age_Calendar_Days"],
+                    }
+                    return data
+
         data = yf.Ticker(symbol).history(
             period=period,
             interval="1d",
@@ -60,6 +91,17 @@ class MarketDataService:
         today = pd.Timestamp.now().normalize()
         data = data[data.index.normalize() <= today]
 
+        quality = None
+        if is_colombia_local:
+            from app.data.market_data_store import ColombiaMarketDataStore
+
+            quality = ColombiaMarketDataStore.validate(data, max_stale_calendar_days=7)
+            if not quality["Valid"] or not quality["Fresh"]:
+                raise ValueError(
+                    f"{symbol}: refusing invalid/stale Colombian OHLCV data: "
+                    f"{quality['Status']} {quality['Issues']}"
+                )
+
         self.last_metadata = {
             "Symbol": symbol,
             "Provider": self.PROVIDER,
@@ -71,6 +113,9 @@ class MarketDataService:
             "Currency": None,
             "Timezone": str(data.index.tz) if data.index.tz is not None else "naive",
             "Data_SHA256": self._hash_frame(data),
+            "Data_Quality_Status": quality["Status"] if quality else "NOT_CHECKED",
+            "Data_Quality_Issues": quality["Issues"] if quality else "",
+            "Data_Age_Calendar_Days": quality["Age_Calendar_Days"] if quality else None,
         }
         return data
 
@@ -114,9 +159,10 @@ class MarketDataService:
 
         if not weekly.empty:
             # Extend through the most recent fully completed Friday, even if
-            # this symbol had no trade/quote in its final week(s). Forward-fill
-            # OHLC prices and keep synthetic-week volume at zero so stale weeks
-            # are not mistaken for actual trading activity.
+            # this symbol had no row in its final week(s). Carry forward the
+            # prior OHLCV as requested, but explicitly flag each synthetic week
+            # because repeated volume can affect VFI normalization and is not a
+            # substitute for an actual traded candle.
             today = pd.Timestamp.now().normalize()
             current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
             last_completed_friday = current_friday - pd.Timedelta(days=7)
@@ -129,13 +175,17 @@ class MarketDataService:
             )
             missing_weeks = ~full_index.isin(weekly.index)
             weekly = weekly.reindex(full_index).ffill()
+            # Keep the requested prior-week OHLCV carry-forward, but expose
+            # which rows are synthetic so reports can disclose this limitation.
+            weekly["Is_Synthetic_Week"] = missing_weeks
 
-            # A repeated OHLCV row is synthetic; repeat the prior OHLCV values
-            # as requested, but don't repeat one-off corporate actions.
+            # One-off corporate actions must never be copied into synthetic weeks.
             for column in ("Dividends", "Stock Splits"):
                 if column in weekly.columns:
                     weekly.loc[missing_weeks, column] = 0
 
+        if "Is_Synthetic_Week" not in weekly.columns:
+            weekly["Is_Synthetic_Week"] = False
         return weekly
 
     @staticmethod
