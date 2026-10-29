@@ -54,9 +54,7 @@ def score_monthly(symbol: str, daily: pd.DataFrame) -> dict:
     monthly = completed_monthly(daily)
     if len(monthly) < 77:
         raise ValueError(f"insufficient completed monthly candles: {len(monthly)}; need >=77 for the indicator warm-up")
-    frame = VolumeDivergenceMM(
-        ema_short=5, ema_medium=20, ema_long=80
-    ).calculate(monthly)
+    frame = VolumeDivergenceMM().calculate(monthly)
     s = pd.to_numeric(frame["Volume_Divergence_MM"], errors="coerce").dropna()
     if len(s) < 1:
         raise ValueError("no valid monthly divergence observations after the WMA warm-up")
