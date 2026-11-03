@@ -124,6 +124,52 @@ def slope_series(series: pd.Series, bars: int) -> pd.Series:
     return (series - series.shift(bars)) / bars
 
 
+def build_combined_ranking(weekly: pd.DataFrame, monthly: pd.DataFrame) -> pd.DataFrame:
+    """Combine within-universe percentiles only when both indicator scores exist.
+
+    Assets with missing monthly divergence stay visible but are not assigned a
+    fabricated zero percentile or a misleading combined score.
+    """
+    combined = weekly[[
+        "Symbol", "Opportunity_Rank", "Weekly_Opportunity_Score", "Weekly_VFI",
+        "Weekly_Candle_Date",
+    ]].copy()
+    combined = combined.merge(
+        monthly[[
+            "Symbol", "Monthly_Rank", "Monthly_Score", "Monthly_Divergence",
+            "Monthly_Candle_Date",
+        ]],
+        on="Symbol", how="left", validate="one_to_one",
+    )
+    n_weekly = len(combined)
+    combined["Weekly_Percentile"] = (
+        100.0 * (n_weekly - combined["Opportunity_Rank"]) / max(n_weekly - 1, 1)
+    )
+    valid_monthly = combined["Monthly_Score"].notna()
+    n_monthly = int(valid_monthly.sum())
+    combined["Monthly_Percentile"] = np.nan
+    if n_monthly:
+        combined.loc[valid_monthly, "Monthly_Percentile"] = (
+            100.0 * (n_monthly - combined.loc[valid_monthly, "Monthly_Rank"])
+            / max(n_monthly - 1, 1)
+        )
+    combined["Combined_Score"] = np.where(
+        valid_monthly,
+        0.5 * combined["Weekly_Percentile"] + 0.5 * combined["Monthly_Percentile"],
+        np.nan,
+    )
+    combined["Combined_Status"] = np.where(
+        valid_monthly, "COMPLETE", "MISSING_MONTHLY_DATA"
+    )
+    combined["Combined_Rank"] = combined["Combined_Score"].rank(
+        method="min", ascending=False, na_option="bottom"
+    ).astype(int)
+    return combined.sort_values(
+        ["Combined_Score", "Weekly_Opportunity_Score"],
+        ascending=False, na_position="last",
+    ).reset_index(drop=True)
+
+
 def main() -> None:
     REPORTS.mkdir(parents=True, exist_ok=True)
     weekly_path = REPORTS / "us_top_200_weekly_screen.csv"
@@ -158,40 +204,7 @@ def main() -> None:
 
     # Percentile ranks make the combined score comparable even though raw VFI
     # and Volume Divergence MM use different numerical scales.
-    combined = weekly[["Symbol", "Opportunity_Rank", "Weekly_Opportunity_Score", "Weekly_VFI",
-                       "Weekly_Candle_Date"]].copy()
-    combined = combined.merge(monthly[["Symbol", "Monthly_Rank", "Monthly_Score",
-                                       "Monthly_Divergence", "Monthly_Candle_Date"]],
-                              on="Symbol", how="left", validate="one_to_one")
-    n = len(combined)
-    combined["Weekly_Percentile"] = 100.0 * (n - combined["Opportunity_Rank"]) / max(n - 1, 1)
-    valid_monthly = combined["Monthly_Score"].notna()
-    monthly_n = int(valid_monthly.sum())
-    combined["Monthly_Percentile"] = np.nan
-    if monthly_n:
-        combined.loc[valid_monthly, "Monthly_Percentile"] = (
-            100.0 * (monthly_n - combined.loc[valid_monthly, "Monthly_Rank"])
-            / max(monthly_n - 1, 1)
-        )
-    # A combined score requires both indicators. Missing monthly data must not
-    # be silently converted to the worst percentile, which falsely ranks the
-    # asset as if a real monthly score had been observed.
-    combined["Combined_Score"] = np.where(
-        valid_monthly,
-        0.5 * combined["Weekly_Percentile"] + 0.5 * combined["Monthly_Percentile"],
-        np.nan,
-    )
-    combined["Combined_Status"] = np.where(
-        valid_monthly, "COMPLETE", "MISSING_MONTHLY_DATA"
-    )
-    combined["Combined_Rank"] = combined["Combined_Score"].rank(
-        method="min", ascending=False, na_option="bottom"
-    ).astype(int)
-    combined = combined.sort_values(
-        ["Combined_Score", "Weekly_Opportunity_Score"],
-        ascending=False,
-        na_position="last",
-    )
+    combined = build_combined_ranking(weekly, monthly)
     combined.to_csv(REPORTS / "us_top_200_combined_ranking.csv", index=False)
     (REPORTS / "three_rankings_summary.json").write_text(json.dumps({
         "weekly_assets": int(len(weekly)),
@@ -203,7 +216,7 @@ def main() -> None:
                         "monthly_divergence": {"EMA5": 0.10, "EMA20": 0.30, "EMA80": 0.60}},
         "combined_method": "equal-weight mean of within-universe weekly and monthly rank percentiles; 0-100 scale; assets missing either indicator remain in the report but receive no combined score and sort last",
         "combined_assets_scored": int(combined["Combined_Score"].notna().sum()),
-        "combined_assets_missing_monthly": int((~valid_monthly).sum()),
+        "combined_assets_missing_monthly": int(combined["Monthly_Score"].isna().sum()),
         "same_universe": True,
     }, indent=2), encoding="utf-8")
     print("\nTOP 20 MONTHLY DIVERGENCE", flush=True)
