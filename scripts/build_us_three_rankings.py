@@ -50,18 +50,35 @@ def slope(series: pd.Series, bars: int) -> float:
     return float((s.iloc[-1] - s.iloc[0]) / bars)
 
 
+MIN_MONTHLY_CANDLES_FOR_INDICATOR = 77
+MIN_VALID_MONTHLY_DIVERGENCE_FOR_EMA80 = 80
+
+
+def require_monthly_ema_history(valid_divergence_bars: int) -> None:
+    """Require a full 80-observation EMA baseline after indicator warm-up."""
+    if valid_divergence_bars < MIN_VALID_MONTHLY_DIVERGENCE_FOR_EMA80:
+        raise ValueError(
+            f"insufficient valid monthly divergence bars for EMA80: "
+            f"{valid_divergence_bars}; need >= {MIN_VALID_MONTHLY_DIVERGENCE_FOR_EMA80}"
+        )
+
+
 def score_monthly(symbol: str, daily: pd.DataFrame) -> dict:
     monthly = completed_monthly(daily)
-    if len(monthly) < 77:
-        raise ValueError(f"insufficient completed monthly candles: {len(monthly)}; need >=77 for the indicator warm-up")
+    if len(monthly) < MIN_MONTHLY_CANDLES_FOR_INDICATOR:
+        raise ValueError(
+            f"insufficient completed monthly candles: {len(monthly)}; "
+            f"need >={MIN_MONTHLY_CANDLES_FOR_INDICATOR} for the indicator warm-up"
+        )
     frame = VolumeDivergenceMM().calculate(monthly)
-    s = pd.to_numeric(frame["Volume_Divergence_MM"], errors="coerce").dropna()
-    if len(s) < 1:
-        raise ValueError("no valid monthly divergence observations after the WMA warm-up")
-    s = s.tail(120)
-    e5 = s.ewm(span=5, adjust=False, min_periods=min(5, len(s))).mean()
-    e20 = s.ewm(span=20, adjust=False, min_periods=min(20, len(s))).mean()
-    e80 = s.ewm(span=80, adjust=False, min_periods=min(80, len(s))).mean()
+    valid_divergence = pd.to_numeric(
+        frame["Volume_Divergence_MM"], errors="coerce"
+    ).dropna()
+    require_monthly_ema_history(len(valid_divergence))
+    s = valid_divergence.tail(120)
+    e5 = s.ewm(span=5, adjust=False, min_periods=5).mean()
+    e20 = s.ewm(span=20, adjust=False, min_periods=20).mean()
+    e80 = s.ewm(span=80, adjust=False, min_periods=80).mean()
     slope1, slope3, slope6 = slope(s, 1), slope(s, 3), slope(s, 6)
     rising_negative = (s < 0) & (slope_series(s, 1) > 0) & (slope_series(s, 3) > 0)
     falling_positive = (s > 0) & (slope_series(s, 1) < 0) & (slope_series(s, 3) < 0)
@@ -114,7 +131,7 @@ def score_monthly(symbol: str, daily: pd.DataFrame) -> dict:
         "Overextension_Penalty": 0.50 * scale_points * overextension,
         "Monthly_Candle_Date": monthly.index[-1].strftime("%Y-%m-%d"),
         "Monthly_Bars": int(len(monthly)),
-        "Valid_Monthly_Divergence_Bars": int(len(pd.to_numeric(frame["Volume_Divergence_MM"], errors="coerce").dropna())),
+        "Valid_Monthly_Divergence_Bars": int(len(valid_divergence)),
         "EMA80_Warmup_Complete": bool(len(s) >= 80),
     }
 
@@ -161,9 +178,13 @@ def build_combined_ranking(weekly: pd.DataFrame, monthly: pd.DataFrame) -> pd.Da
     combined["Combined_Status"] = np.where(
         valid_monthly, "COMPLETE", "MISSING_MONTHLY_DATA"
     )
-    combined["Combined_Rank"] = combined["Combined_Score"].rank(
-        method="min", ascending=False, na_option="bottom"
-    ).astype(int)
+    combined["Combined_Rank"] = np.nan
+    valid_combined = combined["Combined_Score"].notna()
+    combined.loc[valid_combined, "Combined_Rank"] = (
+        combined.loc[valid_combined, "Combined_Score"]
+        .rank(method="min", ascending=False)
+        .astype(int)
+    )
     return combined.sort_values(
         ["Combined_Score", "Weekly_Opportunity_Score"],
         ascending=False, na_position="last",
