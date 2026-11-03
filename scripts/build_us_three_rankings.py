@@ -166,12 +166,32 @@ def main() -> None:
     n = len(combined)
     combined["Weekly_Percentile"] = 100.0 * (n - combined["Opportunity_Rank"]) / max(n - 1, 1)
     valid_monthly = combined["Monthly_Score"].notna()
-    combined["Monthly_Percentile"] = np.where(
-        valid_monthly, 100.0 * (n - combined["Monthly_Rank"]) / max(n - 1, 1), 0.0
+    monthly_n = int(valid_monthly.sum())
+    combined["Monthly_Percentile"] = np.nan
+    if monthly_n:
+        combined.loc[valid_monthly, "Monthly_Percentile"] = (
+            100.0 * (monthly_n - combined.loc[valid_monthly, "Monthly_Rank"])
+            / max(monthly_n - 1, 1)
+        )
+    # A combined score requires both indicators. Missing monthly data must not
+    # be silently converted to the worst percentile, which falsely ranks the
+    # asset as if a real monthly score had been observed.
+    combined["Combined_Score"] = np.where(
+        valid_monthly,
+        0.5 * combined["Weekly_Percentile"] + 0.5 * combined["Monthly_Percentile"],
+        np.nan,
     )
-    combined["Combined_Score"] = 0.5 * combined["Weekly_Percentile"] + 0.5 * combined["Monthly_Percentile"]
-    combined["Combined_Rank"] = combined["Combined_Score"].rank(method="min", ascending=False).astype(int)
-    combined = combined.sort_values(["Combined_Score", "Weekly_Opportunity_Score"], ascending=False)
+    combined["Combined_Status"] = np.where(
+        valid_monthly, "COMPLETE", "MISSING_MONTHLY_DATA"
+    )
+    combined["Combined_Rank"] = combined["Combined_Score"].rank(
+        method="min", ascending=False, na_option="bottom"
+    ).astype(int)
+    combined = combined.sort_values(
+        ["Combined_Score", "Weekly_Opportunity_Score"],
+        ascending=False,
+        na_position="last",
+    )
     combined.to_csv(REPORTS / "us_top_200_combined_ranking.csv", index=False)
     (REPORTS / "three_rankings_summary.json").write_text(json.dumps({
         "weekly_assets": int(len(weekly)),
@@ -181,7 +201,9 @@ def main() -> None:
         "monthly_latest_completed_candle": str(monthly.get("Monthly_Candle_Date", pd.Series(dtype=str)).dropna().max()),
         "ema_weights": {"weekly_vfi": {"EMA5": 0.05, "EMA20": 0.15, "EMA80": 0.30, "EMA200": 0.50},
                         "monthly_divergence": {"EMA5": 0.10, "EMA20": 0.30, "EMA80": 0.60}},
-        "combined_method": "equal-weight mean of within-universe weekly and monthly rank percentiles; 0-100 scale",
+        "combined_method": "equal-weight mean of within-universe weekly and monthly rank percentiles; 0-100 scale; assets missing either indicator remain in the report but receive no combined score and sort last",
+        "combined_assets_scored": int(combined["Combined_Score"].notna().sum()),
+        "combined_assets_missing_monthly": int((~valid_monthly).sum()),
         "same_universe": True,
     }, indent=2), encoding="utf-8")
     print("\nTOP 20 MONTHLY DIVERGENCE", flush=True)
