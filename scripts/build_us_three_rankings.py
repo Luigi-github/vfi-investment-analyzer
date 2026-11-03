@@ -50,6 +50,17 @@ def slope(series: pd.Series, bars: int) -> float:
     return float((s.iloc[-1] - s.iloc[0]) / bars)
 
 
+def trailing_true_streak(flags: pd.Series) -> int:
+    """Count only the latest uninterrupted True run; previous regimes add no points."""
+    values = pd.Series(flags).fillna(False).astype(bool).to_numpy()
+    count = 0
+    for flag in values[::-1]:
+        if not flag:
+            break
+        count += 1
+    return count
+
+
 MIN_MONTHLY_CANDLES_FOR_INDICATOR = 77
 MIN_VALID_MONTHLY_DIVERGENCE_FOR_EMA80 = 80
 
@@ -82,8 +93,12 @@ def score_monthly(symbol: str, daily: pd.DataFrame) -> dict:
     slope1, slope3, slope6 = slope(s, 1), slope(s, 3), slope(s, 6)
     rising_negative = (s < 0) & (slope_series(s, 1) > 0) & (slope_series(s, 3) > 0)
     falling_positive = (s > 0) & (slope_series(s, 1) < 0) & (slope_series(s, 3) < 0)
-    positive_points = int(rising_negative.sum())
-    distribution_points = int(falling_positive.sum())
+    # Use only the latest uninterrupted monthly regime in the score. Older
+    # disconnected runs remain available as diagnostics but cannot inflate it.
+    positive_points = trailing_true_streak(rising_negative)
+    distribution_points = trailing_true_streak(falling_positive)
+    historical_rising_months = int(rising_negative.sum())
+    historical_falling_months = int(falling_positive.sum())
     last = float(s.iloc[-1])
     e5v, e20v, e80v = float(e5.iloc[-1]), float(e20.iloc[-1]), float(e80.iloc[-1])
     e5r, e20r, e80r = slope(e5, 3), slope(e20, 3), slope(e80, 3)
@@ -124,8 +139,10 @@ def score_monthly(symbol: str, daily: pd.DataFrame) -> dict:
         "Monthly_EMA5_Slope_3M": e5r, "Monthly_EMA20_Slope_3M": e20r,
         "Monthly_EMA80_Slope_3M": e80r,
         "Monthly_Slope_1M": slope1, "Monthly_Slope_3M": slope3, "Monthly_Slope_6M": slope6,
-        "Months_Negative_Rising": positive_points,
-        "Months_Positive_Falling": distribution_points,
+        "Current_Negative_Rising_Streak_Months": positive_points,
+        "Current_Positive_Falling_Streak_Months": distribution_points,
+        "Historical_Negative_Rising_Occurrences_120M": historical_rising_months,
+        "Historical_Positive_Falling_Occurrences_120M": historical_falling_months,
         "EMA_Structure_Bonus": 0.75 * scale_points * structure,
         "EMA_Inversion_Penalty": 0.75 * scale_points * inversion,
         "Overextension_Penalty": 0.50 * scale_points * overextension,
