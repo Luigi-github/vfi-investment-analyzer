@@ -198,8 +198,18 @@ def main() -> None:
             errors.append({"Symbol": symbol, "Error": repr(exc)})
             monthly_rows.append({"Symbol": symbol, "Monthly_Score": np.nan, "Monthly_Status": f"ERROR: {exc!r}"})
     monthly = pd.DataFrame(monthly_rows)
-    monthly["Monthly_Rank"] = monthly["Monthly_Score"].rank(method="min", ascending=False, na_option="bottom").astype(int)
-    monthly = monthly.sort_values(["Monthly_Score", "Symbol"], ascending=[False, True], na_position="last")
+    # Rank only assets with a valid monthly indicator. An insufficient-history
+    # asset remains in the audit file with a missing rank, not a fabricated last place.
+    monthly["Monthly_Rank"] = np.nan
+    valid_monthly_scores = monthly["Monthly_Score"].notna()
+    monthly.loc[valid_monthly_scores, "Monthly_Rank"] = (
+        monthly.loc[valid_monthly_scores, "Monthly_Score"]
+        .rank(method="min", ascending=False)
+        .astype(int)
+    )
+    monthly = monthly.sort_values(
+        ["Monthly_Score", "Symbol"], ascending=[False, True], na_position="last"
+    )
     monthly.to_csv(REPORTS / "us_top_200_monthly_divergence_ranking.csv", index=False)
 
     # Percentile ranks make the combined score comparable even though raw VFI
