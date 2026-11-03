@@ -3,7 +3,10 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from scripts.build_us_three_rankings import build_combined_ranking
+from scripts.build_us_three_rankings import (
+    build_combined_ranking,
+    require_monthly_ema_history,
+)
 
 
 class TestCombinedRankingMissingMonthlyData(unittest.TestCase):
@@ -35,7 +38,12 @@ class TestCombinedRankingMissingMonthlyData(unittest.TestCase):
         self.assertEqual(result.loc["CCC", "Combined_Status"], "MISSING_MONTHLY_DATA")
         self.assertTrue(np.isnan(result.loc["CCC", "Monthly_Percentile"]))
         self.assertTrue(np.isnan(result.loc["CCC", "Combined_Score"]))
-        self.assertEqual(result.loc["CCC", "Combined_Rank"], 3)
+        self.assertTrue(np.isnan(result.loc["CCC", "Combined_Rank"]))
+
+    def test_monthly_divergence_requires_80_valid_bars_for_ema80(self):
+        with self.assertRaisesRegex(ValueError, "need >= 80"):
+            require_monthly_ema_history(79)
+        require_monthly_ema_history(80)
 
 
 if __name__ == "__main__":
