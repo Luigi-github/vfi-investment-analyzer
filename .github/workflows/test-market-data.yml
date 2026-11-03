@@ -1,0 +1,41 @@
+name: Test Free Market Data Cache
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "app/data/market_data_store.py"
+      - "app/data/sfc_reference.py"
+      - "app/data/market_data.py"
+      - "scripts/refresh_colombia_market_data.py"
+      - "tests/test_market_data_store.py"
+      - "tests/test_weekly_missing_data_fill.py"
+      - ".github/workflows/test-market-data.yml"
+  pull_request:
+    paths:
+      - "app/data/market_data_store.py"
+      - "app/data/sfc_reference.py"
+      - "app/data/market_data.py"
+      - "scripts/refresh_colombia_market_data.py"
+      - "tests/test_market_data_store.py"
+      - "tests/test_weekly_missing_data_fill.py"
+      - ".github/workflows/test-market-data.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install test dependencies
+        run: python -m pip install pandas yfinance
+      - name: Test market data cache
+        run: python -m unittest discover -s tests -p "test_market_data_store.py"
+      - name: Test weekly missing-data transformation
+        run: python -m unittest discover -s tests -p "test_weekly_missing_data_fill.py"

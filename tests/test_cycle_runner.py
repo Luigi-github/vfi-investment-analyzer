@@ -20,9 +20,9 @@ class TestCycleRunner(unittest.TestCase):
         self.assertIn("NVDA", symbols)
         self.assertIn("DDD", symbols)
 
-    def test_colombia_universe_includes_cib_adr(self):
+    def test_colombia_universe_excludes_us_listed_cib_adr(self):
         symbols = resolve_symbols("COLOMBIA")
-        self.assertIn("CIB", symbols)
+        self.assertNotIn("CIB", symbols)
         self.assertIn("CIBEST.CL", symbols)
 
     def test_custom_symbols_override_universe_and_deduplicate(self):
