@@ -59,6 +59,17 @@ def safe_slope(series, bars=4):
     return float(np.polyfit(np.arange(len(s), dtype=float), s.to_numpy(dtype=float), 1)[0])
 
 
+def trailing_true_streak(flags) -> int:
+    """Count only the current uninterrupted True run; older runs never add points."""
+    values = pd.Series(flags).fillna(False).astype(bool).to_numpy()
+    count = 0
+    for flag in values[::-1]:
+        if not flag:
+            break
+        count += 1
+    return count
+
+
 def vfi_ma_state(series):
     """VFI 20/50-bar moving-average state and the timing of crossover events."""
     s = pd.to_numeric(series, errors="coerce").dropna()
@@ -191,8 +202,12 @@ def weekly_screen(symbol, daily):
     score_slope8 = (score_series - score_series.shift(8)) / 8.0
     rising_below_zero = (score_series < 0) & (score_slope4 > 0) & (score_slope8 > 0)
     falling_above_zero = (score_series > 0) & (score_slope4 < 0) & (score_slope8 < 0)
-    positive_points = int(rising_below_zero.sum())
-    distribution_points = int(falling_above_zero.sum())
+    # Score only the latest uninterrupted regime. A previous bullish phase that
+    # ended weeks/months ago must not continue inflating today's opportunity score.
+    positive_points = trailing_true_streak(rising_below_zero)
+    distribution_points = trailing_true_streak(falling_above_zero)
+    historical_rising_weeks = int(rising_below_zero.sum())
+    historical_falling_weeks = int(falling_above_zero.sum())
 
     ema5 = score_series.ewm(span=5, adjust=False, min_periods=5).mean()
     ema20 = score_series.ewm(span=20, adjust=False, min_periods=20).mean()
@@ -337,8 +352,10 @@ def weekly_screen(symbol, daily):
         "Weekly_Screen_Status": "CANDIDATE" if qualifies else "NOT_SELECTED",
         "Weekly_Score": score,
         "Weekly_Opportunity_Score": score,
-        "Weekly_Negative_Uptrend_Weeks_260W": positive_points,
-        "Weekly_Positive_Downtrend_Weeks_260W": distribution_points,
+        "Weekly_Negative_Uptrend_Active_Streak_Weeks": positive_points,
+        "Weekly_Positive_Downtrend_Active_Streak_Weeks": distribution_points,
+        "Weekly_Negative_Uptrend_Historical_Occurrences_260W": historical_rising_weeks,
+        "Weekly_Positive_Downtrend_Historical_Occurrences_260W": historical_falling_weeks,
         "Weekly_High_VFI_Penalty": high_vfi_penalty,
         "Weekly_Price_Extension_Penalty": price_extension_penalty,
         "Weekly_All_EMAs_Positive_Penalty": all_emas_positive_penalty,
@@ -675,7 +692,7 @@ def main():
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; all eligible assets receive an opportunity score based on weeks with VFI below zero and positive 4W/8W slopes, less weeks with VFI above zero and negative slopes; EMA structure, inversion penalties, and EMA R2 quality use a fixed normalized weight budget (EMA5 5%, EMA20 15%, EMA80 30%, EMA200 50%) so adding EMAs does not inflate the score scale; a progressive duration bonus for the EMA80>EMA200 regime is capped at 52 weeks. VFI-line R2 and positive 20W/50W slopes also contribute; penalties for high VFI versus its own history, price extension, all-positive EMAs, inverted EMA ordering, and negative 4W/8W/20W/50W slopes. The report exposes each score component for audit. A strict early-accumulation candidate additionally requires VFI<0, VFI MA20>MA50 with both below zero, positive 4W/8W slopes, last 4 VFI values strictly rising with R2>=0.65 and 13W price return<=+10%. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
+        "weekly_rule": "completed weekly candles; the main duration points use only the current uninterrupted regime: consecutive weeks with VFI below zero and positive 4W/8W slopes earn points, while the current positive-VFI/downward-slope streak incurs penalties; older disconnected streaks are audit-only and never added to the current score. EMA structure, inversion penalties, and EMA R2 quality use a fixed normalized weight budget (EMA5 5%, EMA20 15%, EMA80 30%, EMA200 50%). A progressive duration bonus for the EMA80>EMA200 regime is capped at 52 weeks. VFI-line R2 and positive 20W/50W slopes also contribute; penalties for high VFI versus its own history, price extension, all-positive EMAs, inverted EMA ordering, and negative 4W/8W/20W/50W slopes. The report exposes each score component for audit. A strict early-accumulation candidate additionally requires VFI<0, VFI MA20>MA50 with both below zero, positive 4W/8W slopes, last 4 VFI values strictly rising with R2>=0.65 and 13W price return<=+10%. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
         "daily_rule": "the top weekly opportunity-score names are followed up on completed daily candles, even when none passes the strict weekly binary setup; daily early-signal flag requires VFI MA20 > MA50 while both are below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; scores are heuristics, not probabilities",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within an expanded curated US-listed common-stock/ADR seed universe; ETFs are excluded; at least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required before liquidity ranking. This is a reproducible universe screen, not a claim to rank every US listing.",
