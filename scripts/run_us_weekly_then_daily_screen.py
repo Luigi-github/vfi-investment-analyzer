@@ -193,34 +193,38 @@ def weekly_screen(symbol, daily):
     slope8 = vfi["VFI_Slope_8B"]
     price_return_13w = float(weekly["Close"].iloc[-1] / weekly["Close"].iloc[-14] - 1)
 
-    # User-specific opportunity score over the most recent 260 completed
-    # weekly VFI observations. Positive points reward sustained recovery below
-    # zero; negative points penalize distribution above zero. This scores all
-    # liquid names rather than filtering the entire universe to qualifiers.
+    # EMA-only score: VFI is used only to construct its EMA curves; its current
+    # value, sign, slope, zero-crossings and historical streaks do not contribute.
+    # Each EMA earns points for the length of its current uninterrupted rising run.
     score_series = vfi_series.tail(260)
-    score_slope4 = (score_series - score_series.shift(4)) / 4.0
-    score_slope8 = (score_series - score_series.shift(8)) / 8.0
-    rising_below_zero = (score_series < 0) & (score_slope4 > 0) & (score_slope8 > 0)
-    falling_above_zero = (score_series > 0) & (score_slope4 < 0) & (score_slope8 < 0)
-    # Score only the latest uninterrupted regime. A previous bullish phase that
-    # ended weeks/months ago must not continue inflating today's opportunity score.
-    positive_points = trailing_true_streak(rising_below_zero)
-    distribution_points = trailing_true_streak(falling_above_zero)
-    historical_rising_weeks = int(rising_below_zero.sum())
-    historical_falling_weeks = int(falling_above_zero.sum())
-
     ema5 = score_series.ewm(span=5, adjust=False, min_periods=5).mean()
     ema20 = score_series.ewm(span=20, adjust=False, min_periods=20).mean()
     ema80 = score_series.ewm(span=80, adjust=False, min_periods=80).mean()
     ema200 = score_series.ewm(span=200, adjust=False, min_periods=200).mean()
+
+    ema_weights = {"ema5": 0.08, "ema20": 0.17, "ema80": 0.30, "ema200": 0.45}
+    ema_series = {"ema5": ema5, "ema20": ema20, "ema80": ema80, "ema200": ema200}
+    ema_active_streaks = {
+        name: trailing_true_streak(series.diff() > 0)
+        for name, series in ema_series.items()
+    }
+    ema_streak_contributions = {
+        name: 100.0 * ema_weights[name] * min(streak, 52) / 52.0
+        for name, streak in ema_active_streaks.items()
+    }
+    opportunity_score = float(sum(ema_streak_contributions.values()))
+    # Retain these as audit-only fields for comparison; they do not affect score.
+    historical_rising_weeks = int(((score_series < 0) & (score_series.diff(4) > 0) & (score_series.diff(8) > 0)).sum())
+    historical_falling_weeks = int(((score_series > 0) & (score_series.diff(4) < 0) & (score_series.diff(8) < 0)).sum())
+    positive_points = 0
+    distribution_points = 0
     ema5_now, ema20_now, ema80_now, ema200_now = (
         float(ema5.iloc[-1]), float(ema20.iloc[-1]),
         float(ema80.iloc[-1]), float(ema200.iloc[-1])
     )
 
-    # Long-term regime: EMA80 above EMA200, with EMA200 rising and below zero.
-    # EMA200 receives the strongest trend-quality weighting; EMA5 is only a
-    # short-term confirmation and EMA20 is an intermediate confirmation.
+    # EMA slopes and trend quality are diagnostics only; the score itself is
+    # exclusively the weighted duration of each EMA's current rising streak.
     ema80_slope8 = safe_slope(ema80, 8)
     ema200_slope8 = safe_slope(ema200, 8)
     def linear_r2(values):
@@ -235,34 +239,14 @@ def weekly_screen(symbol, daily):
     ema80_r2_26w = linear_r2(ema80.tail(26).to_numpy(dtype=float))
     ema200_r2_26w = linear_r2(ema200.tail(26).to_numpy(dtype=float))
 
-    # Durable long-regime streak: EMA80 > EMA200, EMA200 rising, EMA200 < 0.
-    # It can persist beyond 12 weeks even if the shorter EMAs temporarily wiggle.
-    ema_long_bullish_below_zero = (
-        (ema80 > ema200) & (ema200.diff(4) > 0) & (ema200 < 0)
-    ).fillna(False)
-    ema_long_bullish_streak = 0
-    for is_bullish in ema_long_bullish_below_zero.iloc[::-1]:
-        if not bool(is_bullish):
-            break
-        ema_long_bullish_streak += 1
-    # Reward durable structures progressively for up to 52 weeks.
+    # Long-regime duration remains a diagnostic, not a score input.
+    ema_long_bullish = ((ema80 > ema200) & (ema200.diff(4) > 0)).fillna(False)
+    ema_long_bullish_streak = trailing_true_streak(ema_long_bullish)
     ema_duration_factor = min(ema_long_bullish_streak, 52) / 52.0
-
-    historical_median = float(score_series.median())
-    historical_q95 = float(score_series.quantile(0.95))
-    if historical_q95 > historical_median and value > historical_median:
-        high_vfi_factor = float(np.clip((value - historical_median) / (historical_q95 - historical_median), 0.0, 1.0))
-    else:
-        high_vfi_factor = 0.0
-    high_vfi_penalty = positive_points * high_vfi_factor
-    # Penalize assets whose price has already advanced substantially over the
-    # last 13 weeks, even if VFI remains negative after a volatile run.
-    price_extension_factor = float(np.clip((price_return_13w - 0.10) / 0.40, 0.0, 1.0))
-    price_extension_penalty = positive_points * price_extension_factor
-    # Keep the EMA contribution on a fixed scale as more EMAs are added.
-    # EMA weights sum to 1.0: EMA5=5%, EMA20=15%, EMA80=30%, EMA200=50%.
-    # Thus EMA200 is the most influential without inflating the score range.
-    ema_weights = {"ema5": 0.05, "ema20": 0.15, "ema80": 0.30, "ema200": 0.50}
+    high_vfi_penalty = 0.0
+    price_extension_penalty = 0.0
+    # Weights are fixed and sum to 100 points: EMA5 8%, EMA20 17%,
+    # EMA80 30%, EMA200 45%. Larger EMAs dominate the final ranking.
     ema5_rising = safe_slope(ema5, 8) > 0
     ema20_rising = safe_slope(ema20, 8) > 0
     ema80_rising = ema80_slope8 > 0
@@ -273,8 +257,8 @@ def weekly_screen(symbol, daily):
         + ema_weights["ema80"] * float(ema80_now > ema200_now and ema80_rising and ema80_now < 0)
         + ema_weights["ema200"] * float(ema200_rising and ema200_now < 0)
     )
-    ema_structure_bonus = 0.75 * positive_points * ema_bullish_quality
-    ema_duration_bonus = 0.75 * positive_points * ema_duration_factor
+    ema_structure_bonus = 0.0
+    ema_duration_bonus = 0.0
 
     # R² EMA quality also uses the same normalized weights and fixed budget.
     ema20_r2_factor = float(np.clip((ema20_r2_26w - 0.50) / 0.50, 0.0, 1.0))
@@ -288,7 +272,7 @@ def weekly_screen(symbol, daily):
         + ema_weights["ema80"] * ema80_r2_factor * float(ema80_now < 0 and ema80_rising)
         + ema_weights["ema200"] * ema200_r2_factor * float(ema200_now < 0 and ema200_rising)
     )
-    ema_r2_bonus = 0.35 * positive_points * ema_r2_quality
+    ema_r2_bonus = 0.0
 
     # Penalties share one fixed budget, with the largest share assigned to EMA200.
     ema_inversion_quality = (
@@ -297,12 +281,8 @@ def weekly_screen(symbol, daily):
         + ema_weights["ema80"] * float(ema80_now < ema200_now)
         + ema_weights["ema200"] * float(ema200_now >= 0)
     )
-    ema_inversion_penalty = 0.75 * positive_points * ema_inversion_quality
-    all_emas_positive_penalty = (
-        0.25 * positive_points
-        if ema5_now > 0 and ema20_now > 0 and ema80_now > 0 and ema200_now > 0
-        else 0.0
-    )
+    ema_inversion_penalty = 0.0
+    all_emas_positive_penalty = 0.0
 
     # R² rewards a smoother, more linear VFI recovery only when the relevant
     # slope is positive and current VFI remains below zero. This avoids rewarding
@@ -322,27 +302,18 @@ def weekly_screen(symbol, daily):
         (0.10 * positive_points if slope8 < 0 else 0.0)
         + (0.05 * positive_points if vfi.get("VFI_Slope_4B", np.nan) < 0 else 0.0)
     )
-    opportunity_score = (
-        positive_points - distribution_points
-        + ema_structure_bonus + ema_duration_bonus + ema_r2_bonus
-        + r2_4_bonus + r2_8_bonus + slope20_bonus + slope50_bonus
-        - high_vfi_penalty - price_extension_penalty
-        - all_emas_positive_penalty - ema_inversion_penalty
-        - slope20_penalty - slope50_penalty - current_slope_penalty
-    )
+    # Final score is only the weighted duration of the four active EMA rising
+    # streaks. No direct VFI, price-return, slope-magnitude, R² or zero-level term.
+    opportunity_score = float(sum(ema_streak_contributions.values()))
 
     # Early weekly setup: MA20 is above MA50 while BOTH remain below zero.
     # Do not wait for the current VFI or its averages to cross zero; track those
     # crosses as subsequent events so the scan can catch the move earlier.
     qualifies = bool(
-        np.isfinite(value) and value < 0
-        and np.isfinite(vfi_ma50) and vfi_ma50 < 0
-        and np.isfinite(vfi_ma20) and vfi_ma20 < 0
-        and ma_state["VFI_MA20_Above_MA50"]
-        and np.isfinite(vfi.get("VFI_Slope_4B", np.nan)) and vfi["VFI_Slope_4B"] > 0
-        and np.isfinite(slope8) and slope8 > 0
-        and monotonic4 and np.isfinite(r2_4) and r2_4 >= 0.65
-        and np.isfinite(price_return_13w) and price_return_13w <= 0.10
+        ema_active_streaks["ema200"] >= 8
+        and ema_active_streaks["ema80"] >= 6
+        and ema_active_streaks["ema20"] >= 3
+        and ema_active_streaks["ema5"] >= 2
     )
     # Rank by MA20 proximity to zero, positive MA spread, then slope quality.
     ma_spread = vfi_ma20 - vfi_ma50 if np.isfinite(vfi_ma20) and np.isfinite(vfi_ma50) else float("nan")
@@ -352,6 +323,15 @@ def weekly_screen(symbol, daily):
         "Weekly_Screen_Status": "CANDIDATE" if qualifies else "NOT_SELECTED",
         "Weekly_Score": score,
         "Weekly_Opportunity_Score": score,
+        "Weekly_EMA5_Active_Rising_Streak_Weeks": ema_active_streaks["ema5"],
+        "Weekly_EMA20_Active_Rising_Streak_Weeks": ema_active_streaks["ema20"],
+        "Weekly_EMA80_Active_Rising_Streak_Weeks": ema_active_streaks["ema80"],
+        "Weekly_EMA200_Active_Rising_Streak_Weeks": ema_active_streaks["ema200"],
+        "Weekly_EMA5_Streak_Score": ema_streak_contributions["ema5"],
+        "Weekly_EMA20_Streak_Score": ema_streak_contributions["ema20"],
+        "Weekly_EMA80_Streak_Score": ema_streak_contributions["ema80"],
+        "Weekly_EMA200_Streak_Score": ema_streak_contributions["ema200"],
+        "Weekly_EMA_Only_Score": opportunity_score,
         "Weekly_Negative_Uptrend_Active_Streak_Weeks": positive_points,
         "Weekly_Positive_Downtrend_Active_Streak_Weeks": distribution_points,
         "Weekly_Negative_Uptrend_Historical_Occurrences_260W": historical_rising_weeks,
@@ -692,7 +672,7 @@ def main():
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; the main duration points use only the current uninterrupted regime: consecutive weeks with VFI below zero and positive 4W/8W slopes earn points, while the current positive-VFI/downward-slope streak incurs penalties; older disconnected streaks are audit-only and never added to the current score. EMA structure, inversion penalties, and EMA R2 quality use a fixed normalized weight budget (EMA5 5%, EMA20 15%, EMA80 30%, EMA200 50%). A progressive duration bonus for the EMA80>EMA200 regime is capped at 52 weeks. VFI-line R2 and positive 20W/50W slopes also contribute; penalties for high VFI versus its own history, price extension, all-positive EMAs, inverted EMA ordering, and negative 4W/8W/20W/50W slopes. The report exposes each score component for audit. A strict early-accumulation candidate additionally requires VFI<0, VFI MA20>MA50 with both below zero, positive 4W/8W slopes, last 4 VFI values strictly rising with R2>=0.65 and 13W price return<=+10%. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
+        "weekly_rule": "completed weekly candles; ranking score uses only the current uninterrupted rising streak of EMA5, EMA20, EMA80 and EMA200 of the VFI line. Streak duration is capped at 52 weeks and weighted EMA5 8%, EMA20 17%, EMA80 30%, EMA200 45%. No direct VFI value/sign/slope, zero-crossing, price return, R2, EMA alignment or price-extension term affects the score. The strict candidate flag is also EMA-only: EMA200 rising streak >=8 weeks, EMA80 >=6, EMA20 >=3 and EMA5 >=2. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
         "daily_rule": "the top weekly opportunity-score names are followed up on completed daily candles, even when none passes the strict weekly binary setup; daily early-signal flag requires VFI MA20 > MA50 while both are below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; scores are heuristics, not probabilities",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within an expanded curated US-listed common-stock/ADR seed universe; ETFs are excluded; at least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required before liquidity ranking. This is a reproducible universe screen, not a claim to rank every US listing.",
