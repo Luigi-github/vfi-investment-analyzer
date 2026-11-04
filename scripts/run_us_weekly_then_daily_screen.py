@@ -72,7 +72,7 @@ def trailing_true_streak(flags) -> int:
 
 def ema_rising_streak_score(ema_series: dict[str, pd.Series], cap_weeks: int = 52):
     """Score only current consecutive EMA rises; longer EMAs carry larger weights."""
-    weights = {"ema5": 0.08, "ema20": 0.17, "ema80": 0.30, "ema200": 0.45}
+    weights = {"ema5": 0.05, "ema20": 0.15, "ema80": 0.30, "ema200": 0.50}
     streaks = {
         name: trailing_true_streak(pd.to_numeric(series, errors="coerce").diff() > 0)
         for name, series in ema_series.items()
@@ -218,7 +218,7 @@ def weekly_screen(symbol, daily):
 
     ema_series = {"ema5": ema5, "ema20": ema20, "ema80": ema80, "ema200": ema200}
     opportunity_score, ema_active_streaks, ema_streak_contributions = ema_rising_streak_score(ema_series)
-    ema_weights = {"ema5": 0.08, "ema20": 0.17, "ema80": 0.30, "ema200": 0.45}
+    ema_weights = {"ema5": 0.05, "ema20": 0.15, "ema80": 0.30, "ema200": 0.50}
     # Retain these as audit-only fields for comparison; they do not affect score.
     historical_rising_weeks = int(((score_series < 0) & (score_series.diff(4) > 0) & (score_series.diff(8) > 0)).sum())
     historical_falling_weeks = int(((score_series > 0) & (score_series.diff(4) < 0) & (score_series.diff(8) < 0)).sum())
@@ -251,8 +251,8 @@ def weekly_screen(symbol, daily):
     ema_duration_factor = min(ema_long_bullish_streak, 52) / 52.0
     high_vfi_penalty = 0.0
     price_extension_penalty = 0.0
-    # Weights are fixed and sum to 100 points: EMA5 8%, EMA20 17%,
-    # EMA80 30%, EMA200 45%. Larger EMAs dominate the final ranking.
+    # Weights are fixed and sum to 100 points: EMA5 5%, EMA20 15%,
+    # EMA80 30%, EMA200 50%. Larger EMAs dominate the final ranking.
     ema5_rising = safe_slope(ema5, 8) > 0
     ema20_rising = safe_slope(ema20, 8) > 0
     ema80_rising = ema80_slope8 > 0
@@ -678,7 +678,7 @@ def main():
         "daily_followup_analyzed": int(len(daily_df)),
         "daily_followup_mode": followup_mode,
         "daily_early_accumulation_candidates": int(daily_df.get("Daily_Early_Accumulation_Candidate", pd.Series(dtype=bool)).eq(True).sum()),
-        "weekly_rule": "completed weekly candles; ranking score uses only the current uninterrupted rising streak of EMA5, EMA20, EMA80 and EMA200 of the VFI line. Streak duration is capped at 52 weeks and weighted EMA5 8%, EMA20 17%, EMA80 30%, EMA200 45%. No direct VFI value/sign/slope, zero-crossing, price return, R2, EMA alignment or price-extension term affects the score. The strict candidate flag is also EMA-only: EMA200 rising streak >=8 weeks, EMA80 >=6, EMA20 >=3 and EMA5 >=2. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
+        "weekly_rule": "completed weekly candles; ranking score uses only the current uninterrupted rising streak of EMA5, EMA20, EMA80 and EMA200 of the VFI line. Streak duration is capped at 52 weeks and weighted EMA5 5%, EMA20 15%, EMA80 30%, EMA200 50%. No direct VFI value/sign/slope, zero-crossing, price return, R2, EMA alignment or price-extension term affects the score. The strict candidate flag is also EMA-only: EMA200 rising streak >=8 weeks, EMA80 >=6, EMA20 >=3 and EMA5 >=2. At least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required.",
         "daily_rule": "the top weekly opportunity-score names are followed up on completed daily candles, even when none passes the strict weekly binary setup; daily early-signal flag requires VFI MA20 > MA50 while both are below zero, positive 4D/8D VFI slopes, accumulation/distribution composite >=50 and 20-session price return <= +10%; scores are heuristics, not probabilities",
         "weekly_candle_policy": "completed weekly candles only; incomplete current week excluded",
         "universe_note": "Top N by mean Close*Volume over 20 completed sessions within an expanded curated US-listed common-stock/ADR seed universe; ETFs are excluded; at least 260 completed weekly bars and annualized 60-session realized volatility >=15% are required before liquidity ranking. This is a reproducible universe screen, not a claim to rank every US listing.",
