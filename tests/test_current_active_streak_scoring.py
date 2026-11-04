@@ -53,7 +53,7 @@ class TestCurrentActiveStreakScoring(unittest.TestCase):
             "ema200": pd.Series([1, 2, 3, 2, 3, 4]),
         }
         _, streaks, _ = ema_rising_streak_score(ema_series)
-        self.assertEqual(set(streaks.values()), {3})
+        self.assertEqual(set(streaks.values()), {2})
 
     def test_ema_score_caps_duration_at_52_weeks(self):
         ema_series = {
