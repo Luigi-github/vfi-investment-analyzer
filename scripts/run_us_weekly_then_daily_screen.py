@@ -70,6 +70,20 @@ def trailing_true_streak(flags) -> int:
     return count
 
 
+def ema_rising_streak_score(ema_series: dict[str, pd.Series], cap_weeks: int = 52):
+    """Score only current consecutive EMA rises; longer EMAs carry larger weights."""
+    weights = {"ema5": 0.08, "ema20": 0.17, "ema80": 0.30, "ema200": 0.45}
+    streaks = {
+        name: trailing_true_streak(pd.to_numeric(series, errors="coerce").diff() > 0)
+        for name, series in ema_series.items()
+    }
+    contributions = {
+        name: 100.0 * weights[name] * min(streaks[name], cap_weeks) / cap_weeks
+        for name in weights
+    }
+    return float(sum(contributions.values())), streaks, contributions
+
+
 def vfi_ma_state(series):
     """VFI 20/50-bar moving-average state and the timing of crossover events."""
     s = pd.to_numeric(series, errors="coerce").dropna()
@@ -202,17 +216,9 @@ def weekly_screen(symbol, daily):
     ema80 = score_series.ewm(span=80, adjust=False, min_periods=80).mean()
     ema200 = score_series.ewm(span=200, adjust=False, min_periods=200).mean()
 
-    ema_weights = {"ema5": 0.08, "ema20": 0.17, "ema80": 0.30, "ema200": 0.45}
     ema_series = {"ema5": ema5, "ema20": ema20, "ema80": ema80, "ema200": ema200}
-    ema_active_streaks = {
-        name: trailing_true_streak(series.diff() > 0)
-        for name, series in ema_series.items()
-    }
-    ema_streak_contributions = {
-        name: 100.0 * ema_weights[name] * min(streak, 52) / 52.0
-        for name, streak in ema_active_streaks.items()
-    }
-    opportunity_score = float(sum(ema_streak_contributions.values()))
+    opportunity_score, ema_active_streaks, ema_streak_contributions = ema_rising_streak_score(ema_series)
+    ema_weights = {"ema5": 0.08, "ema20": 0.17, "ema80": 0.30, "ema200": 0.45}
     # Retain these as audit-only fields for comparison; they do not affect score.
     historical_rising_weeks = int(((score_series < 0) & (score_series.diff(4) > 0) & (score_series.diff(8) > 0)).sum())
     historical_falling_weeks = int(((score_series > 0) & (score_series.diff(4) < 0) & (score_series.diff(8) < 0)).sum())
