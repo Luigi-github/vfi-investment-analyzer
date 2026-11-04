@@ -12,6 +12,13 @@ on:
         required: false
         type: boolean
         default: true
+  pull_request:
+    branches:
+      - feat/ema-only-duration-ranking
+    paths:
+      - "scripts/run_us_relative_vfi_early_accumulation_ranking.py"
+      - "tests/test_relative_vfi_early_accumulation.py"
+      - ".github/workflows/us-relative-vfi-early-accumulation.yml"
   push:
     branches:
       - feat/vfi-relative-early-accumulation-score
