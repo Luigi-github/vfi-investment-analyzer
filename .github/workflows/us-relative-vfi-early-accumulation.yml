@@ -1,0 +1,80 @@
+name: US relative VFI early-accumulation ranking
+
+on:
+  workflow_dispatch:
+    inputs:
+      top:
+        description: "Number of most liquid US-listed assets to rank"
+        required: false
+        default: "200"
+      refresh_cache:
+        description: "Force fresh Yahoo Finance downloads"
+        required: false
+        type: boolean
+        default: true
+  push:
+    branches:
+      - feat/vfi-relative-early-accumulation-score
+    paths:
+      - "scripts/run_us_relative_vfi_early_accumulation_ranking.py"
+      - "tests/test_relative_vfi_early_accumulation.py"
+      - ".github/workflows/us-relative-vfi-early-accumulation.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  ranking:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Restore market-data cache
+        uses: actions/cache@v4
+        with:
+          path: data/market_cache/us_equities
+          key: us-relative-vfi-cache-v1-${{ runner.os }}-${{ github.run_id }}
+          restore-keys: |
+            us-relative-vfi-cache-v1-${{ runner.os }}-
+
+      - name: Compile ranking script
+        run: python -m py_compile scripts/run_us_relative_vfi_early_accumulation_ranking.py
+
+      - name: Run relative VFI ranking tests
+        run: python -m unittest tests.test_relative_vfi_early_accumulation -v
+
+      - name: Calculate ranking
+        env:
+          TOP_COUNT: ${{ inputs.top || '200' }}
+          FORCE_REFRESH: ${{ inputs.refresh_cache || 'true' }}
+        run: |
+          if [ "$FORCE_REFRESH" = "true" ]; then
+            python scripts/run_us_relative_vfi_early_accumulation_ranking.py --top "$TOP_COUNT" --period max --refresh-cache
+          else
+            python scripts/run_us_relative_vfi_early_accumulation_ranking.py --top "$TOP_COUNT" --period max
+          fi
+
+      - name: Upload ranking and summary
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: us-relative-vfi-early-accumulation-ranking
+          path: |
+            reports/us_relative_vfi_ranking/*.csv
+            reports/us_relative_vfi_ranking/run_summary.json
+          if-no-files-found: warn
+          retention-days: 14
