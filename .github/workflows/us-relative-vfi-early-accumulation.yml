@@ -55,7 +55,7 @@ jobs:
         run: python -m py_compile scripts/run_us_relative_vfi_early_accumulation_ranking.py
 
       - name: Run relative VFI ranking tests
-        run: python -m unittest tests.test_relative_vfi_early_accumulation -v
+        run: python -m unittest discover -s tests -p 'test_relative_vfi_early_accumulation.py' -v
 
       - name: Calculate ranking
         env:
