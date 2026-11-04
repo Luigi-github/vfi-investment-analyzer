@@ -39,7 +39,7 @@ class TestCurrentActiveStreakScoring(unittest.TestCase):
         }
         score, streaks, contributions = ema_rising_streak_score(ema_series)
         self.assertEqual(set(streaks.values()), {4})
-        self.assertAlmostEqual(contributions["ema200"], 100 * 0.45 * 4 / 52)
+        self.assertAlmostEqual(contributions["ema200"], 100 * 0.50 * 4 / 52)
         self.assertGreater(contributions["ema200"], contributions["ema80"])
         self.assertGreater(contributions["ema80"], contributions["ema20"])
         self.assertGreater(contributions["ema20"], contributions["ema5"])
@@ -63,7 +63,7 @@ class TestCurrentActiveStreakScoring(unittest.TestCase):
         score, streaks, contributions = ema_rising_streak_score(ema_series)
         self.assertEqual(set(streaks.values()), {60})
         self.assertAlmostEqual(score, 100.0)
-        self.assertAlmostEqual(contributions["ema200"], 45.0)
+        self.assertAlmostEqual(contributions["ema200"], 50.0)
 
 
 if __name__ == "__main__":
