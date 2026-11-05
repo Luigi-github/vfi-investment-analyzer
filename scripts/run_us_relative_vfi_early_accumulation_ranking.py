@@ -99,11 +99,34 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         key: historical_percentile(series.iloc[:-1], ema_now[key])
         for key, series in emas.items()
     }
-    # Lower EMA percentiles are preferred, but cannot override trend/persistence.
-    ema_low_score = sum(
-        EMA_WEIGHTS[key] * (100.0 - ema_percentiles[key])
-        for key in EMA_PERIODS if np.isfinite(ema_percentiles[key])
-    ) / sum(EMA_WEIGHTS[key] for key in EMA_PERIODS if np.isfinite(ema_percentiles[key]))
+    # Signed EMA level score: negative EMA values add points; positive values
+    # subtract points in proportion to their own historical percentile. Thus a
+    # mildly positive EMA at a low percentile is penalized lightly, while an
+    # unusually positive EMA at a high percentile is penalized more strongly.
+    # The weighted signed result is mapped to [0, 100] for a stable score range.
+    ema_signed_components = {}
+    for key in EMA_PERIODS:
+        pct = ema_percentiles[key]
+        value = ema_now[key]
+        if not np.isfinite(pct) or not np.isfinite(value):
+            ema_signed_components[key] = float("nan")
+        elif value < 0:
+            ema_signed_components[key] = 100.0 - pct
+        elif value > 0:
+            ema_signed_components[key] = -pct
+        else:
+            ema_signed_components[key] = 0.0
+    available_ema_weights = sum(
+        EMA_WEIGHTS[key] for key in EMA_PERIODS
+        if np.isfinite(ema_signed_components[key])
+    )
+    ema_signed_raw_score = (
+        sum(EMA_WEIGHTS[key] * ema_signed_components[key]
+            for key in EMA_PERIODS if np.isfinite(ema_signed_components[key]))
+        / available_ema_weights
+        if available_ema_weights else 0.0
+    )
+    ema_level_score = float(np.clip(50.0 + 0.5 * ema_signed_raw_score, 0.0, 100.0))
 
     current = float(s.iloc[-1])
     vfi_pct = historical_percentile(s.iloc[:-1], current)
@@ -146,7 +169,7 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
 
     # Early-accumulation blocks: no reward or penalty for being near zero.
     persistence_block = ema_streak_score
-    relative_position_block = float(np.clip(ema_low_score, 0.0, 100.0))
+    relative_position_block = ema_level_score
     trend_block = float(np.clip(vfi_persistence_score, 0.0, 100.0))
     acceleration_block = float(np.clip(acceleration_score, 0.0, 100.0))
     gross_score = (
@@ -216,7 +239,9 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         "VFI_Acceleration_Percentile": acceleration_pct,
         "VFI_Persistence_Score": trend_block,
         "EMA_Persistence_Score": persistence_block,
-        "EMA_Low_Percentile_Score": ema_low_score,
+        "EMA_Level_Signed_Score": ema_level_score,
+        "EMA_Level_Signed_Raw_Score": ema_signed_raw_score,
+        **{f"{key.upper()}_Signed_Level_Component": value for key, value in ema_signed_components.items()},
         "Relative_Position_Score": relative_position_block,
         "Acceleration_Score": acceleration_block,
         "Gross_Score": gross_score,
@@ -320,7 +345,7 @@ def main() -> None:
                           "VFI_persistence_and_quality": 0.25, "VFI_acceleration": 0.20},
         "near_zero_rule": "Removed from scoring; retained as diagnostic only",
         "pullback_penalties": "Proportional penalties for negative 4W/8W/13W/26W VFI slopes and declining EMAs; capped at 55% of gross score",
-        "normalization": "EMA percentiles are asset-relative; near-zero VFI excluded; pullback penalties use multiple horizons and EMA slope deterioration",
+        "normalization": "EMA values are scored by sign: negative values add according to inverse historical percentile; positive values subtract according to historical percentile, weighted EMA5/20/80/200 at 5/15/30/50; near-zero VFI excluded; pullback penalties use multiple horizons and EMA slope deterioration",
         "caveat": "Heuristic technical ranking for research, not a prediction or investment recommendation",
     }
     (out / "run_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
