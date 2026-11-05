@@ -57,12 +57,30 @@ class RelativeVfiRankingTests(unittest.TestCase):
         result = score_weekly_vfi(pd.Series(values, index=idx))
         expected = (
             0.30 * result["EMA_Persistence_Score"]
-            + 0.25 * result["EMA_Low_Percentile_Score"]
+            + 0.25 * result["EMA_Level_Signed_Score"]
             + 0.25 * result["VFI_Persistence_Score"]
             + 0.20 * result["Acceleration_Score"]
         )
         self.assertAlmostEqual(result["Gross_Score"], expected, places=7)
         self.assertIn("VFI_Near_Zero_Score", result)
+
+    def test_negative_ema_adds_and_positive_ema_subtracts_by_percentile(self):
+        idx = pd.date_range("2010-01-01", periods=420, freq="W-FRI")
+        t = np.arange(len(idx), dtype=float)
+        values = -35.0 + 0.055 * t + 0.7 * np.sin(t / 8.0)
+        result = score_weekly_vfi(pd.Series(values, index=idx))
+        for key in ("EMA5", "EMA20", "EMA80", "EMA200"):
+            value = result[f"{key}_Value"]
+            percentile = result[f"{key}_Percentile"]
+            component = result[f"{key}_Signed_Level_Component"]
+            if value < 0:
+                self.assertAlmostEqual(component, 100.0 - percentile, places=7)
+            elif value > 0:
+                self.assertAlmostEqual(component, -percentile, places=7)
+            else:
+                self.assertEqual(component, 0.0)
+        self.assertGreaterEqual(result["EMA_Level_Signed_Score"], 0.0)
+        self.assertLessEqual(result["EMA_Level_Signed_Score"], 100.0)
 
     def test_sustained_pullback_is_penalized_more_than_rising_trend(self):
         idx = pd.date_range("2010-01-01", periods=420, freq="W-FRI")
