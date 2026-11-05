@@ -50,5 +50,40 @@ class RelativeVfiRankingTests(unittest.TestCase):
         self.assertLessEqual(result["Final_Score"], 100.0)
 
 
+    def test_near_zero_is_diagnostic_not_a_scoring_component(self):
+        idx = pd.date_range("2010-01-01", periods=420, freq="W-FRI")
+        t = np.arange(len(idx), dtype=float)
+        values = -25.0 + 0.04 * t + 0.8 * np.sin(t / 9.0)
+        result = score_weekly_vfi(pd.Series(values, index=idx))
+        expected = (
+            0.30 * result["EMA_Persistence_Score"]
+            + 0.25 * result["EMA_Low_Percentile_Score"]
+            + 0.25 * result["VFI_Persistence_Score"]
+            + 0.20 * result["Acceleration_Score"]
+        )
+        self.assertAlmostEqual(result["Gross_Score"], expected, places=7)
+        self.assertIn("VFI_Near_Zero_Score", result)
+
+    def test_sustained_pullback_is_penalized_more_than_rising_trend(self):
+        idx = pd.date_range("2010-01-01", periods=420, freq="W-FRI")
+        t = np.arange(len(idx), dtype=float)
+        rising = -30.0 + 0.05 * t + 0.4 * np.sin(t / 8.0)
+        falling = rising.copy()
+        falling[-26:] -= np.linspace(0.0, 18.0, 26)
+        rising_result = score_weekly_vfi(pd.Series(rising, index=idx))
+        falling_result = score_weekly_vfi(pd.Series(falling, index=idx))
+        self.assertGreater(falling_result["Pullback_Penalty"], rising_result["Pullback_Penalty"])
+        self.assertGreater(falling_result["Total_Penalty"], rising_result["Total_Penalty"])
+
+    def test_score_exposes_multi_horizon_deterioration(self):
+        idx = pd.date_range("2010-01-01", periods=420, freq="W-FRI")
+        t = np.arange(len(idx), dtype=float)
+        values = -15.0 + 0.03 * t + np.sin(t / 7.0)
+        result = score_weekly_vfi(pd.Series(values, index=idx))
+        self.assertIn("VFI_Slope_8W", result)
+        self.assertIn("VFI_Slope_26W", result)
+        self.assertIn("EMA_Pullback_Penalty", result)
+
+
 if __name__ == "__main__":
     unittest.main()
