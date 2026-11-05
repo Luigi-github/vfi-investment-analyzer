@@ -144,24 +144,43 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
     if np.isfinite(slope4) and np.isfinite(prior4) and slope4 > 0 and prior4 <= 0:
         acceleration_score = min(100.0, acceleration_score + 8.0)
 
-    # Four normalized blocks. Each block has a common 0-100 scale.
+    # Early-accumulation blocks: no reward or penalty for being near zero.
     persistence_block = ema_streak_score
-    relative_position_block = 0.60 * ema_low_score + 0.40 * near_zero_score
+    relative_position_block = float(np.clip(ema_low_score, 0.0, 100.0))
     trend_block = float(np.clip(vfi_persistence_score, 0.0, 100.0))
     acceleration_block = float(np.clip(acceleration_score, 0.0, 100.0))
     gross_score = (
-        0.35 * persistence_block
-        + 0.30 * relative_position_block
-        + 0.20 * trend_block
-        + 0.15 * acceleration_block
+        0.30 * persistence_block
+        + 0.25 * relative_position_block
+        + 0.25 * trend_block
+        + 0.20 * acceleration_block
     )
 
-    # Progressive overextension penalty: a positive VFI is not inherently bad;
-    # it is penalized increasingly when high relative to its own history.
+    # Penalize deterioration, but distinguish a pause from a sustained pullback.
+    slope8 = regression_slope(s.tail(8).to_numpy())
+    slope26 = regression_slope(s.tail(26).to_numpy())
+    ema_negative_weights = sum(
+        EMA_WEIGHTS[key] for key, series in emas.items()
+        if len(series.dropna()) >= 2 and float(series.diff().iloc[-1]) < 0
+    )
+    pullback_penalty = 0.0
+    if np.isfinite(slope4) and slope4 < 0:
+        pullback_penalty += 0.06 * gross_score
+    if np.isfinite(slope8) and slope8 < 0:
+        pullback_penalty += 0.05 * gross_score
+    if np.isfinite(slope13) and slope13 < 0:
+        pullback_penalty += 0.07 * gross_score
+    if np.isfinite(slope26) and slope26 < 0:
+        pullback_penalty += 0.04 * gross_score
+    # EMA deterioration adds a smaller confirmation penalty, not a single-week cliff.
+    ema_pullback_penalty = 0.10 * gross_score * ema_negative_weights
+    # A short pause (flat slope) is not treated like a falling trend.
+    if np.isfinite(slope4) and slope4 >= 0 and np.isfinite(slope13) and slope13 >= 0:
+        pullback_penalty *= 0.50
+
     positive_vfi_penalty = 0.0
     if current > 0 and np.isfinite(vfi_pct):
-        positive_vfi_penalty = 0.25 * max(0.0, vfi_pct - 50.0)  # max 12.5 points
-
+        positive_vfi_penalty = 0.25 * max(0.0, vfi_pct - 50.0)
     positive_ema_weights = sum(
         EMA_WEIGHTS[key] for key, value in ema_now.items() if value > 0
     )
@@ -173,15 +192,11 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         ema_structure_penalty += 4.0
     if ema_now["ema80"] < ema_now["ema200"]:
         ema_structure_penalty += 6.0
-    negative_slope_penalty = 0.0
-    if not np.isfinite(slope4) or slope4 < 0:
-        negative_slope_penalty += 5.0
-    if not np.isfinite(slope13) or slope13 < 0:
-        negative_slope_penalty += 5.0
 
     total_penalty = min(
-        positive_vfi_penalty + all_positive_penalty + ema_structure_penalty + negative_slope_penalty,
-        0.30 * gross_score,
+        positive_vfi_penalty + all_positive_penalty + ema_structure_penalty
+        + pullback_penalty + ema_pullback_penalty,
+        0.55 * gross_score,
     )
     final_score = float(np.clip(gross_score - total_penalty, 0.0, 100.0))
 
@@ -189,12 +204,14 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         "VFI": current,
         "VFI_Historical_Percentile": vfi_pct,
         "VFI_Absolute_Magnitude_Percentile": abs_current_pct,
-        "VFI_Near_Zero_Score": near_zero_score,
+        "VFI_Near_Zero_Score": near_zero_score,  # diagnostic only; excluded from score
         "VFI_Up_Streak_Weeks": vfi_streak,
         "VFI_Up_Weeks_Ratio_13W": up_ratio,
         "VFI_Slope_4W": slope4,
         "VFI_Slope_Previous_4W": prior4,
         "VFI_Slope_13W": slope13,
+        "VFI_Slope_8W": slope8,
+        "VFI_Slope_26W": slope26,
         "VFI_Acceleration_4W": float(acceleration.iloc[-1]) if len(acceleration) else float("nan"),
         "VFI_Acceleration_Percentile": acceleration_pct,
         "VFI_Persistence_Score": trend_block,
@@ -206,7 +223,9 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         "VFI_Positive_Extension_Penalty": positive_vfi_penalty,
         "All_EMAs_Positive_Penalty": all_positive_penalty,
         "EMA_Inversion_Penalty": ema_structure_penalty,
-        "Negative_Slope_Penalty": negative_slope_penalty,
+        "Pullback_Penalty": pullback_penalty,
+        "EMA_Pullback_Penalty": ema_pullback_penalty,
+        "EMA_Negative_Slope_Weight": ema_negative_weights,
         "Total_Penalty": total_penalty,
         "Final_Score": final_score,
         **{f"{key.upper()}_Value": value for key, value in ema_now.items()},
@@ -297,9 +316,11 @@ def main() -> None:
         "failed_assets": errors,
         "completed_weekly_candles_only": True,
         "ema_calculation": "EMA5/20/80/200 calculated over full valid weekly VFI history; percentiles use trailing 260 prior observations",
-        "score_weights": {"EMA_persistence": 0.35, "relative_EMA_position_and_VFI_near_zero": 0.30,
-                          "VFI_persistence_and_quality": 0.20, "VFI_acceleration": 0.15},
-        "normalization": "Each EMA and VFI feature compared with its own trailing historical distribution; no raw cross-asset VFI magnitude used in ranking",
+        "score_weights": {"EMA_persistence": 0.30, "relative_EMA_position": 0.25,
+                          "VFI_persistence_and_quality": 0.25, "VFI_acceleration": 0.20},
+        "near_zero_rule": "Removed from scoring; retained as diagnostic only",
+        "pullback_penalties": "Proportional penalties for negative 4W/8W/13W/26W VFI slopes and declining EMAs; capped at 55% of gross score",
+        "normalization": "EMA percentiles are asset-relative; near-zero VFI excluded; pullback penalties use multiple horizons and EMA slope deterioration",
         "caveat": "Heuristic technical ranking for research, not a prediction or investment recommendation",
     }
     (out / "run_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
