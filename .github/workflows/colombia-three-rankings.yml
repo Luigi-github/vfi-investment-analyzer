@@ -24,7 +24,7 @@ on:
       - ".github/workflows/colombia-three-rankings.yml"
 
 permissions:
-  contents: read
+  contents: write
 
 concurrency:
   group: colombia-three-rankings
@@ -53,6 +53,19 @@ jobs:
 
       - name: Run all Colombia rankings
         run: python scripts/run_colombia_three_rankings.py --output-dir reports/colombia_three_rankings
+
+      - name: Publish latest ranking files to repository
+        if: github.event_name != 'pull_request' && success()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add reports/colombia_three_rankings/*.csv reports/colombia_three_rankings/*.json reports/colombia_three_rankings/*.log
+          if git diff --cached --quiet; then
+            echo "No ranking output changes to publish."
+          else
+            git commit -m "Update automatic Colombia rankings [skip ci]"
+            git push origin HEAD:${GITHUB_REF_NAME}
+          fi
 
       - name: Upload rankings and diagnostics
         if: always()
