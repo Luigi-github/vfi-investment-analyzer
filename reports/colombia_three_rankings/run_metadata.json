@@ -1,10 +1,16 @@
 {
-  "generated_at_utc": "2026-11-08T16:00:22.405350+00:00",
+  "generated_at_utc": "2026-11-08T16:09:59.156200+00:00",
   "provider": "Yahoo Finance via yfinance",
   "symbols_requested": 28,
-  "weekly_success": 28,
-  "monthly_success": 28,
-  "combined_success": 28,
+  "liquidity_filter": {
+    "lookback_sessions": 60,
+    "minimum_average_daily_traded_value_cop": 100000000,
+    "minimum_active_session_ratio": 0.7,
+    "excluded_illiquid": 5
+  },
+  "weekly_success": 23,
+  "monthly_success": 23,
+  "combined_success": 23,
   "weekly_ema_weights": {
     "5": 0.05,
     "20": 0.15,
