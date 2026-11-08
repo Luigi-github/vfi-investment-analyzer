@@ -27,6 +27,9 @@ RETRIES = 3
 RETRY_SLEEP = 3
 WEEKLY_EMA_WEIGHTS = {5: 0.05, 20: 0.15, 80: 0.30, 200: 0.50}
 MONTHLY_EMA_WEIGHTS = {5: 0.10, 20: 0.30, 80: 0.60}
+MIN_AVG_DAILY_VALUE_COP = 100_000_000
+MIN_ACTIVE_SESSION_RATIO = 0.70
+LIQUIDITY_LOOKBACK_SESSIONS = 60
 
 
 def configure_logging(output: Path) -> None:
@@ -106,6 +109,21 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
                 time.sleep(RETRY_SLEEP * attempt)
     raise RuntimeError(f"{ticker}: Yahoo download failed after {RETRIES} attempts: {last_error}")
 
+
+def liquidity_metrics(daily: pd.DataFrame) -> dict:
+    """Measure executable liquidity using recent daily traded value in COP."""
+    sample = daily.tail(LIQUIDITY_LOOKBACK_SESSIONS).copy()
+    traded_value = (sample["Close"] * sample["Volume"]).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+    active_ratio = float(sample["Volume"].gt(0).mean()) if len(sample) else 0.0
+    avg_value = float(traded_value.mean()) if len(sample) else 0.0
+    median_value = float(traded_value.median()) if len(sample) else 0.0
+    return {
+        "Liquidity_Sessions": int(len(sample)),
+        "Avg_Daily_Traded_Value_COP_60D": avg_value,
+        "Median_Daily_Traded_Value_COP_60D": median_value,
+        "Active_Session_Ratio_60D": active_ratio,
+        "Liquidity_Pass": bool(len(sample) >= LIQUIDITY_LOOKBACK_SESSIONS and avg_value >= MIN_AVG_DAILY_VALUE_COP and active_ratio >= MIN_ACTIVE_SESSION_RATIO),
+    }
 
 def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Aggregate OHLCV and make empty calendar bars explicit (volume=0)."""
@@ -204,6 +222,7 @@ def main() -> int:
     logging.info("Universe contains %d symbols", len(symbols))
 
     weekly_rows, monthly_rows, metadata, errors = [], [], [], []
+    liquidity_exclusions = []
     vfi_indicator = VFIIndicator(length=130)
     divergence_indicator = VolumeDivergenceMM(
         vl1=5, vl2=8, lbL=5, lbR=5, range_lower=5, range_upper=60,
@@ -213,6 +232,16 @@ def main() -> int:
     for ticker in symbols:
         try:
             daily = download_daily(ticker)
+            liq = liquidity_metrics(daily)
+            if not liq["Liquidity_Pass"]:
+                reason = "Illiquid: average daily traded value COP {:,.0f} (minimum {:,.0f}); active sessions {:.1%} (minimum {:.0%})".format(
+                    liq["Avg_Daily_Traded_Value_COP_60D"], MIN_AVG_DAILY_VALUE_COP,
+                    liq["Active_Session_Ratio_60D"], MIN_ACTIVE_SESSION_RATIO,
+                )
+                liquidity_exclusions.append({"Symbol": ticker, **liq, "Exclusion_Reason": reason})
+                metadata.append({"Symbol": ticker, "Status": "EXCLUDED_ILLIQUID", **liq, "Error": reason})
+                logging.info("Excluded %s by liquidity filter: %s", ticker, reason)
+                continue
             weekly = aggregate_bars(daily, "W-FRI")
             # Never rank an unfinished calendar month: Yahoo labels a partial
             # November bar as November 30, which would falsely look future-dated.
@@ -237,7 +266,7 @@ def main() -> int:
                 "Weekly_EMA_Opportunity_Score": float(w["Weekly_VFI_EMA_Opportunity_Score"]),
                 "VFI_R2_26W": float(w["VFI_R2_26W"]) if pd.notna(w["VFI_R2_26W"]) else np.nan,
                 "VFI_State": str(w.get("VFI_State", "")),
-                "Synthetic_Weeks": int(weekly["Synthetic_Bar"].sum()),
+                "Synthetic_Weeks": int(weekly["Synthetic_Bar"].sum()), **liq,
             })
 
             div = divergence_indicator.calculate(monthly)
@@ -258,13 +287,13 @@ def main() -> int:
                 "Bearish_Divergence": bool(d["Volume_Div_Bearish"]),
                 "Bullish_Age_Months": float(d["Volume_Div_Bullish_Age_Bars"]) if pd.notna(d["Volume_Div_Bullish_Age_Bars"]) else np.nan,
                 "Bearish_Age_Months": float(d["Volume_Div_Bearish_Age_Bars"]) if pd.notna(d["Volume_Div_Bearish_Age_Bars"]) else np.nan,
-                "Synthetic_Months": int(monthly["Synthetic_Bar"].sum()),
+                "Synthetic_Months": int(monthly["Synthetic_Bar"].sum()), **liq,
             })
             metadata.append({
                 "Symbol": ticker, "Status": "OK", "Daily_Rows": len(daily),
                 "Weekly_Rows": len(weekly), "Monthly_Rows": len(monthly),
                 "First_Date": daily.index.min().date().isoformat(),
-                "Last_Date": daily.index.max().date().isoformat(),
+                "Last_Date": daily.index.max().date().isoformat(), **liq,
             })
             logging.info("Completed %s", ticker)
         except Exception as exc:
@@ -311,11 +340,13 @@ def main() -> int:
     combined.to_csv(output / "ranking_combinado.csv", index=False)
     pd.DataFrame(metadata).to_csv(output / "cobertura_universo.csv", index=False)
     pd.DataFrame(errors, columns=["Symbol", "Error"]).to_csv(output / "errores.csv", index=False)
+    pd.DataFrame(liquidity_exclusions).to_csv(output / "excluidos_por_liquidez.csv", index=False)
 
     run_info = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "provider": "Yahoo Finance via yfinance",
         "symbols_requested": len(symbols),
+        "liquidity_filter": {"lookback_sessions": LIQUIDITY_LOOKBACK_SESSIONS, "minimum_average_daily_traded_value_cop": MIN_AVG_DAILY_VALUE_COP, "minimum_active_session_ratio": MIN_ACTIVE_SESSION_RATIO, "excluded_illiquid": len(liquidity_exclusions)},
         "weekly_success": len(weekly_df),
         "monthly_success": len(monthly_df),
         "combined_success": len(combined),
@@ -330,6 +361,7 @@ def main() -> int:
     (output / "run_metadata.json").write_text(
         json.dumps(run_info, indent=2, ensure_ascii=False, default=str), encoding="utf-8"
     )
+    logging.info("Liquidity exclusions: %d", len(liquidity_exclusions))
     logging.info("Rankings saved to %s", output)
     if errors:
         logging.warning("%d/%d symbols failed; inspect errores.csv", len(errors), len(symbols))
