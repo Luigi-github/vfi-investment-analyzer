@@ -6,6 +6,14 @@ on:
     # 23:30 UTC = 18:30 Colombia time. Daily refresh; weekly/monthly bars
     # are based only on completed daily observations available from Yahoo.
     - cron: "30 23 * * 1-5"
+  pull_request:
+    branches: [main]
+    paths:
+      - "scripts/run_colombia_three_rankings.py"
+      - "app/indicators/**"
+      - "app/scoring/**"
+      - "app/research/universes.py"
+      - ".github/workflows/colombia-three-rankings.yml"
   push:
     branches: [main]
     paths:
@@ -39,6 +47,9 @@ jobs:
 
       - name: Install dependencies
         run: python -m pip install --upgrade pip && python -m pip install -r requirements.txt
+
+      - name: Run focused pipeline tests
+        run: python -m unittest discover -s tests -p "test_colombia_three_rankings.py" -v
 
       - name: Run all Colombia rankings
         run: python scripts/run_colombia_three_rankings.py --output-dir reports/colombia_three_rankings
