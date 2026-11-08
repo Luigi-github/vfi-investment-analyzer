@@ -27,9 +27,9 @@ RETRIES = 3
 RETRY_SLEEP = 3
 WEEKLY_EMA_WEIGHTS = {5: 0.05, 20: 0.15, 80: 0.30, 200: 0.50}
 MONTHLY_EMA_WEIGHTS = {5: 0.10, 20: 0.30, 80: 0.60}
-MIN_AVG_DAILY_VALUE_COP = 100_000_000
+MIN_AVG_MONTHLY_DAILY_VALUE_COP = 100_000_000
 MIN_ACTIVE_SESSION_RATIO = 0.70
-LIQUIDITY_LOOKBACK_SESSIONS = 60
+LIQUIDITY_LOOKBACK_MONTHS = 3
 
 
 def configure_logging(output: Path) -> None:
@@ -111,19 +111,48 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
 
 
 def liquidity_metrics(daily: pd.DataFrame) -> dict:
-    """Measure executable liquidity using recent daily traded value in COP."""
-    sample = daily.tail(LIQUIDITY_LOOKBACK_SESSIONS).copy()
-    traded_value = (sample["Close"] * sample["Volume"]).replace([np.inf, -np.inf], np.nan).fillna(0.0)
-    active_ratio = float(sample["Volume"].gt(0).mean()) if len(sample) else 0.0
-    avg_value = float(traded_value.mean()) if len(sample) else 0.0
-    median_value = float(traded_value.median()) if len(sample) else 0.0
+    """Average daily traded value per completed month, averaged over 3 months.
+
+    Each month's traded value is divided by its observed sessions, then the
+    monthly averages are averaged with equal weight. The incomplete month is
+    excluded, reducing the impact of isolated high-volume sessions.
+    """
+    current_month = pd.Timestamp.now().to_period("M")
+    eligible = daily.loc[daily.index.to_period("M") < current_month].copy()
+    if eligible.empty:
+        monthly = pd.DataFrame(columns=["Avg_Daily_Traded_Value_COP", "Active_Session_Ratio", "Sessions"])
+    else:
+        eligible["Traded_Value_COP"] = (
+            eligible["Close"] * eligible["Volume"]
+        ).replace([np.inf, -np.inf], np.nan).fillna(0.0)
+        eligible["Month"] = eligible.index.to_period("M")
+        monthly = eligible.groupby("Month").agg(
+            Avg_Daily_Traded_Value_COP=("Traded_Value_COP", "mean"),
+            Active_Session_Ratio=("Volume", lambda x: float(x.gt(0).mean())),
+            Sessions=("Volume", "size"),
+        ).tail(LIQUIDITY_LOOKBACK_MONTHS)
+
+    months = len(monthly)
+    avg_monthly_daily_value = float(monthly["Avg_Daily_Traded_Value_COP"].mean()) if months else 0.0
+    median_monthly_daily_value = float(monthly["Avg_Daily_Traded_Value_COP"].median()) if months else 0.0
+    active_ratio = (
+        float(np.average(monthly["Active_Session_Ratio"], weights=monthly["Sessions"]))
+        if months else 0.0
+    )
+    sessions = int(monthly["Sessions"].sum()) if months else 0
     return {
-        "Liquidity_Sessions": int(len(sample)),
-        "Avg_Daily_Traded_Value_COP_60D": avg_value,
-        "Median_Daily_Traded_Value_COP_60D": median_value,
-        "Active_Session_Ratio_60D": active_ratio,
-        "Liquidity_Pass": bool(len(sample) >= LIQUIDITY_LOOKBACK_SESSIONS and avg_value >= MIN_AVG_DAILY_VALUE_COP and active_ratio >= MIN_ACTIVE_SESSION_RATIO),
+        "Liquidity_Months": int(months),
+        "Liquidity_Sessions": sessions,
+        "Avg_Monthly_Daily_Traded_Value_COP_3M": avg_monthly_daily_value,
+        "Median_Monthly_Daily_Traded_Value_COP_3M": median_monthly_daily_value,
+        "Active_Session_Ratio_3M": active_ratio,
+        "Liquidity_Pass": bool(
+            months >= LIQUIDITY_LOOKBACK_MONTHS
+            and avg_monthly_daily_value >= MIN_AVG_MONTHLY_DAILY_VALUE_COP
+            and active_ratio >= MIN_ACTIVE_SESSION_RATIO
+        ),
     }
+
 
 def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
     """Aggregate OHLCV and make empty calendar bars explicit (volume=0)."""
@@ -234,9 +263,10 @@ def main() -> int:
             daily = download_daily(ticker)
             liq = liquidity_metrics(daily)
             if not liq["Liquidity_Pass"]:
-                reason = "Illiquid: average daily traded value COP {:,.0f} (minimum {:,.0f}); active sessions {:.1%} (minimum {:.0%})".format(
-                    liq["Avg_Daily_Traded_Value_COP_60D"], MIN_AVG_DAILY_VALUE_COP,
-                    liq["Active_Session_Ratio_60D"], MIN_ACTIVE_SESSION_RATIO,
+                reason = "Illiquid: average monthly daily traded value COP {:,.0f} (minimum {:,.0f}); active sessions {:.1%} (minimum {:.0%}); months {}".format(
+                    liq["Avg_Monthly_Daily_Traded_Value_COP_3M"], MIN_AVG_MONTHLY_DAILY_VALUE_COP,
+                    liq["Active_Session_Ratio_3M"], MIN_ACTIVE_SESSION_RATIO,
+                    liq["Liquidity_Months"],
                 )
                 liquidity_exclusions.append({"Symbol": ticker, **liq, "Exclusion_Reason": reason})
                 metadata.append({"Symbol": ticker, "Status": "EXCLUDED_ILLIQUID", **liq, "Error": reason})
@@ -346,7 +376,7 @@ def main() -> int:
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "provider": "Yahoo Finance via yfinance",
         "symbols_requested": len(symbols),
-        "liquidity_filter": {"lookback_sessions": LIQUIDITY_LOOKBACK_SESSIONS, "minimum_average_daily_traded_value_cop": MIN_AVG_DAILY_VALUE_COP, "minimum_active_session_ratio": MIN_ACTIVE_SESSION_RATIO, "excluded_illiquid": len(liquidity_exclusions)},
+        "liquidity_filter": {"lookback_completed_months": LIQUIDITY_LOOKBACK_MONTHS, "monthly_metric": "mean of each completed month's daily Close*Volume average, then equal-weight average across months", "minimum_average_monthly_daily_traded_value_cop": MIN_AVG_MONTHLY_DAILY_VALUE_COP, "minimum_active_session_ratio": MIN_ACTIVE_SESSION_RATIO, "excluded_illiquid": len(liquidity_exclusions)},
         "weekly_success": len(weekly_df),
         "monthly_success": len(monthly_df),
         "combined_success": len(combined),
