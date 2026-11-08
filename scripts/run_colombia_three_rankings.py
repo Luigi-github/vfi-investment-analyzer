@@ -49,13 +49,13 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
         try:
             logging.info("Yahoo download %s attempt %d/%d", ticker, attempt, RETRIES)
             data = yf.Ticker(ticker).history(
-                period=period, interval="1d", auto_adjust=False,
-                actions=False, repair=True, timeout=30,
+                period=period, interval="1d", auto_adjust=True,
+                actions=False, repair=False, timeout=30,
             )
             if data is None or data.empty:
                 data = yf.download(
                     ticker, period=period, interval="1d",
-                    auto_adjust=False, actions=False, progress=False,
+                    auto_adjust=True, actions=False, progress=False,
                     threads=False, timeout=30,
                 )
             if data is None or data.empty:
@@ -205,7 +205,11 @@ def main() -> int:
         try:
             daily = download_daily(ticker)
             weekly = aggregate_bars(daily, "W-FRI")
-            monthly = aggregate_bars(daily, "ME")
+            # Never rank an unfinished calendar month: Yahoo labels a partial
+            # November bar as November 30, which would falsely look future-dated.
+            current_month = pd.Timestamp.now().to_period("M")
+            completed_months = daily.loc[daily.index.to_period("M") < current_month]
+            monthly = aggregate_bars(completed_months, "ME")
             if len(daily) < 180 or len(weekly) < 205 or len(monthly) < 90:
                 raise ValueError(
                     f"Insufficient history: daily={len(daily)}, weekly={len(weekly)}, monthly={len(monthly)}"
