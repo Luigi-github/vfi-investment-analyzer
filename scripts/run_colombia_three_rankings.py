@@ -287,6 +287,17 @@ def main() -> int:
                 )
 
             vfi = vfi_indicator.calculate(weekly)
+
+            # A calendar week with no trading data must carry forward the
+            # previous week's VFI. Otherwise pandas ewm skips NaNs and its
+            # span counts observed values rather than consecutive calendar
+            # weeks, producing incorrect EMA 5/20/80/200 values.
+            synthetic_weeks = weekly["Synthetic_Bar"].reindex(vfi.index).fillna(False)
+            vfi.loc[synthetic_weeks, "VFI"] = np.nan
+            vfi["VFI"] = vfi["VFI"].ffill()
+
+            # Recalculate all VFI-derived scoring and EMA series from the
+            # calendar-complete, forward-filled weekly VFI history.
             vfi = add_colombia_opportunity_score(vfi)
             weekly_ema, _ = ema_opportunity_score(vfi["VFI"], WEEKLY_EMA_WEIGHTS, "Weekly_VFI")
             vfi = vfi.join(weekly_ema)
@@ -387,6 +398,7 @@ def main() -> int:
         "monthly_success": len(monthly_df),
         "combined_success": len(combined),
         "weekly_ema_weights": WEEKLY_EMA_WEIGHTS,
+        "weekly_missing_data_policy": "For calendar weeks with no trading data, weekly VFI is set to the previous week's VFI before recalculating EMA 5/20/80/200; EMA spans therefore count calendar weeks, not only observed trading weeks",
         "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
         "monthly_ema_weights": MONTHLY_EMA_WEIGHTS,
         "combined_weights": {"weekly_percentile": 0.5, "monthly_divergence_percentile": 0.5},
