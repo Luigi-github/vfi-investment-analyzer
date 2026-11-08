@@ -85,10 +85,29 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
                 raise ValueError("No valid OHLCV rows after cleaning")
             if (data[["Open", "High", "Low", "Close"]] <= 0).any().any():
                 raise ValueError("Non-positive OHLC price")
-            if (data["High"] < data[["Open", "Close", "Low"]].max(axis=1)).any():
-                raise ValueError("Inconsistent High values")
-            if (data["Low"] > data[["Open", "Close", "High"]].min(axis=1)).any():
-                raise ValueError("Inconsistent Low values")
+            # Yahoo occasionally contains isolated OHLC anomalies (often around
+            # splits/corporate actions). Exclude only malformed sessions rather
+            # than discarding an otherwise usable multi-year history.
+            invalid_ohlc = (
+                (data["High"] < data[["Open", "Close", "Low"]].max(axis=1))
+                | (data["Low"] > data[["Open", "Close", "High"]].min(axis=1))
+            )
+            invalid_count = int(invalid_ohlc.sum())
+            invalid_ratio = invalid_count / max(len(data), 1)
+            if invalid_ratio > 0.05:
+                bad = data.loc[invalid_ohlc, required].head(3).round(4).to_dict("index")
+                raise ValueError(
+                    f"Too many inconsistent OHLC rows: {invalid_count}/{len(data)} "
+                    f"({invalid_ratio:.1%}); examples={bad}"
+                )
+            if invalid_count:
+                logging.warning(
+                    "%s: excluding %d malformed OHLC sessions (%.2f%%)",
+                    ticker, invalid_count, invalid_ratio * 100,
+                )
+                data = data.loc[~invalid_ohlc].copy()
+            if data.empty:
+                raise ValueError("No valid OHLCV rows after OHLC validation")
             return data
         except Exception as exc:
             last_error = exc
