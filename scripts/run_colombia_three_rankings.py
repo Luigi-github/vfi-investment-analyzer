@@ -207,16 +207,19 @@ def ema_opportunity_score(indicator: pd.Series, weights: dict[int, float],
         accel = delta.diff()
         accel_pct = accel.rolling(lookback, min_periods=min(8, lookback)).mean()
         accel_points = (np.tanh(accel_pct.fillna(0) / (ema.abs().rolling(lookback, min_periods=1).median() + 1e-9)) + 1) * 7.5
-        # Explicitly penalize a deteriorating EMA after a prior rising run.
+        # A rising historical average must not hide a currently falling EMA.
+        # Penalize every negative latest slope, not only reversals after a long rise.
+        negative_slope_penalty = delta.lt(0).astype(float) * 25.0
         prior_rising = persistence.shift(4).ge(0.60)
         returning = prior_rising & delta.le(0)
         return_penalty = returning.astype(float) * 15.0
-        # Positive EMA levels incur an increasingly severe extension penalty.
         positive_penalty = (ema.gt(0).astype(float) * level_pct.fillna(0) * 25.0)
         component = (level_points + persistence_points + accel_points
-                     - return_penalty - positive_penalty).clip(-40, 90)
+                     - negative_slope_penalty - return_penalty - positive_penalty).clip(-40, 90)
         out[f"{prefix}_EMA_{span}_Percentile"] = level_pct
+        out[f"{prefix}_EMA_{span}_Slope"] = delta
         out[f"{prefix}_EMA_{span}_Persistence"] = persistence
+        out[f"{prefix}_EMA_{span}_Negative_Slope_Penalty"] = negative_slope_penalty
         out[f"{prefix}_EMA_{span}_Return_Penalty"] = return_penalty
         out[f"{prefix}_EMA_{span}_Component"] = component
         valid = ema.notna()
@@ -294,6 +297,9 @@ def main() -> int:
                 "Latest_VFI": float(w["VFI"]),
                 "VFI_Opportunity_Score": float(w["VFI_Opportunity_Score"]),
                 "Weekly_EMA_Opportunity_Score": float(w["Weekly_VFI_EMA_Opportunity_Score"]),
+                **{f"Weekly_VFI_EMA_{span}": float(w[f"Weekly_VFI_EMA_{span}"]) if pd.notna(w[f"Weekly_VFI_EMA_{span}"]) else np.nan for span in WEEKLY_EMA_WEIGHTS},
+                **{f"Weekly_VFI_EMA_{span}_Slope": float(w[f"Weekly_VFI_EMA_{span}_Slope"]) if pd.notna(w[f"Weekly_VFI_EMA_{span}_Slope"]) else np.nan for span in WEEKLY_EMA_WEIGHTS},
+                **{f"Weekly_VFI_EMA_{span}_Component": float(w[f"Weekly_VFI_EMA_{span}_Component"]) if pd.notna(w[f"Weekly_VFI_EMA_{span}_Component"]) else np.nan for span in WEEKLY_EMA_WEIGHTS},
                 "VFI_R2_26W": float(w["VFI_R2_26W"]) if pd.notna(w["VFI_R2_26W"]) else np.nan,
                 "VFI_State": str(w.get("VFI_State", "")),
                 "Synthetic_Weeks": int(weekly["Synthetic_Bar"].sum()), **liq,
@@ -381,6 +387,7 @@ def main() -> int:
         "monthly_success": len(monthly_df),
         "combined_success": len(combined),
         "weekly_ema_weights": WEEKLY_EMA_WEIGHTS,
+        "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
         "monthly_ema_weights": MONTHLY_EMA_WEIGHTS,
         "combined_weights": {"weekly_percentile": 0.5, "monthly_divergence_percentile": 0.5},
         "weekly_missing_bar_policy": "forward-fill OHLC, set synthetic volume to zero",
