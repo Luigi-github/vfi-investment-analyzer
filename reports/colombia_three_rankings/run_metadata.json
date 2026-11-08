@@ -1,0 +1,27 @@
+{
+  "generated_at_utc": "2026-11-08T16:00:22.405350+00:00",
+  "provider": "Yahoo Finance via yfinance",
+  "symbols_requested": 28,
+  "weekly_success": 28,
+  "monthly_success": 28,
+  "combined_success": 28,
+  "weekly_ema_weights": {
+    "5": 0.05,
+    "20": 0.15,
+    "80": 0.3,
+    "200": 0.5
+  },
+  "monthly_ema_weights": {
+    "5": 0.1,
+    "20": 0.3,
+    "80": 0.6
+  },
+  "combined_weights": {
+    "weekly_percentile": 0.5,
+    "monthly_divergence_percentile": 0.5
+  },
+  "weekly_missing_bar_policy": "forward-fill OHLC, set synthetic volume to zero",
+  "monthly_missing_bar_policy": "forward-fill OHLC, set synthetic volume to zero",
+  "divergence": "MM WMA cascade 5/8/13/21/34; pivots 5 left/5 right; lookback 5-60; hidden and regular",
+  "errors": []
+}
