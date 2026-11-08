@@ -85,29 +85,19 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
                 raise ValueError("No valid OHLCV rows after cleaning")
             if (data[["Open", "High", "Low", "Close"]] <= 0).any().any():
                 raise ValueError("Non-positive OHLC price")
-            # Yahoo occasionally contains isolated OHLC anomalies (often around
-            # splits/corporate actions). Exclude only malformed sessions rather
-            # than discarding an otherwise usable multi-year history.
-            invalid_ohlc = (
-                (data["High"] < data[["Open", "Close", "Low"]].max(axis=1))
-                | (data["Low"] > data[["Open", "Close", "High"]].min(axis=1))
-            )
-            invalid_count = int(invalid_ohlc.sum())
-            invalid_ratio = invalid_count / max(len(data), 1)
-            if invalid_ratio > 0.05:
-                bad = data.loc[invalid_ohlc, required].head(3).round(4).to_dict("index")
-                raise ValueError(
-                    f"Too many inconsistent OHLC rows: {invalid_count}/{len(data)} "
-                    f"({invalid_ratio:.1%}); examples={bad}"
-                )
-            if invalid_count:
+            # Yahoo's historical Colombian feeds sometimes have High below
+            # Open/Close or Low above them. Keep valid extremes and repair only
+            # the violated bound using the observed Open/Close values.
+            old_high = data["High"].copy()
+            old_low = data["Low"].copy()
+            data["High"] = data[["High", "Open", "Close", "Low"]].max(axis=1)
+            data["Low"] = data[["Low", "Open", "Close", "High"]].min(axis=1)
+            repaired = (data["High"] != old_high) | (data["Low"] != old_low)
+            if repaired.any():
                 logging.warning(
-                    "%s: excluding %d malformed OHLC sessions (%.2f%%)",
-                    ticker, invalid_count, invalid_ratio * 100,
+                    "%s: repaired %d inconsistent OHLC sessions (%.2f%%)",
+                    ticker, int(repaired.sum()), float(repaired.mean() * 100),
                 )
-                data = data.loc[~invalid_ohlc].copy()
-            if data.empty:
-                raise ValueError("No valid OHLCV rows after OHLC validation")
             return data
         except Exception as exc:
             last_error = exc
