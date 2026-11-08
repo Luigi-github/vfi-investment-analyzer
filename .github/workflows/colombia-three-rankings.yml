@@ -59,7 +59,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add reports/colombia_three_rankings/*.csv reports/colombia_three_rankings/*.json reports/colombia_three_rankings/*.log
+          git add reports/colombia_three_rankings/*.csv reports/colombia_three_rankings/*.json
+          git add -f reports/colombia_three_rankings/*.log
           if git diff --cached --quiet; then
             echo "No ranking output changes to publish."
           else
