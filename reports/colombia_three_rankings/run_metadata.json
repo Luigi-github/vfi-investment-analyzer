@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-11-08T21:46:51.986087+00:00",
+  "generated_at_utc": "2026-11-09T13:08:16.924120+00:00",
   "provider": "Yahoo Finance via yfinance",
   "symbols_requested": 28,
   "liquidity_filter": {
@@ -18,7 +18,8 @@
     "80": 0.3,
     "200": 0.5
   },
-  "weekly_missing_data_policy": "For calendar weeks with no trading data, weekly VFI is set to the previous week's VFI before recalculating EMA 5/20/80/200; EMA spans therefore count calendar weeks, not only observed trading weeks",
+  "weekly_missing_data_policy": "For every missing calendar week, repeat the previous week's complete OHLCV bar before calculating VFI and EMA 5/20/80/200; all rolling indicator inputs therefore include each calendar week",
+  "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on the complete W-FRI calendar-week series",
   "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
   "monthly_ema_weights": {
     "5": 0.1,
@@ -29,8 +30,8 @@
     "weekly_percentile": 0.5,
     "monthly_divergence_percentile": 0.5
   },
-  "weekly_missing_bar_policy": "forward-fill OHLC, set synthetic volume to zero",
-  "monthly_missing_bar_policy": "forward-fill OHLC, set synthetic volume to zero",
+  "weekly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar week",
+  "monthly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar month",
   "divergence": "MM WMA cascade 5/8/13/21/34; pivots 5 left/5 right; lookback 5-60; hidden and regular",
   "errors": []
 }
