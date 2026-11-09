@@ -85,3 +85,5 @@ jobs:
             reports/us_relative_vfi_ranking/run_summary.json
           if-no-files-found: warn
           retention-days: 14
+
+# Weekly refresh trigger: 2026-11-09 (no ranking logic changed).
