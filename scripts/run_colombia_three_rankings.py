@@ -179,6 +179,14 @@ def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
     return bars
 
 
+def missing_weekly_periods(weekly: pd.DataFrame) -> list[str]:
+    """Return calendar weeks with no observed OHLCV bar."""
+    if "Synthetic_Bar" not in weekly.columns:
+        return []
+    missing = weekly.index[weekly["Synthetic_Bar"].fillna(False).astype(bool)]
+    return [pd.Timestamp(date).date().isoformat() for date in missing]
+
+
 def safe_percentile(value: float, history: pd.Series) -> float:
     vals = pd.to_numeric(history, errors="coerce").dropna()
     if not np.isfinite(value) or vals.empty:
@@ -280,6 +288,23 @@ def main() -> int:
                 logging.info("Excluded %s by liquidity filter: %s", ticker, reason)
                 continue
             weekly = aggregate_bars(daily, "W-FRI")
+            missing_weeks = missing_weekly_periods(weekly)
+            if missing_weeks:
+                reason = (
+                    f"Excluded temporarily: {len(missing_weeks)} missing calendar weeks; "
+                    f"examples: {', '.join(missing_weeks[:10])}"
+                )
+                metadata.append({
+                    "Symbol": ticker,
+                    "Status": "EXCLUDED_WEEKLY_GAPS",
+                    "Missing_Weeks": len(missing_weeks),
+                    "Missing_Week_Dates": ";".join(missing_weeks),
+                    **liq,
+                    "Error": reason,
+                })
+                logging.info("Excluded %s due to weekly gaps: %s", ticker, reason)
+                continue
+
             # Never rank an unfinished calendar month: Yahoo labels a partial
             # November bar as November 30, which would falsely look future-dated.
             current_month = pd.Timestamp.now().to_period("M")
@@ -394,15 +419,16 @@ def main() -> int:
         "symbols_requested": len(symbols),
         "liquidity_filter": {"lookback_completed_months": LIQUIDITY_LOOKBACK_MONTHS, "monthly_metric": "mean of each completed month's daily Close*Volume average, then equal-weight average across months", "minimum_average_monthly_daily_traded_value_cop": MIN_AVG_MONTHLY_DAILY_VALUE_COP, "minimum_active_session_ratio": MIN_ACTIVE_SESSION_RATIO, "excluded_illiquid": len(liquidity_exclusions)},
         "weekly_success": len(weekly_df),
+        "excluded_weekly_gaps": sum(1 for row in metadata if row.get("Status") == "EXCLUDED_WEEKLY_GAPS"),
         "monthly_success": len(monthly_df),
         "combined_success": len(combined),
         "weekly_ema_weights": WEEKLY_EMA_WEIGHTS,
-        "weekly_missing_data_policy": "For every missing calendar week, repeat the previous week's complete OHLCV bar before calculating VFI and EMA 5/20/80/200; all rolling indicator inputs therefore include each calendar week",
+        "weekly_missing_data_policy": "Temporarily exclude the entire asset from weekly, monthly, and combined rankings if any missing calendar week is detected; no weekly OHLCV forward-fill is used for ranking eligible assets",
         "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on the complete W-FRI calendar-week series",
         "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
         "monthly_ema_weights": MONTHLY_EMA_WEIGHTS,
         "combined_weights": {"weekly_percentile": 0.5, "monthly_divergence_percentile": 0.5},
-        "weekly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar week",
+        "weekly_missing_bar_policy": "exclude asset from all rankings when one or more missing calendar weeks are detected",
         "monthly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar month",
         "divergence": "MM WMA cascade 5/8/13/21/34; pivots 5 left/5 right; lookback 5-60; hidden and regular",
         "errors": errors,
