@@ -180,10 +180,20 @@ def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
 
 
 def missing_weekly_periods(weekly: pd.DataFrame) -> list[str]:
-    """Return calendar weeks with no observed OHLCV bar."""
-    if "Synthetic_Bar" not in weekly.columns:
+    """Return calendar weeks without a valid observed trading-volume bar."""
+    if weekly.empty:
         return []
-    missing = weekly.index[weekly["Synthetic_Bar"].fillna(False).astype(bool)]
+    synthetic = (
+        weekly["Synthetic_Bar"].fillna(False).astype(bool)
+        if "Synthetic_Bar" in weekly.columns
+        else pd.Series(False, index=weekly.index)
+    )
+    no_volume = (
+        pd.to_numeric(weekly["Volume"], errors="coerce").fillna(0).le(0)
+        if "Volume" in weekly.columns
+        else pd.Series(True, index=weekly.index)
+    )
+    missing = weekly.index[synthetic | no_volume]
     return [pd.Timestamp(date).date().isoformat() for date in missing]
 
 
@@ -423,12 +433,12 @@ def main() -> int:
         "monthly_success": len(monthly_df),
         "combined_success": len(combined),
         "weekly_ema_weights": WEEKLY_EMA_WEIGHTS,
-        "weekly_missing_data_policy": "Temporarily exclude the entire asset from weekly, monthly, and combined rankings if any missing calendar week is detected; no weekly OHLCV forward-fill is used for ranking eligible assets",
+        "weekly_missing_data_policy": "Temporarily exclude the entire asset from weekly, monthly, and combined rankings if any calendar week is synthetic or has zero/missing reported volume; no weekly OHLCV forward-fill is used for ranking eligible assets",
         "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on the complete W-FRI calendar-week series",
         "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
         "monthly_ema_weights": MONTHLY_EMA_WEIGHTS,
         "combined_weights": {"weekly_percentile": 0.5, "monthly_divergence_percentile": 0.5},
-        "weekly_missing_bar_policy": "exclude asset from all rankings when one or more missing calendar weeks are detected",
+        "weekly_missing_bar_policy": "exclude asset from all rankings when one or more calendar weeks are synthetic or have zero/missing reported volume",
         "monthly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar month",
         "divergence": "MM WMA cascade 5/8/13/21/34; pivots 5 left/5 right; lookback 5-60; hidden and regular",
         "errors": errors,
