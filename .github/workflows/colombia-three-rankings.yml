@@ -9,6 +9,7 @@ on:
   pull_request:
     branches: [main]
     paths:
+      - "tests/test_colombia_three_rankings.py"
       - "scripts/run_colombia_three_rankings.py"
       - "app/indicators/**"
       - "app/scoring/**"
@@ -32,7 +33,7 @@ concurrency:
 
 jobs:
   rankings:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
       - name: Checkout
