@@ -2,7 +2,7 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from scripts.run_colombia_three_rankings import aggregate_bars, ema_opportunity_score, rank_percentile
+from scripts.run_colombia_three_rankings import aggregate_bars, ema_opportunity_score, missing_weekly_periods, rank_percentile
 
 
 class ColombiaThreeRankingTests(unittest.TestCase):
@@ -18,6 +18,15 @@ class ColombiaThreeRankingTests(unittest.TestCase):
         self.assertEqual(gap["Open"], 10.0)
         self.assertEqual(gap["Close"], 10.5)
         self.assertEqual(gap["Volume"], 100.0)
+
+    def test_weekly_gap_detection_returns_missing_calendar_dates(self):
+        daily = pd.DataFrame({
+            "Open": [10.0, 12.0], "High": [11.0, 13.0],
+            "Low": [9.0, 11.0], "Close": [10.5, 12.5],
+            "Volume": [100.0, 200.0],
+        }, index=pd.to_datetime(["2024-01-05", "2024-01-19"]))
+        weekly = aggregate_bars(daily, "W-FRI")
+        self.assertEqual(missing_weekly_periods(weekly), ["2024-01-12"])
 
     def test_ema_is_calculated_on_indicator_series(self):
         idx = pd.date_range("2020-01-03", periods=240, freq="W-FRI")
