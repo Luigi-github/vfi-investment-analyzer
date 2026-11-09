@@ -28,6 +28,15 @@ class ColombiaThreeRankingTests(unittest.TestCase):
         weekly = aggregate_bars(daily, "W-FRI")
         self.assertEqual(missing_weekly_periods(weekly), ["2024-01-12"])
 
+    def test_zero_volume_calendar_week_is_treated_as_gap(self):
+        daily = pd.DataFrame({
+            "Open": [10.0, 10.0, 12.0], "High": [11.0, 11.0, 13.0],
+            "Low": [9.0, 9.0, 11.0], "Close": [10.5, 10.5, 12.5],
+            "Volume": [100.0, 0.0, 200.0],
+        }, index=pd.to_datetime(["2024-01-05", "2024-01-12", "2024-01-19"]))
+        weekly = aggregate_bars(daily, "W-FRI")
+        self.assertEqual(missing_weekly_periods(weekly), ["2024-01-12"])
+
     def test_ema_is_calculated_on_indicator_series(self):
         idx = pd.date_range("2020-01-03", periods=240, freq="W-FRI")
         indicator = pd.Series(np.linspace(-8, 2, len(idx)), index=idx)
