@@ -165,10 +165,14 @@ def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
         return bars
     full_idx = pd.date_range(bars.index.min(), bars.index.max(), freq=rule)
     bars = bars.reindex(full_idx)
-    synthetic = bars["Close"].isna()
-    for col in ["Open", "High", "Low", "Close"]:
+    synthetic = bars[["Open", "High", "Low", "Close"]].isna().any(axis=1)
+
+    # A missing calendar period is a carry-forward bar, not a zero-volume
+    # observation. Repeat the complete prior OHLCV bar so rolling VFI inputs
+    # (especially VolumeAverage and RollingVolumeFlow) remain on a true
+    # calendar-week/month basis.
+    for col in ["Open", "High", "Low", "Close", "Volume"]:
         bars[col] = bars[col].ffill()
-    bars.loc[synthetic, "Volume"] = 0.0
     bars["Volume"] = bars["Volume"].fillna(0.0)
     bars["Synthetic_Bar"] = synthetic
     bars.index.name = "Date"
@@ -288,16 +292,11 @@ def main() -> int:
 
             vfi = vfi_indicator.calculate(weekly)
 
-            # A calendar week with no trading data must carry forward the
-            # previous week's VFI. Otherwise pandas ewm skips NaNs and its
-            # span counts observed values rather than consecutive calendar
-            # weeks, producing incorrect EMA 5/20/80/200 values.
-            synthetic_weeks = weekly["Synthetic_Bar"].reindex(vfi.index).fillna(False)
-            vfi.loc[synthetic_weeks, "VFI"] = np.nan
-            vfi["VFI"] = vfi["VFI"].ffill()
-
-            # Recalculate all VFI-derived scoring and EMA series from the
-            # calendar-complete, forward-filled weekly VFI history.
+            # aggregate_bars already carries the previous complete OHLCV
+            # bar into every missing calendar week. Calculate VFI directly
+            # on that complete calendar series; do not replace the resulting
+            # VFI with NaN/ffill afterwards, because synthetic zero-volume
+            # bars would otherwise distort the rolling VFI inputs.
             vfi = add_colombia_opportunity_score(vfi)
             weekly_ema, _ = ema_opportunity_score(vfi["VFI"], WEEKLY_EMA_WEIGHTS, "Weekly_VFI")
             vfi = vfi.join(weekly_ema)
@@ -398,12 +397,13 @@ def main() -> int:
         "monthly_success": len(monthly_df),
         "combined_success": len(combined),
         "weekly_ema_weights": WEEKLY_EMA_WEIGHTS,
-        "weekly_missing_data_policy": "For calendar weeks with no trading data, weekly VFI is set to the previous week's VFI before recalculating EMA 5/20/80/200; EMA spans therefore count calendar weeks, not only observed trading weeks",
+        "weekly_missing_data_policy": "For every missing calendar week, repeat the previous week's complete OHLCV bar before calculating VFI and EMA 5/20/80/200; all rolling indicator inputs therefore include each calendar week",
+        "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on the complete W-FRI calendar-week series",
         "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
         "monthly_ema_weights": MONTHLY_EMA_WEIGHTS,
         "combined_weights": {"weekly_percentile": 0.5, "monthly_divergence_percentile": 0.5},
-        "weekly_missing_bar_policy": "forward-fill OHLC, set synthetic volume to zero",
-        "monthly_missing_bar_policy": "forward-fill OHLC, set synthetic volume to zero",
+        "weekly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar week",
+        "monthly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar month",
         "divergence": "MM WMA cascade 5/8/13/21/34; pivots 5 left/5 right; lookback 5-60; hidden and regular",
         "errors": errors,
     }
