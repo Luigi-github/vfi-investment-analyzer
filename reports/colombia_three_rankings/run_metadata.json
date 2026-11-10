@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-11-09T13:08:16.924120+00:00",
+  "generated_at_utc": "2026-11-10T01:34:38.829078+00:00",
   "provider": "Yahoo Finance via yfinance",
   "symbols_requested": 28,
   "liquidity_filter": {
@@ -10,6 +10,15 @@
     "excluded_illiquid": 7
   },
   "weekly_success": 21,
+  "weekly_gap_policy": {
+    "lookback_weeks": 52,
+    "max_missing_ratio": 0.1,
+    "max_consecutive_gaps": 3,
+    "protected_latest_weeks": 4,
+    "price_policy": "forward-fill OHLC only for synthetic calendar weeks",
+    "volume_policy": "synthetic calendar weeks retain zero volume; never forward-fill volume"
+  },
+  "excluded_weekly_data_quality": 0,
   "monthly_success": 21,
   "combined_success": 21,
   "weekly_ema_weights": {
@@ -18,7 +27,7 @@
     "80": 0.3,
     "200": 0.5
   },
-  "weekly_missing_data_policy": "For every missing calendar week, repeat the previous week's complete OHLCV bar before calculating VFI and EMA 5/20/80/200; all rolling indicator inputs therefore include each calendar week",
+  "weekly_missing_data_policy": "Allow sparse historical gaps; exclude only if recent 52-week gap ratio exceeds 10%, any run exceeds 3 weeks, fewer than 52 recent weeks exist, or any gap occurs in latest 4 weeks. Synthetic OHLC is carried forward but volume remains zero.",
   "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on the complete W-FRI calendar-week series",
   "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
   "monthly_ema_weights": {
@@ -30,7 +39,7 @@
     "weekly_percentile": 0.5,
     "monthly_divergence_percentile": 0.5
   },
-  "weekly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar week",
+  "weekly_missing_bar_policy": "exclude asset from all rankings only when recent weekly data-quality thresholds fail",
   "monthly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar month",
   "divergence": "MM WMA cascade 5/8/13/21/34; pivots 5 left/5 right; lookback 5-60; hidden and regular",
   "errors": []
