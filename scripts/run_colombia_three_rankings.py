@@ -167,11 +167,9 @@ def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
     bars = bars.reindex(full_idx)
     synthetic = bars[["Open", "High", "Low", "Close"]].isna().any(axis=1)
 
-    # A missing calendar period is a carry-forward bar, not a zero-volume
-    # observation. Repeat the complete prior OHLCV bar so rolling VFI inputs
-    # (especially VolumeAverage and RollingVolumeFlow) remain on a true
-    # calendar-week/month basis.
-    for col in ["Open", "High", "Low", "Close", "Volume"]:
+    # Carry forward prices only to preserve the calendar index. Never carry
+    # forward volume: a synthetic week must contribute zero traded volume.
+    for col in ["Open", "High", "Low", "Close"]:
         bars[col] = bars[col].ffill()
     bars["Volume"] = bars["Volume"].fillna(0.0)
     bars["Synthetic_Bar"] = synthetic
@@ -179,22 +177,50 @@ def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
     return bars
 
 
-def missing_weekly_periods(weekly: pd.DataFrame) -> list[str]:
-    """Return calendar weeks without a valid observed trading-volume bar."""
+# Recent gaps are tolerated only when sparse and not too close to the present.
+GAP_LOOKBACK_WEEKS = 52
+MAX_RECENT_GAP_RATIO = 0.10
+MAX_CONSECUTIVE_RECENT_GAPS = 3
+PROTECTED_RECENT_WEEKS = 4
+
+
+def weekly_gap_metrics(weekly: pd.DataFrame) -> dict:
+    """Measure missing/synthetic or zero-volume weeks without fabricating volume."""
     if weekly.empty:
-        return []
-    synthetic = (
-        weekly["Synthetic_Bar"].fillna(False).astype(bool)
-        if "Synthetic_Bar" in weekly.columns
-        else pd.Series(False, index=weekly.index)
-    )
-    no_volume = (
-        pd.to_numeric(weekly["Volume"], errors="coerce").fillna(0).le(0)
-        if "Volume" in weekly.columns
-        else pd.Series(True, index=weekly.index)
-    )
-    missing = weekly.index[synthetic | no_volume]
-    return [pd.Timestamp(date).date().isoformat() for date in missing]
+        return {"Recent_Weeks": 0, "Recent_Missing_Weeks": 0,
+                "Recent_Missing_Ratio": 1.0, "Max_Consecutive_Recent_Gaps": 0,
+                "Last_Gap_Date": "", "Gap_Pass": False}
+    synthetic = (weekly["Synthetic_Bar"].fillna(False).astype(bool)
+                 if "Synthetic_Bar" in weekly else pd.Series(False, index=weekly.index))
+    volume = (pd.to_numeric(weekly["Volume"], errors="coerce").fillna(0)
+              if "Volume" in weekly else pd.Series(0, index=weekly.index))
+    missing = synthetic | volume.le(0)
+    recent = missing.tail(GAP_LOOKBACK_WEEKS)
+    # Count consecutive gaps at the end of the series and the maximum run.
+    runs = recent.astype(int).groupby((recent != recent.shift()).cumsum()).sum()
+    max_run = int(runs.max()) if not runs.empty else 0
+    tail_run = 0
+    for flag in recent.iloc[::-1]:
+        if not flag:
+            break
+        tail_run += 1
+    protected = int(recent.tail(PROTECTED_RECENT_WEEKS).sum())
+    ratio = float(recent.mean()) if len(recent) else 1.0
+    passed = (len(recent) >= GAP_LOOKBACK_WEEKS
+              and ratio <= MAX_RECENT_GAP_RATIO
+              and max_run <= MAX_CONSECUTIVE_RECENT_GAPS
+              and protected == 0)
+    missing_dates = weekly.index[missing]
+    return {
+        "Recent_Weeks": int(len(recent)),
+        "Recent_Missing_Weeks": int(recent.sum()),
+        "Recent_Missing_Ratio": ratio,
+        "Max_Consecutive_Recent_Gaps": max_run,
+        "Consecutive_Gaps_At_End": tail_run,
+        "Last_Gap_Date": missing_dates[-1].date().isoformat() if len(missing_dates) else "",
+        "Total_Missing_Weeks": int(missing.sum()),
+        "Gap_Pass": bool(passed),
+    }
 
 
 def safe_percentile(value: float, history: pd.Series) -> float:
@@ -298,21 +324,20 @@ def main() -> int:
                 logging.info("Excluded %s by liquidity filter: %s", ticker, reason)
                 continue
             weekly = aggregate_bars(daily, "W-FRI")
-            missing_weeks = missing_weekly_periods(weekly)
-            if missing_weeks:
+            gap_metrics = weekly_gap_metrics(weekly)
+            if not gap_metrics["Gap_Pass"]:
                 reason = (
-                    f"Excluded temporarily: {len(missing_weeks)} missing calendar weeks; "
-                    f"examples: {', '.join(missing_weeks[:10])}"
+                    "Recent weekly data quality failed: "
+                    f"{gap_metrics['Recent_Missing_Weeks']}/{gap_metrics['Recent_Weeks']} "
+                    f"missing weeks ({gap_metrics['Recent_Missing_Ratio']:.1%}); "
+                    f"max consecutive={gap_metrics['Max_Consecutive_Recent_Gaps']}; "
+                    f"last gap={gap_metrics['Last_Gap_Date'] or 'none'}"
                 )
                 metadata.append({
-                    "Symbol": ticker,
-                    "Status": "EXCLUDED_WEEKLY_GAPS",
-                    "Missing_Weeks": len(missing_weeks),
-                    "Missing_Week_Dates": ";".join(missing_weeks),
-                    **liq,
-                    "Error": reason,
+                    "Symbol": ticker, "Status": "EXCLUDED_WEEKLY_DATA_QUALITY",
+                    **gap_metrics, **liq, "Error": reason,
                 })
-                logging.info("Excluded %s due to weekly gaps: %s", ticker, reason)
+                logging.info("Excluded %s due to recent weekly data quality: %s", ticker, reason)
                 continue
 
             # Never rank an unfinished calendar month: Yahoo labels a partial
@@ -347,7 +372,7 @@ def main() -> int:
                 **{f"Weekly_VFI_EMA_{span}_Component": float(w[f"Weekly_VFI_EMA_{span}_Component"]) if pd.notna(w[f"Weekly_VFI_EMA_{span}_Component"]) else np.nan for span in WEEKLY_EMA_WEIGHTS},
                 "VFI_R2_26W": float(w["VFI_R2_26W"]) if pd.notna(w["VFI_R2_26W"]) else np.nan,
                 "VFI_State": str(w.get("VFI_State", "")),
-                "Synthetic_Weeks": int(weekly["Synthetic_Bar"].sum()), **liq,
+                "Synthetic_Weeks": int(weekly["Synthetic_Bar"].sum()), **gap_metrics, **liq,
             })
 
             div = divergence_indicator.calculate(monthly)
@@ -372,7 +397,7 @@ def main() -> int:
             })
             metadata.append({
                 "Symbol": ticker, "Status": "OK", "Daily_Rows": len(daily),
-                "Weekly_Rows": len(weekly), "Monthly_Rows": len(monthly),
+                "Weekly_Rows": len(weekly), "Monthly_Rows": len(monthly), **gap_metrics,
                 "First_Date": daily.index.min().date().isoformat(),
                 "Last_Date": daily.index.max().date().isoformat(), **liq,
             })
@@ -429,16 +454,17 @@ def main() -> int:
         "symbols_requested": len(symbols),
         "liquidity_filter": {"lookback_completed_months": LIQUIDITY_LOOKBACK_MONTHS, "monthly_metric": "mean of each completed month's daily Close*Volume average, then equal-weight average across months", "minimum_average_monthly_daily_traded_value_cop": MIN_AVG_MONTHLY_DAILY_VALUE_COP, "minimum_active_session_ratio": MIN_ACTIVE_SESSION_RATIO, "excluded_illiquid": len(liquidity_exclusions)},
         "weekly_success": len(weekly_df),
-        "excluded_weekly_gaps": sum(1 for row in metadata if row.get("Status") == "EXCLUDED_WEEKLY_GAPS"),
+        "weekly_gap_policy": {"lookback_weeks": GAP_LOOKBACK_WEEKS, "max_missing_ratio": MAX_RECENT_GAP_RATIO, "max_consecutive_gaps": MAX_CONSECUTIVE_RECENT_GAPS, "protected_latest_weeks": PROTECTED_RECENT_WEEKS, "price_policy": "forward-fill OHLC only for synthetic calendar weeks", "volume_policy": "synthetic calendar weeks retain zero volume; never forward-fill volume"},
+        "excluded_weekly_data_quality": sum(1 for row in metadata if row.get("Status") == "EXCLUDED_WEEKLY_DATA_QUALITY"),
         "monthly_success": len(monthly_df),
         "combined_success": len(combined),
         "weekly_ema_weights": WEEKLY_EMA_WEIGHTS,
-        "weekly_missing_data_policy": "Temporarily exclude the entire asset from weekly, monthly, and combined rankings if any calendar week is synthetic or has zero/missing reported volume; no weekly OHLCV forward-fill is used for ranking eligible assets",
+        "weekly_missing_data_policy": "Allow sparse historical gaps; exclude only if recent 52-week gap ratio exceeds 10%, any run exceeds 3 weeks, fewer than 52 recent weeks exist, or any gap occurs in latest 4 weeks. Synthetic OHLC is carried forward but volume remains zero.",
         "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on the complete W-FRI calendar-week series",
         "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
         "monthly_ema_weights": MONTHLY_EMA_WEIGHTS,
         "combined_weights": {"weekly_percentile": 0.5, "monthly_divergence_percentile": 0.5},
-        "weekly_missing_bar_policy": "exclude asset from all rankings when one or more calendar weeks are synthetic or have zero/missing reported volume",
+        "weekly_missing_bar_policy": "exclude asset from all rankings only when recent weekly data-quality thresholds fail",
         "monthly_missing_bar_policy": "forward-fill complete OHLCV from the previous calendar month",
         "divergence": "MM WMA cascade 5/8/13/21/34; pivots 5 left/5 right; lookback 5-60; hidden and regular",
         "errors": errors,
