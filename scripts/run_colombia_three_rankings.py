@@ -27,6 +27,7 @@ RETRIES = 3
 RETRY_SLEEP = 3
 WEEKLY_EMA_WEIGHTS = {5: 0.05, 20: 0.15, 80: 0.30, 200: 0.50}
 MONTHLY_EMA_WEIGHTS = {5: 0.10, 20: 0.30, 80: 0.60}
+MONTHLY_VFI_EMA_WEIGHTS = {2: 0.05, 5: 0.15, 18: 0.30, 46: 0.50}
 MIN_AVG_MONTHLY_DAILY_VALUE_COP = 300_000_000
 MIN_ACTIVE_SESSION_RATIO = 0.70
 LIQUIDITY_LOOKBACK_MONTHS = 3
@@ -301,7 +302,7 @@ def main() -> int:
     symbols = list(dict.fromkeys(symbols))
     logging.info("Universe contains %d symbols", len(symbols))
 
-    weekly_rows, monthly_rows, metadata, errors = [], [], [], []
+    weekly_rows, monthly_rows, monthly_vfi_rows, metadata, errors = [], [], [], [], []
     liquidity_exclusions = []
     vfi_indicator = VFIIndicator(length=130)
     divergence_indicator = VolumeDivergenceMM(
@@ -323,6 +324,36 @@ def main() -> int:
                 metadata.append({"Symbol": ticker, "Status": "EXCLUDED_ILLIQUID", **liq, "Error": reason})
                 logging.info("Excluded %s by liquidity filter: %s", ticker, reason)
                 continue
+            # Monthly-equivalent VFI is calculated independently of weekly gaps.
+            # Use completed monthly OHLCV bars and a true 30-month VFI, never
+            # resample or scale the weekly indicator.
+            current_month = pd.Timestamp.now().to_period("M")
+            completed_months = daily.loc[daily.index.to_period("M") < current_month]
+            monthly = aggregate_bars(completed_months, "ME")
+            if len(monthly) >= 76:
+                monthly_vfi_indicator = VFIIndicator(length=30)
+                monthly_vfi = monthly_vfi_indicator.calculate(monthly)
+                monthly_vfi_ema, _ = ema_opportunity_score(
+                    monthly_vfi["VFI"], MONTHLY_VFI_EMA_WEIGHTS,
+                    "Monthly_VFI", lookback=12,
+                )
+                monthly_vfi = monthly_vfi.join(monthly_vfi_ema)
+                mv = monthly_vfi.dropna(subset=["Monthly_VFI_EMA_Opportunity_Score"])
+                if not mv.empty:
+                    latest_mv = mv.iloc[-1]
+                    monthly_vfi_rows.append({
+                        "Symbol": ticker,
+                        "Latest_Date": mv.index[-1].date().isoformat(),
+                        "Latest_VFI_30M": float(latest_mv["VFI"]),
+                        "Monthly_VFI_EMA_Opportunity_Score": float(latest_mv["Monthly_VFI_EMA_Opportunity_Score"]),
+                        **{f"Monthly_VFI_EMA_{span}": float(latest_mv[f"Monthly_VFI_EMA_{span}"]) if pd.notna(latest_mv[f"Monthly_VFI_EMA_{span}"]) else np.nan for span in MONTHLY_VFI_EMA_WEIGHTS},
+                        **{f"Monthly_VFI_EMA_{span}_Slope": float(latest_mv[f"Monthly_VFI_EMA_{span}_Slope"]) if pd.notna(latest_mv[f"Monthly_VFI_EMA_{span}_Slope"]) else np.nan for span in MONTHLY_VFI_EMA_WEIGHTS},
+                        "Synthetic_Months": int(monthly["Synthetic_Bar"].sum()),
+                        "History_Months": int(len(monthly)), **liq,
+                    })
+            else:
+                logging.info("%s: insufficient monthly VFI history (%d months; need 76)", ticker, len(monthly))
+
             weekly = aggregate_bars(daily, "W-FRI")
             gap_metrics = weekly_gap_metrics(weekly)
             if not gap_metrics["Gap_Pass"]:
@@ -340,11 +371,6 @@ def main() -> int:
                 logging.info("Excluded %s due to recent weekly data quality: %s", ticker, reason)
                 continue
 
-            # Never rank an unfinished calendar month: Yahoo labels a partial
-            # November bar as November 30, which would falsely look future-dated.
-            current_month = pd.Timestamp.now().to_period("M")
-            completed_months = daily.loc[daily.index.to_period("M") < current_month]
-            monthly = aggregate_bars(completed_months, "ME")
             if len(daily) < 180 or len(weekly) < 205 or len(monthly) < 90:
                 raise ValueError(
                     f"Insufficient history: daily={len(daily)}, weekly={len(weekly)}, monthly={len(monthly)}"
@@ -410,10 +436,14 @@ def main() -> int:
 
     weekly_df = pd.DataFrame(weekly_rows)
     monthly_df = pd.DataFrame(monthly_rows)
-    if weekly_df.empty:
-        raise RuntimeError("No valid weekly VFI ranking could be produced")
+    monthly_vfi_df = pd.DataFrame(monthly_vfi_rows)
+    if monthly_vfi_df.empty:
+        raise RuntimeError("No valid monthly-equivalent VFI ranking could be produced")
     if monthly_df.empty:
         raise RuntimeError("No valid monthly Volume Divergence ranking could be produced")
+
+    monthly_vfi_df["Rank"] = monthly_vfi_df["Monthly_VFI_EMA_Opportunity_Score"].rank(method="min", ascending=False).astype(int)
+    monthly_vfi_df = monthly_vfi_df.sort_values("Monthly_VFI_EMA_Opportunity_Score", ascending=False)
 
     weekly_df["Rank"] = weekly_df["Weekly_EMA_Opportunity_Score"].rank(
         method="min", ascending=False
@@ -441,6 +471,7 @@ def main() -> int:
     ).astype(int)
     combined = combined.sort_values("Combined_Score", ascending=False)
 
+    monthly_vfi_df.to_csv(output / "ranking_vfi_mensual_equivalente.csv", index=False)
     weekly_df.to_csv(output / "ranking_vfi_semanal.csv", index=False)
     monthly_df.to_csv(output / "ranking_volume_divergence_mensual.csv", index=False)
     combined.to_csv(output / "ranking_combinado.csv", index=False)
@@ -454,6 +485,11 @@ def main() -> int:
         "symbols_requested": len(symbols),
         "liquidity_filter": {"lookback_completed_months": LIQUIDITY_LOOKBACK_MONTHS, "monthly_metric": "mean of each completed month's daily Close*Volume average, then equal-weight average across months", "minimum_average_monthly_daily_traded_value_cop": MIN_AVG_MONTHLY_DAILY_VALUE_COP, "minimum_active_session_ratio": MIN_ACTIVE_SESSION_RATIO, "excluded_illiquid": len(liquidity_exclusions)},
         "weekly_success": len(weekly_df),
+        "monthly_vfi_success": len(monthly_vfi_df),
+        "monthly_vfi_length_months": 30,
+        "monthly_vfi_ema_spans": MONTHLY_VFI_EMA_WEIGHTS,
+        "monthly_vfi_ema_weights": MONTHLY_VFI_EMA_WEIGHTS,
+        "monthly_vfi_method": "Recalculated from completed monthly OHLCV bars using VFI length 30; EMA spans 2/5/18/46 on monthly VFI. Independent of weekly gap exclusion.",
         "weekly_gap_policy": {"lookback_weeks": GAP_LOOKBACK_WEEKS, "max_missing_ratio": MAX_RECENT_GAP_RATIO, "max_consecutive_gaps": MAX_CONSECUTIVE_RECENT_GAPS, "protected_latest_weeks": PROTECTED_RECENT_WEEKS, "price_policy": "forward-fill OHLC only for synthetic calendar weeks", "volume_policy": "synthetic calendar weeks retain zero volume; never forward-fill volume"},
         "excluded_weekly_data_quality": sum(1 for row in metadata if row.get("Status") == "EXCLUDED_WEEKLY_DATA_QUALITY"),
         "monthly_success": len(monthly_df),
@@ -476,6 +512,7 @@ def main() -> int:
     logging.info("Rankings saved to %s", output)
     if errors:
         logging.warning("%d/%d symbols failed; inspect errores.csv", len(errors), len(symbols))
+    print("\nTOP MONTHLY-EQUIVALENT VFI\n", monthly_vfi_df.head(20).to_string(index=False))
     print("\nTOP WEEKLY VFI\n", weekly_df.head(10).to_string(index=False))
     print("\nTOP MONTHLY DIVERGENCE\n", monthly_df.head(10).to_string(index=False))
     print("\nTOP COMBINED\n", combined.head(10).to_string(index=False))
