@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-11-10T01:34:38.829078+00:00",
+  "generated_at_utc": "2026-11-10T01:41:14.887240+00:00",
   "provider": "Yahoo Finance via yfinance",
   "symbols_requested": 28,
   "liquidity_filter": {
@@ -10,6 +10,21 @@
     "excluded_illiquid": 7
   },
   "weekly_success": 21,
+  "monthly_vfi_success": 21,
+  "monthly_vfi_length_months": 30,
+  "monthly_vfi_ema_spans": {
+    "2": 0.05,
+    "5": 0.15,
+    "18": 0.3,
+    "46": 0.5
+  },
+  "monthly_vfi_ema_weights": {
+    "2": 0.05,
+    "5": 0.15,
+    "18": 0.3,
+    "46": 0.5
+  },
+  "monthly_vfi_method": "Recalculated from completed monthly OHLCV bars using VFI length 30; EMA spans 2/5/18/46 on monthly VFI. Independent of weekly gap exclusion.",
   "weekly_gap_policy": {
     "lookback_weeks": 52,
     "max_missing_ratio": 0.1,
