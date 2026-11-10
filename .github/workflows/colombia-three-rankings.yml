@@ -11,6 +11,7 @@ on:
     paths:
       - "tests/test_colombia_three_rankings.py"
       - "scripts/run_colombia_three_rankings.py"
+      - "tests/test_colombia_three_rankings.py"
       - "app/indicators/**"
       - "app/scoring/**"
       - "app/research/universes.py"
