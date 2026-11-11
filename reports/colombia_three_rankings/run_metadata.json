@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-11-10T04:46:08.427687+00:00",
+  "generated_at_utc": "2026-11-11T02:57:19.896760+00:00",
   "provider": "Yahoo Finance via yfinance",
   "symbols_requested": 28,
   "liquidity_filter": {
@@ -7,10 +7,10 @@
     "monthly_metric": "mean of each completed month's daily Close*Volume average, then equal-weight average across months",
     "minimum_average_monthly_daily_traded_value_cop": 300000000,
     "minimum_active_session_ratio": 0.7,
-    "excluded_illiquid": 7
+    "excluded_illiquid": 8
   },
-  "weekly_success": 21,
-  "monthly_vfi_success": 21,
+  "weekly_success": 20,
+  "monthly_vfi_success": 20,
   "monthly_vfi_length_months": 30,
   "monthly_vfi_ema_spans": {
     "2": 0.05,
@@ -34,8 +34,8 @@
     "volume_policy": "synthetic calendar weeks retain zero volume; never forward-fill volume"
   },
   "excluded_weekly_data_quality": 0,
-  "monthly_success": 21,
-  "combined_success": 21,
+  "monthly_success": 20,
+  "combined_success": 20,
   "weekly_ema_weights": {
     "5": 0.05,
     "20": 0.15,
