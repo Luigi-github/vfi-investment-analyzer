@@ -132,7 +132,11 @@ def resolve_symbols(universe=DEFAULT_UNIVERSE, symbols=None):
     if universe == "ALL":
         return all_symbols()
 
-    return get_universe(universe)
+    resolved = get_universe(universe)
+    # CIB is a US-listed ADR, not a locally listed BVC equity.
+    if universe == "COLOMBIA":
+        resolved = [symbol for symbol in resolved if symbol != "CIB"]
+    return resolved
 
 
 def build_output_dir(universe, output_dir=None):
@@ -377,6 +381,11 @@ def main(argv=None):
                 "Stage_Definition_Version": STAGE_DEFINITION_VERSION,
                 "Daily_Rows": daily_rows,
                 "Weekly_Rows": len(data),
+                "Data_Quality_Status": market_data_service.get_last_metadata().get("Data_Quality_Status"),
+                "Data_Quality_Issues": market_data_service.get_last_metadata().get("Data_Quality_Issues"),
+                "Data_Age_Calendar_Days": market_data_service.get_last_metadata().get("Data_Age_Calendar_Days"),
+                "Synthetic_Weeks": int(data.get("Is_Synthetic_Week", pd.Series(False, index=data.index)).tail(26).sum()),
+                "Latest_Week_Synthetic": bool(data["Is_Synthetic_Week"].iloc[-1]) if "Is_Synthetic_Week" in data.columns and len(data) else False,
             },
         )
         metadata_path = output_dir / "metadata"
@@ -393,6 +402,12 @@ def main(argv=None):
                 "Daily_Rows": daily_rows,
                 "Weekly_Rows": len(data),
                 "Valid_VFI_Rows": len(valid),
+                "Data_Provider": market_data_service.get_last_metadata().get("Provider"),
+                "Data_Quality_Status": market_data_service.get_last_metadata().get("Data_Quality_Status"),
+                "Data_Quality_Issues": market_data_service.get_last_metadata().get("Data_Quality_Issues"),
+                "Data_Age_Calendar_Days": market_data_service.get_last_metadata().get("Data_Age_Calendar_Days"),
+                "Synthetic_Weeks_Last_26W": int(data.get("Is_Synthetic_Week", pd.Series(False, index=data.index)).tail(26).sum()),
+                "Latest_Week_Synthetic": bool(data["Is_Synthetic_Week"].iloc[-1]) if "Is_Synthetic_Week" in data.columns and len(data) else False,
                 "Latest_Date": valid.index[-1] if not valid.empty else None,
                 "Latest_VFI": valid.iloc[-1]["VFI"] if not valid.empty else None,
                 "Latest_Cycle_Stage": (
