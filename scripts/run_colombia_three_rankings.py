@@ -162,6 +162,13 @@ def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
         "Close": "last", "Volume": "sum",
     })
     bars = bars.dropna(subset=["Open", "High", "Low", "Close"])
+    if rule == "W-FRI":
+        # W-FRI labels the current, still-open week with its future Friday.
+        # Keep only bars whose Friday close has already occurred.
+        today = pd.Timestamp.now().normalize()
+        current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
+        last_completed_friday = current_friday - pd.Timedelta(days=7)
+        bars = bars.loc[bars.index <= last_completed_friday]
     if bars.empty:
         return bars
     full_idx = pd.date_range(bars.index.min(), bars.index.max(), freq=rule)
