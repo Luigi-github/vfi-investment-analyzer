@@ -6,7 +6,8 @@ import pandas as pd
 
 class VolumeDivergenceMM:
     def __init__(self, vl1=5, vl2=8, lbR=5, lbL=5, range_upper=60, range_lower=5,
-                 plot_hidden_bull=False, plot_hidden_bear=False):
+                 plot_hidden_bull=False, plot_hidden_bear=False,
+                 ema_short=5, ema_medium=20, ema_long=50):
         self.plot_hidden_bull = bool(plot_hidden_bull)
         self.plot_hidden_bear = bool(plot_hidden_bear)
         self.vl1 = vl1
@@ -18,6 +19,11 @@ class VolumeDivergenceMM:
         self.lbL = lbL
         self.range_upper = range_upper
         self.range_lower = range_lower
+        if not (0 < ema_short < ema_medium < ema_long):
+            raise ValueError("EMA periods must satisfy 0 < ema_short < ema_medium < ema_long.")
+        self.ema_short = int(ema_short)
+        self.ema_medium = int(ema_medium)
+        self.ema_long = int(ema_long)
 
     @staticmethod
     def _pine_wma(x, opens, closes, length):
@@ -60,6 +66,20 @@ class VolumeDivergenceMM:
         v3 = self._pine_wma(v2, df["Open"], df["Close"], self.vl3)
         v4 = self._pine_wma(v3, df["Open"], df["Close"], self.vl4)
         df["Volume_Divergence_MM"] = self._pine_wma(v4, df["Open"], df["Close"], self.vl5)
+
+        # These EMAs are calculated on the Volume Divergence indicator itself,
+        # not on Close/price. The default 5/20/50 spans are configurable.
+        divergence = df["Volume_Divergence_MM"]
+        df["Volume_Div_EMA_Short"] = divergence.ewm(
+            span=self.ema_short, adjust=False, min_periods=self.ema_short
+        ).mean()
+        df["Volume_Div_EMA_Medium"] = divergence.ewm(
+            span=self.ema_medium, adjust=False, min_periods=self.ema_medium
+        ).mean()
+        df["Volume_Div_EMA_Long"] = divergence.ewm(
+            span=self.ema_long, adjust=False, min_periods=self.ema_long
+        ).mean()
+        df["Volume_Div_EMA_Short_Slope"] = df["Volume_Div_EMA_Short"].diff()
 
         vol = df["Volume_Divergence_MM"].to_numpy(float)
         low = df["Low"].to_numpy(float)
