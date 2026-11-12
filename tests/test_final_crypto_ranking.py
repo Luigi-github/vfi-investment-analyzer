@@ -123,6 +123,9 @@ class FinalCryptoRankingTests(unittest.TestCase):
             self.assertEqual(audit["symbols_missing_status"], 1)
             self.assertEqual(audit["symbols_with_no_spot_mtf_oos_trades"], 1)
             self.assertEqual(audit["symbols_with_no_trades_any_strategy"], 1)
+            self.assertEqual(audit["symbols_with_lt_3000_hourly_bars"], 0)
+            self.assertIn("global_strategies_with_negative_mean_trade", audit)
+            self.assertIn("aggregate_strategy_warning", audit)
 
 
 if __name__ == "__main__":
