@@ -77,7 +77,7 @@ class VFIIndicator:
                 window=30,
                 min_periods=30
             )
-            .std()
+            .std(ddof=0)
         )
 
         # ==========================================================
