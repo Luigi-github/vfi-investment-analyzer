@@ -3,7 +3,11 @@ from __future__ import annotations
 """Compare ISA weekly LazyBear VFI using Yahoo adjusted vs unadjusted OHLCV."""
 
 import json
+import sys
 from pathlib import Path
+
+# Make the repository root importable when run as a script.
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import numpy as np
 import pandas as pd
