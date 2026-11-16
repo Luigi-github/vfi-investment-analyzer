@@ -167,14 +167,18 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
     if np.isfinite(slope4) and np.isfinite(prior4) and slope4 > 0 and prior4 <= 0:
         acceleration_score = min(100.0, acceleration_score + 8.0)
 
-    # Early-accumulation blocks: no reward or penalty for being near zero.
+    # Early-accumulation blocks. Relative proximity to zero is asset-normalized
+    # by the historical percentile of |VFI|. It receives 5% of the total score;
+    # EMA signed level receives 20%, preserving the 25% position block.
     persistence_block = ema_streak_score
-    relative_position_block = ema_level_score
+    near_zero_block = near_zero_score
+    relative_position_block = 0.80 * ema_level_score + 0.20 * near_zero_block
     trend_block = float(np.clip(vfi_persistence_score, 0.0, 100.0))
     acceleration_block = float(np.clip(acceleration_score, 0.0, 100.0))
     gross_score = (
         0.30 * persistence_block
-        + 0.25 * relative_position_block
+        + 0.20 * ema_level_score
+        + 0.05 * near_zero_block
         + 0.25 * trend_block
         + 0.20 * acceleration_block
     )
@@ -227,7 +231,9 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         "VFI": current,
         "VFI_Historical_Percentile": vfi_pct,
         "VFI_Absolute_Magnitude_Percentile": abs_current_pct,
-        "VFI_Near_Zero_Score": near_zero_score,  # diagnostic only; excluded from score
+        "VFI_Near_Zero_Score": near_zero_score,
+        "VFI_Near_Zero_Contribution": 0.05 * near_zero_score,
+        "EMA_Level_Contribution": 0.20 * ema_level_score,
         "VFI_Up_Streak_Weeks": vfi_streak,
         "VFI_Up_Weeks_Ratio_13W": up_ratio,
         "VFI_Slope_4W": slope4,
@@ -341,11 +347,12 @@ def main() -> None:
         "failed_assets": errors,
         "completed_weekly_candles_only": True,
         "ema_calculation": "EMA5/20/80/200 calculated over full valid weekly VFI history; percentiles use trailing 260 prior observations",
-        "score_weights": {"EMA_persistence": 0.30, "relative_EMA_position": 0.25,
+        "score_weights": {"EMA_persistence": 0.30, "EMA_signed_level": 0.20,
+                          "VFI_relative_near_zero": 0.05,
                           "VFI_persistence_and_quality": 0.25, "VFI_acceleration": 0.20},
-        "near_zero_rule": "Removed from scoring; retained as diagnostic only",
+        "near_zero_rule": "Included at 5% of total score using the inverse historical percentile of absolute VFI; EMA signed level contributes 20%",
         "pullback_penalties": "Proportional penalties for negative 4W/8W/13W/26W VFI slopes and declining EMAs; capped at 55% of gross score",
-        "normalization": "EMA values are scored by sign: negative values add according to inverse historical percentile; positive values subtract according to historical percentile, weighted EMA5/20/80/200 at 5/15/30/50; near-zero VFI excluded; pullback penalties use multiple horizons and EMA slope deterioration",
+        "normalization": "EMA values are scored by sign: negative values add according to inverse historical percentile; positive values subtract according to historical percentile, weighted EMA5/20/80/200 at 5/15/30/50; near-zero VFI uses inverse historical percentile of absolute VFI and contributes 5%; pullback penalties use multiple horizons and EMA slope deterioration",
         "caveat": "Heuristic technical ranking for research, not a prediction or investment recommendation",
     }
     (out / "run_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
