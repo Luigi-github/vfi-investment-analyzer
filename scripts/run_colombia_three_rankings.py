@@ -111,6 +111,69 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
     raise RuntimeError(f"{ticker}: Yahoo download failed after {RETRIES} attempts: {last_error}")
 
 
+
+def download_native_weekly(ticker: str) -> pd.DataFrame:
+    """Download Yahoo native weekly candles, normalized to Friday labels."""
+    last_error = None
+    for attempt in range(1, RETRIES + 1):
+        try:
+            data = yf.Ticker(ticker).history(period="max", interval="1wk", auto_adjust=True,
+                                             actions=False, repair=False, timeout=30)
+            cols = ["Open", "High", "Low", "Close", "Volume"]
+            if data is None or data.empty:
+                raise ValueError("Yahoo returned no native weekly rows")
+            if isinstance(data.columns, pd.MultiIndex):
+                for level in range(data.columns.nlevels):
+                    if set(cols).issubset(set(map(str, data.columns.get_level_values(level)))):
+                        data.columns = data.columns.get_level_values(level)
+                        break
+            if not set(cols).issubset(data.columns):
+                raise ValueError("Native weekly OHLCV columns missing")
+            data = data[cols].copy()
+            idx = pd.to_datetime(data.index, errors="coerce")
+            if idx.tz is not None:
+                idx = idx.tz_localize(None)
+            idx = idx.normalize()
+            idx = idx + pd.to_timedelta((4 - idx.weekday) % 7, unit="D")
+            data.index = idx
+            data = data.loc[~data.index.isna()].sort_index()
+            data = data[~data.index.duplicated(keep="last")]
+            for col in cols:
+                data[col] = pd.to_numeric(data[col], errors="coerce")
+            data = data.dropna(subset=["Open", "High", "Low", "Close"])
+            data["Volume"] = data["Volume"].fillna(0).clip(lower=0)
+            if data.empty or (data[["Open", "High", "Low", "Close"]] <= 0).any().any():
+                raise ValueError("Invalid native weekly OHLCV")
+            data["High"] = data[["High", "Open", "Close", "Low"]].max(axis=1)
+            data["Low"] = data[["Low", "Open", "Close", "High"]].min(axis=1)
+            today = pd.Timestamp.now().normalize()
+            friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7) - pd.Timedelta(days=7)
+            data = data.loc[data.index <= friday]
+            if data.empty:
+                raise ValueError("No completed native weekly candles")
+            return data
+        except Exception as exc:
+            last_error = exc
+            logging.warning("%s native weekly attempt %d failed: %s", ticker, attempt, exc)
+            if attempt < RETRIES:
+                time.sleep(RETRY_SLEEP * attempt)
+    raise RuntimeError(f"{ticker}: native weekly download failed: {last_error}")
+
+
+def normalize_native_weekly(weekly: pd.DataFrame) -> pd.DataFrame:
+    """Insert missing Friday bars; carry OHLC only and preserve zero volume."""
+    bars = weekly.copy().sort_index()
+    full_idx = pd.date_range(bars.index.min(), bars.index.max(), freq="W-FRI")
+    bars = bars.reindex(full_idx)
+    synthetic = bars[["Open", "High", "Low", "Close"]].isna().any(axis=1)
+    for col in ["Open", "High", "Low", "Close"]:
+        bars[col] = bars[col].ffill()
+    bars["Volume"] = bars["Volume"].fillna(0.0)
+    bars["Synthetic_Bar"] = synthetic
+    bars.index.name = "Date"
+    return bars
+
+
 def liquidity_metrics(daily: pd.DataFrame) -> dict:
     """Average daily traded value per completed month, averaged over 3 months.
 
@@ -361,7 +424,7 @@ def main() -> int:
             else:
                 logging.info("%s: insufficient monthly VFI history (%d months; need 76)", ticker, len(monthly))
 
-            weekly = aggregate_bars(daily, "W-FRI")
+            weekly = normalize_native_weekly(download_native_weekly(ticker))
             gap_metrics = weekly_gap_metrics(weekly)
             if not gap_metrics["Gap_Pass"]:
                 reason = (
@@ -385,8 +448,8 @@ def main() -> int:
 
             vfi = vfi_indicator.calculate(weekly)
 
-            # aggregate_bars already carries the previous complete OHLCV
-            # bar into every missing calendar week. Calculate VFI directly
+            # Native weekly bars are normalized to a complete Friday calendar.
+            # Calculate VFI directly
             # on that complete calendar series; do not replace the resulting
             # VFI with NaN/ffill afterwards, because synthetic zero-volume
             # bars would otherwise distort the rolling VFI inputs.
@@ -503,7 +566,8 @@ def main() -> int:
         "combined_success": len(combined),
         "weekly_ema_weights": WEEKLY_EMA_WEIGHTS,
         "weekly_missing_data_policy": "Allow sparse historical gaps; exclude only if recent 52-week gap ratio exceeds 10%, any run exceeds 3 weeks, fewer than 52 recent weeks exist, or any gap occurs in latest 4 weeks. Synthetic OHLC is carried forward but volume remains zero.",
-        "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on the complete W-FRI calendar-week series",
+        "weekly_data_source": "Yahoo native interval=1wk OHLCV, auto_adjust=True; week-start labels mapped to Friday; incomplete week excluded; missing calendar weeks receive carried-forward OHLC and zero volume.",
+        "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on native Yahoo weekly candles normalized to W-FRI",
         "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
         "monthly_ema_weights": MONTHLY_EMA_WEIGHTS,
         "combined_weights": {"weekly_percentile": 0.5, "monthly_divergence_percentile": 0.5},
