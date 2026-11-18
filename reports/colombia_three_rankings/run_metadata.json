@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-11-17T05:13:25.578091+00:00",
+  "generated_at_utc": "2026-11-18T00:33:32.503623+00:00",
   "provider": "Yahoo Finance via yfinance",
   "symbols_requested": 28,
   "liquidity_filter": {
@@ -43,7 +43,8 @@
     "200": 0.5
   },
   "weekly_missing_data_policy": "Allow sparse historical gaps; exclude only if recent 52-week gap ratio exceeds 10%, any run exceeds 3 weeks, fewer than 52 recent weeks exist, or any gap occurs in latest 4 weeks. Synthetic OHLC is carried forward but volume remains zero.",
-  "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on the complete W-FRI calendar-week series",
+  "weekly_data_source": "Yahoo native interval=1wk OHLCV, auto_adjust=True; week-start labels mapped to Friday; incomplete week excluded; missing calendar weeks receive carried-forward OHLC and zero volume.",
+  "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on native Yahoo weekly candles normalized to W-FRI",
   "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
   "monthly_ema_weights": {
     "5": 0.1,
