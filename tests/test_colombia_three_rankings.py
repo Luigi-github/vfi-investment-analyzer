@@ -2,10 +2,16 @@ import unittest
 import numpy as np
 import pandas as pd
 
-from scripts.run_colombia_three_rankings import aggregate_bars, ema_opportunity_score, rank_percentile, weekly_gap_metrics
+from scripts.run_colombia_three_rankings import aggregate_bars, ema_opportunity_score, exchange_naive_index, rank_percentile, weekly_gap_metrics
 
 
 class ColombiaThreeRankingTests(unittest.TestCase):
+    def test_timezone_aware_yahoo_timestamp_is_converted_to_bogota_before_date_label(self):
+        # 2026-11-20 02:00 UTC is still Thursday 19 Nov in Bogota.
+        idx = pd.DatetimeIndex(["2026-11-20 02:00:00"], tz="UTC")
+        normalized = exchange_naive_index(idx)
+        self.assertEqual(normalized[0], pd.Timestamp("2026-11-19"))
+
     def test_empty_calendar_period_carries_prices_but_keeps_zero_volume(self):
         daily = pd.DataFrame({
             "Open": [10.0, 12.0], "High": [11.0, 13.0],
