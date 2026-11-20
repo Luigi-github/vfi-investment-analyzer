@@ -31,6 +31,20 @@ MONTHLY_VFI_EMA_WEIGHTS = {2: 0.05, 5: 0.15, 18: 0.30, 46: 0.50}
 MIN_AVG_MONTHLY_DAILY_VALUE_COP = 300_000_000
 MIN_ACTIVE_SESSION_RATIO = 0.70
 LIQUIDITY_LOOKBACK_MONTHS = 3
+COLOMBIA_TZ = "America/Bogota"
+
+
+def exchange_naive_index(index: pd.Index) -> pd.DatetimeIndex:
+    """Normalize Yahoo timestamps to Colombia exchange dates before dropping TZ."""
+    idx = pd.DatetimeIndex(pd.to_datetime(index, errors="coerce"))
+    if idx.tz is not None:
+        idx = idx.tz_convert(COLOMBIA_TZ).tz_localize(None)
+    return idx.normalize()
+
+
+def colombia_today() -> pd.Timestamp:
+    """Current calendar date in the Colombian exchange timezone, timezone-naive."""
+    return pd.Timestamp.now(tz=COLOMBIA_TZ).tz_localize(None).normalize()
 
 
 def configure_logging(output: Path) -> None:
@@ -75,10 +89,7 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
             if missing:
                 raise ValueError(f"Missing OHLCV columns: {missing}")
             data = data[required].copy()
-            idx = pd.to_datetime(data.index, errors="coerce")
-            if idx.tz is not None:
-                idx = idx.tz_localize(None)
-            data.index = idx.normalize()
+            data.index = exchange_naive_index(data.index)
             data = data.loc[~data.index.isna()]
             data = data[~data.index.duplicated(keep="last")].sort_index()
             for col in required:
@@ -130,10 +141,7 @@ def download_native_weekly(ticker: str) -> pd.DataFrame:
             if not set(cols).issubset(data.columns):
                 raise ValueError("Native weekly OHLCV columns missing")
             data = data[cols].copy()
-            idx = pd.to_datetime(data.index, errors="coerce")
-            if idx.tz is not None:
-                idx = idx.tz_localize(None)
-            idx = idx.normalize()
+            idx = exchange_naive_index(data.index)
             idx = idx + pd.to_timedelta((4 - idx.weekday) % 7, unit="D")
             data.index = idx
             data = data.loc[~data.index.isna()].sort_index()
@@ -146,7 +154,7 @@ def download_native_weekly(ticker: str) -> pd.DataFrame:
                 raise ValueError("Invalid native weekly OHLCV")
             data["High"] = data[["High", "Open", "Close", "Low"]].max(axis=1)
             data["Low"] = data[["Low", "Open", "Close", "High"]].min(axis=1)
-            today = pd.Timestamp.now().normalize()
+            today = colombia_today()
             friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7) - pd.Timedelta(days=7)
             data = data.loc[data.index <= friday]
             if data.empty:
@@ -181,7 +189,7 @@ def liquidity_metrics(daily: pd.DataFrame) -> dict:
     monthly averages are averaged with equal weight. The incomplete month is
     excluded, reducing the impact of isolated high-volume sessions.
     """
-    current_month = pd.Timestamp.now().to_period("M")
+    current_month = colombia_today().to_period("M")
     eligible = daily.loc[daily.index.to_period("M") < current_month].copy()
     if eligible.empty:
         monthly = pd.DataFrame(columns=["Avg_Daily_Traded_Value_COP", "Active_Session_Ratio", "Sessions"])
@@ -228,7 +236,7 @@ def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
     if rule == "W-FRI":
         # W-FRI labels the current, still-open week with its future Friday.
         # Keep only bars whose Friday close has already occurred.
-        today = pd.Timestamp.now().normalize()
+        today = colombia_today()
         current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
         last_completed_friday = current_friday - pd.Timedelta(days=7)
         bars = bars.loc[bars.index <= last_completed_friday]
@@ -397,7 +405,7 @@ def main() -> int:
             # Monthly-equivalent VFI is calculated independently of weekly gaps.
             # Use completed monthly OHLCV bars and a true 30-month VFI, never
             # resample or scale the weekly indicator.
-            current_month = pd.Timestamp.now().to_period("M")
+            current_month = colombia_today().to_period("M")
             completed_months = daily.loc[daily.index.to_period("M") < current_month]
             monthly = aggregate_bars(completed_months, "ME")
             if len(monthly) >= 76:
