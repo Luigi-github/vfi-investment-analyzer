@@ -47,6 +47,18 @@ def colombia_today() -> pd.Timestamp:
     return pd.Timestamp.now(tz=COLOMBIA_TZ).tz_localize(None).normalize()
 
 
+def last_completed_friday() -> pd.Timestamp:
+    """Last completed Colombian trading week; Friday is final after 17:00 local."""
+    now = pd.Timestamp.now(tz=COLOMBIA_TZ)
+    today = now.tz_localize(None).normalize()
+    this_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
+    if today.weekday() == 4 and (now.hour, now.minute) < (17, 0):
+        return this_friday - pd.Timedelta(days=7)
+    if today.weekday() == 4:
+        return this_friday
+    return this_friday - pd.Timedelta(days=7)
+
+
 def configure_logging(output: Path) -> None:
     output.mkdir(parents=True, exist_ok=True)
     logging.basicConfig(
@@ -154,8 +166,7 @@ def download_native_weekly(ticker: str) -> pd.DataFrame:
                 raise ValueError("Invalid native weekly OHLCV")
             data["High"] = data[["High", "Open", "Close", "Low"]].max(axis=1)
             data["Low"] = data[["Low", "Open", "Close", "High"]].min(axis=1)
-            today = colombia_today()
-            friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7) - pd.Timedelta(days=7)
+            friday = last_completed_friday()
             data = data.loc[data.index <= friday]
             if data.empty:
                 raise ValueError("No completed native weekly candles")
@@ -236,10 +247,8 @@ def aggregate_bars(daily: pd.DataFrame, rule: str) -> pd.DataFrame:
     if rule == "W-FRI":
         # W-FRI labels the current, still-open week with its future Friday.
         # Keep only bars whose Friday close has already occurred.
-        today = colombia_today()
-        current_friday = today + pd.Timedelta(days=(4 - today.weekday()) % 7)
-        last_completed_friday = current_friday - pd.Timedelta(days=7)
-        bars = bars.loc[bars.index <= last_completed_friday]
+        cutoff_friday = last_completed_friday()
+        bars = bars.loc[bars.index <= cutoff_friday]
     if bars.empty:
         return bars
     full_idx = pd.date_range(bars.index.min(), bars.index.max(), freq=rule)
