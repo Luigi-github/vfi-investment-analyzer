@@ -1911,3 +1911,90 @@
 2026-11-21 04:13:35,780 INFO Completed PFGRUPSURA.CL
 2026-11-21 04:13:36,296 INFO Liquidity exclusions: 8
 2026-11-21 04:13:36,296 INFO Rankings saved to reports/colombia_three_rankings
+2026-11-21 14:59:58,567 INFO Universe contains 28 symbols
+2026-11-21 14:59:58,567 INFO Yahoo download ECOPETROL.CL attempt 1/3
+2026-11-21 14:59:59,045 WARNING ECOPETROL.CL: repaired 411 inconsistent OHLC sessions (8.37%)
+2026-11-21 14:59:59,983 INFO Completed ECOPETROL.CL
+2026-11-21 15:00:00,483 INFO Yahoo download CIBEST.CL attempt 1/3
+2026-11-21 15:00:00,920 WARNING CIBEST.CL: repaired 642 inconsistent OHLC sessions (9.20%)
+2026-11-21 15:00:02,234 INFO Completed CIBEST.CL
+2026-11-21 15:00:02,734 INFO Yahoo download CIB attempt 1/3
+2026-11-21 15:00:03,294 WARNING CIB: repaired 133 inconsistent OHLC sessions (1.69%)
+2026-11-21 15:00:03,320 INFO Excluded CIB by liquidity filter: Illiquid: average monthly daily traded value COP 28,941,994 (minimum 300,000,000); active sessions 100.0% (minimum 70%); months 3
+2026-11-21 15:00:03,320 INFO Yahoo download ISA.CL attempt 1/3
+2026-11-21 15:00:03,605 WARNING ISA.CL: repaired 466 inconsistent OHLC sessions (7.12%)
+2026-11-21 15:00:04,843 INFO Completed ISA.CL
+2026-11-21 15:00:05,343 INFO Yahoo download MINEROS.CL attempt 1/3
+2026-11-21 15:00:05,618 WARNING MINEROS.CL: repaired 903 inconsistent OHLC sessions (13.81%)
+2026-11-21 15:00:06,841 INFO Completed MINEROS.CL
+2026-11-21 15:00:07,341 INFO Yahoo download GRUPOARGOS.CL attempt 1/3
+2026-11-21 15:00:07,629 WARNING GRUPOARGOS.CL: repaired 595 inconsistent OHLC sessions (8.54%)
+2026-11-21 15:00:08,905 INFO Completed GRUPOARGOS.CL
+2026-11-21 15:00:09,405 INFO Yahoo download CEMARGOS.CL attempt 1/3
+2026-11-21 15:00:09,700 WARNING CEMARGOS.CL: repaired 743 inconsistent OHLC sessions (10.66%)
+2026-11-21 15:00:10,983 INFO Completed CEMARGOS.CL
+2026-11-21 15:00:11,483 INFO Yahoo download NUTRESA.CL attempt 1/3
+2026-11-21 15:00:11,747 WARNING NUTRESA.CL: repaired 486 inconsistent OHLC sessions (9.95%)
+2026-11-21 15:00:11,765 INFO Excluded NUTRESA.CL by liquidity filter: Illiquid: average monthly daily traded value COP 73,389,305 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3
+2026-11-21 15:00:11,765 INFO Yahoo download BOGOTA.CL attempt 1/3
+2026-11-21 15:00:12,088 WARNING BOGOTA.CL: repaired 732 inconsistent OHLC sessions (10.51%)
+2026-11-21 15:00:13,361 INFO Completed BOGOTA.CL
+2026-11-21 15:00:13,862 INFO Yahoo download CELSIA.CL attempt 1/3
+2026-11-21 15:00:14,146 WARNING CELSIA.CL: repaired 686 inconsistent OHLC sessions (9.84%)
+2026-11-21 15:00:15,480 INFO Completed CELSIA.CL
+2026-11-21 15:00:15,980 INFO Yahoo download CONCONCRET.CL attempt 1/3
+2026-11-21 15:00:16,213 WARNING CONCONCRET.CL: repaired 503 inconsistent OHLC sessions (12.25%)
+2026-11-21 15:00:17,004 INFO Completed CONCONCRET.CL
+2026-11-21 15:00:17,505 INFO Yahoo download CORFICOLCF.CL attempt 1/3
+2026-11-21 15:00:17,785 WARNING CORFICOLCF.CL: repaired 478 inconsistent OHLC sessions (9.41%)
+2026-11-21 15:00:18,761 INFO Completed CORFICOLCF.CL
+2026-11-21 15:00:19,261 INFO Yahoo download EXITO.CL attempt 1/3
+2026-11-21 15:00:19,528 WARNING EXITO.CL: repaired 547 inconsistent OHLC sessions (11.20%)
+2026-11-21 15:00:20,460 INFO Completed EXITO.CL
+2026-11-21 15:00:20,960 INFO Yahoo download GEB.CL attempt 1/3
+2026-11-21 15:00:21,221 WARNING GEB.CL: repaired 436 inconsistent OHLC sessions (9.86%)
+2026-11-21 15:00:22,085 INFO Completed GEB.CL
+2026-11-21 15:00:22,585 INFO Yahoo download GRUPOAVAL.CL attempt 1/3
+2026-11-21 15:00:22,929 WARNING GRUPOAVAL.CL: repaired 906 inconsistent OHLC sessions (13.04%)
+2026-11-21 15:00:22,952 INFO Excluded GRUPOAVAL.CL by liquidity filter: Illiquid: average monthly daily traded value COP 39,841,153 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3
+2026-11-21 15:00:22,952 INFO Yahoo download GRUPOSURA.CL attempt 1/3
+2026-11-21 15:00:23,209 WARNING GRUPOSURA.CL: repaired 642 inconsistent OHLC sessions (9.21%)
+2026-11-21 15:00:24,471 INFO Completed GRUPOSURA.CL
+2026-11-21 15:00:24,971 INFO Yahoo download GRUBOLIVAR.CL attempt 1/3
+2026-11-21 15:00:25,252 WARNING GRUBOLIVAR.CL: repaired 997 inconsistent OHLC sessions (15.22%)
+2026-11-21 15:00:25,273 INFO Excluded GRUBOLIVAR.CL by liquidity filter: Illiquid: average monthly daily traded value COP 297,963,913 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3
+2026-11-21 15:00:25,273 INFO Yahoo download PROMIGAS.CL attempt 1/3
+2026-11-21 15:00:25,662 WARNING PROMIGAS.CL: repaired 1152 inconsistent OHLC sessions (16.56%)
+2026-11-21 15:00:26,942 INFO Completed PROMIGAS.CL
+2026-11-21 15:00:27,442 INFO Yahoo download TERPEL.CL attempt 1/3
+2026-11-21 15:00:27,638 WARNING TERPEL.CL: repaired 382 inconsistent OHLC sessions (12.10%)
+2026-11-21 15:00:28,256 INFO Completed TERPEL.CL
+2026-11-21 15:00:28,756 INFO Yahoo download ENKA.CL attempt 1/3
+2026-11-21 15:00:28,960 WARNING ENKA.CL: repaired 520 inconsistent OHLC sessions (10.49%)
+2026-11-21 15:00:28,977 INFO Excluded ENKA.CL by liquidity filter: Illiquid: average monthly daily traded value COP 34,401,493 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3
+2026-11-21 15:00:28,977 INFO Yahoo download ETB.CL attempt 1/3
+2026-11-21 15:00:29,196 WARNING ETB.CL: repaired 386 inconsistent OHLC sessions (6.42%)
+2026-11-21 15:00:29,215 INFO Excluded ETB.CL by liquidity filter: Illiquid: average monthly daily traded value COP 113,210,218 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3
+2026-11-21 15:00:29,215 INFO Yahoo download PFCIBEST.CL attempt 1/3
+2026-11-21 15:00:29,451 WARNING PFCIBEST.CL: repaired 489 inconsistent OHLC sessions (9.97%)
+2026-11-21 15:00:30,389 INFO Completed PFCIBEST.CL
+2026-11-21 15:00:30,889 INFO Yahoo download PFAVAL.CL attempt 1/3
+2026-11-21 15:00:31,112 WARNING PFAVAL.CL: repaired 404 inconsistent OHLC sessions (10.08%)
+2026-11-21 15:00:31,917 INFO Completed PFAVAL.CL
+2026-11-21 15:00:32,418 INFO Yahoo download PFCEMARGOS.CL attempt 1/3
+2026-11-21 15:00:32,599 WARNING PFCEMARGOS.CL: repaired 289 inconsistent OHLC sessions (8.52%)
+2026-11-21 15:00:32,613 INFO Excluded PFCEMARGOS.CL by liquidity filter: Illiquid: average monthly daily traded value COP 19,243,024 (minimum 300,000,000); active sessions 100.0% (minimum 70%); months 3
+2026-11-21 15:00:32,613 INFO Yahoo download PFCORFICOL.CL attempt 1/3
+2026-11-21 15:00:32,869 WARNING PFCORFICOL.CL: repaired 1066 inconsistent OHLC sessions (21.84%)
+2026-11-21 15:00:32,886 INFO Excluded PFCORFICOL.CL by liquidity filter: Illiquid: average monthly daily traded value COP 236,064,516 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3
+2026-11-21 15:00:32,886 INFO Yahoo download PFDAVVNDA.CL attempt 1/3
+2026-11-21 15:00:33,081 WARNING PFDAVVNDA.CL: repaired 372 inconsistent OHLC sessions (8.93%)
+2026-11-21 15:00:33,873 INFO Completed PFDAVVNDA.CL
+2026-11-21 15:00:34,373 INFO Yahoo download PFGRUPOARG.CL attempt 1/3
+2026-11-21 15:00:34,599 WARNING PFGRUPOARG.CL: repaired 379 inconsistent OHLC sessions (10.16%)
+2026-11-21 15:00:35,342 INFO Completed PFGRUPOARG.CL
+2026-11-21 15:00:35,843 INFO Yahoo download PFGRUPSURA.CL attempt 1/3
+2026-11-21 15:00:36,178 WARNING PFGRUPSURA.CL: repaired 334 inconsistent OHLC sessions (8.65%)
+2026-11-21 15:00:36,948 INFO Completed PFGRUPSURA.CL
+2026-11-21 15:00:37,467 INFO Liquidity exclusions: 8
+2026-11-21 15:00:37,467 INFO Rankings saved to reports/colombia_three_rankings
