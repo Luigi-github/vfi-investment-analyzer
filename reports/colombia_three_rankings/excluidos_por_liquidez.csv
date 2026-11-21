@@ -1,8 +1,8 @@
 Symbol,Liquidity_Months,Liquidity_Sessions,Avg_Monthly_Daily_Traded_Value_COP_3M,Median_Monthly_Daily_Traded_Value_COP_3M,Active_Session_Ratio_3M,Liquidity_Pass,Exclusion_Reason
-CIB,3,64,28941993.805835497,29235139.615908537,1.0,False,"Illiquid: average monthly daily traded value COP 28,941,994 (minimum 300,000,000); active sessions 100.0% (minimum 70%); months 3"
+CIB,3,64,28941993.708999988,29235139.325402,1.0,False,"Illiquid: average monthly daily traded value COP 28,941,994 (minimum 300,000,000); active sessions 100.0% (minimum 70%); months 3"
 NUTRESA.CL,3,62,73389304.76874003,89692780.0,0.9838709677419355,False,"Illiquid: average monthly daily traded value COP 73,389,305 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3"
 GRUPOAVAL.CL,3,62,39841153.2239059,44996691.71348491,0.9838709677419355,False,"Illiquid: average monthly daily traded value COP 39,841,153 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3"
-GRUBOLIVAR.CL,3,62,297963912.0398187,270990666.6235119,0.9838709677419355,False,"Illiquid: average monthly daily traded value COP 297,963,912 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3"
+GRUBOLIVAR.CL,3,62,297963911.5395241,270990656.75744045,0.9838709677419355,False,"Illiquid: average monthly daily traded value COP 297,963,912 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3"
 ENKA.CL,3,62,34401493.41339693,11054925.61807251,0.9838709677419355,False,"Illiquid: average monthly daily traded value COP 34,401,493 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3"
 ETB.CL,3,62,113210218.07826383,64187762.578947365,0.9838709677419355,False,"Illiquid: average monthly daily traded value COP 113,210,218 (minimum 300,000,000); active sessions 98.4% (minimum 70%); months 3"
 PFCEMARGOS.CL,3,61,19243024.07616261,19232920.60826527,1.0,False,"Illiquid: average monthly daily traded value COP 19,243,024 (minimum 300,000,000); active sessions 100.0% (minimum 70%); months 3"
