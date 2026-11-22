@@ -29,10 +29,13 @@ Each run publishes a downloadable artifact with:
 - errores.csv
 - run_metadata.json
 - pipeline.log
+- parity_weekly_ohlcv_cibest.csv (weekly OHLCV input audit for CIBEST and PFCIBEST)
 
 ## Calculation rules
 
 - Yahoo Finance is the sole market-data provider for this pipeline.
+- Weekly and daily OHLC are downloaded unadjusted (`auto_adjust=False`) so historical price movement is not dividend-adjusted while volume remains unadjusted. This is the intended parity mode for TradingView's default unadjusted chart. If a TradingView chart has dividend adjustment enabled, the export must be configured consistently.
+- The artifact includes `parity_weekly_ohlcv_cibest.csv`, exporting the weekly OHLCV inputs for CIBEST and PFCIBEST so they can be compared candle-by-candle against TradingView exports. A screenshot alone cannot establish historical candle parity.
 - VFI length is 130 weekly bars. EMA values are calculated on VFI, not price.
 - Weekly EMA weights: 5/20/80/200 = 5%/15%/30%/50%.
 - Monthly Volume Divergence uses the MM WMA cascade 5/8/13/21/34, pivots 5/5 and divergence distance 5-60 monthly bars.
