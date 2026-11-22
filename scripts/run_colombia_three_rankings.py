@@ -393,7 +393,7 @@ def main() -> int:
     symbols = list(dict.fromkeys(symbols))
     logging.info("Universe contains %d symbols", len(symbols))
 
-    weekly_rows, monthly_rows, monthly_vfi_rows, metadata, errors = [], [], [], []
+    weekly_rows, monthly_rows, monthly_vfi_rows, metadata, errors = [], [], [], [], []
     parity_rows = []
     liquidity_exclusions = []
     vfi_indicator = VFIIndicator(length=130)
