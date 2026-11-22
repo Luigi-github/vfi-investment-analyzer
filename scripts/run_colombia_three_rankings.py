@@ -32,6 +32,10 @@ MIN_AVG_MONTHLY_DAILY_VALUE_COP = 300_000_000
 MIN_ACTIVE_SESSION_RATIO = 0.70
 LIQUIDITY_LOOKBACK_MONTHS = 3
 COLOMBIA_TZ = "America/Bogota"
+# Match TradingView's default unadjusted OHLC chart candles. Yahoo volume is not
+# dividend-adjusted, so mixing adjusted OHLC with raw volume changes VFI inputs.
+YAHOO_AUTO_ADJUST = False
+PARITY_AUDIT_SYMBOLS = {"CIBEST.CL", "PFCIBEST.CL"}
 
 
 def exchange_naive_index(index: pd.Index) -> pd.DatetimeIndex:
@@ -79,7 +83,7 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
         try:
             logging.info("Yahoo download %s attempt %d/%d", ticker, attempt, RETRIES)
             data = yf.Ticker(ticker).history(
-                period=period, interval="1d", auto_adjust=True,
+                period=period, interval="1d", auto_adjust=YAHOO_AUTO_ADJUST,
                 actions=False, repair=False, timeout=30,
             )
             if data is None or data.empty:
@@ -140,7 +144,7 @@ def download_native_weekly(ticker: str) -> pd.DataFrame:
     last_error = None
     for attempt in range(1, RETRIES + 1):
         try:
-            data = yf.Ticker(ticker).history(period="max", interval="1wk", auto_adjust=True,
+            data = yf.Ticker(ticker).history(period="max", interval="1wk", auto_adjust=YAHOO_AUTO_ADJUST,
                                              actions=False, repair=False, timeout=30)
             cols = ["Open", "High", "Low", "Close", "Volume"]
             if data is None or data.empty:
@@ -389,7 +393,8 @@ def main() -> int:
     symbols = list(dict.fromkeys(symbols))
     logging.info("Universe contains %d symbols", len(symbols))
 
-    weekly_rows, monthly_rows, monthly_vfi_rows, metadata, errors = [], [], [], [], []
+    weekly_rows, monthly_rows, monthly_vfi_rows, metadata, errors = [], [], [], []
+    parity_rows = []
     liquidity_exclusions = []
     vfi_indicator = VFIIndicator(length=130)
     divergence_indicator = VolumeDivergenceMM(
@@ -442,6 +447,10 @@ def main() -> int:
                 logging.info("%s: insufficient monthly VFI history (%d months; need 76)", ticker, len(monthly))
 
             weekly = normalize_native_weekly(download_native_weekly(ticker))
+            if ticker in PARITY_AUDIT_SYMBOLS:
+                audit = weekly.reset_index().copy()
+                audit.insert(0, "Symbol", ticker)
+                parity_rows.extend(audit.to_dict("records"))
             gap_metrics = weekly_gap_metrics(weekly)
             if not gap_metrics["Gap_Pass"]:
                 reason = (
@@ -565,10 +574,14 @@ def main() -> int:
     pd.DataFrame(metadata).to_csv(output / "cobertura_universo.csv", index=False)
     pd.DataFrame(errors, columns=["Symbol", "Error"]).to_csv(output / "errores.csv", index=False)
     pd.DataFrame(liquidity_exclusions).to_csv(output / "excluidos_por_liquidez.csv", index=False)
+    pd.DataFrame(parity_rows, columns=["Symbol", "Date", "Open", "High", "Low", "Close", "Volume", "Synthetic_Bar"]).to_csv(
+        output / "parity_weekly_ohlcv_cibest.csv", index=False
+    )
 
     run_info = {
         "generated_at_utc": datetime.now(timezone.utc).isoformat(),
         "provider": "Yahoo Finance via yfinance",
+        "yahoo_ohlc_adjustment": "unadjusted OHLC (auto_adjust=False), to avoid mixing dividend-adjusted prices with unadjusted volume and to align with default unadjusted TradingView chart candles", 
         "symbols_requested": len(symbols),
         "liquidity_filter": {"lookback_completed_months": LIQUIDITY_LOOKBACK_MONTHS, "monthly_metric": "mean of each completed month's daily Close*Volume average, then equal-weight average across months", "minimum_average_monthly_daily_traded_value_cop": MIN_AVG_MONTHLY_DAILY_VALUE_COP, "minimum_active_session_ratio": MIN_ACTIVE_SESSION_RATIO, "excluded_illiquid": len(liquidity_exclusions)},
         "weekly_success": len(weekly_df),
@@ -583,7 +596,7 @@ def main() -> int:
         "combined_success": len(combined),
         "weekly_ema_weights": WEEKLY_EMA_WEIGHTS,
         "weekly_missing_data_policy": "Allow sparse historical gaps; exclude only if recent 52-week gap ratio exceeds 10%, any run exceeds 3 weeks, fewer than 52 recent weeks exist, or any gap occurs in latest 4 weeks. Synthetic OHLC is carried forward but volume remains zero.",
-        "weekly_data_source": "Yahoo native interval=1wk OHLCV, auto_adjust=True; week-start labels mapped to Friday; incomplete week excluded; missing calendar weeks receive carried-forward OHLC and zero volume.",
+        "weekly_data_source": f"Yahoo native interval=1wk OHLCV, auto_adjust={YAHOO_AUTO_ADJUST}; week-start labels mapped to Friday; incomplete week excluded; missing calendar weeks receive carried-forward OHLC and zero volume.",
         "weekly_ema_calculation": "EMA(span) = VFI.ewm(span=span, adjust=False, min_periods=span).mean() on native Yahoo weekly candles normalized to W-FRI",
         "weekly_negative_slope_penalty": "25 points per EMA component whenever its current weekly EMA slope is negative; included in component score",
         "monthly_ema_weights": MONTHLY_EMA_WEIGHTS,
