@@ -89,7 +89,7 @@ def download_daily(ticker: str, period: str = "max") -> pd.DataFrame:
             if data is None or data.empty:
                 data = yf.download(
                     ticker, period=period, interval="1d",
-                    auto_adjust=True, actions=False, progress=False,
+                    auto_adjust=YAHOO_AUTO_ADJUST, actions=False, progress=False,
                     threads=False, timeout=30,
                 )
             if data is None or data.empty:
