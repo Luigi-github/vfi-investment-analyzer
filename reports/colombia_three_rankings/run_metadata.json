@@ -1,5 +1,5 @@
 {
-  "generated_at_utc": "2026-11-24T07:04:05.278400+00:00",
+  "generated_at_utc": "2026-11-25T05:38:21.811216+00:00",
   "provider": "Yahoo Finance via yfinance",
   "yahoo_ohlc_adjustment": "unadjusted OHLC (auto_adjust=False), to avoid mixing dividend-adjusted prices with unadjusted volume and to align with default unadjusted TradingView chart candles",
   "symbols_requested": 28,
