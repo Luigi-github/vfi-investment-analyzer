@@ -7,6 +7,7 @@ current completed weekly candle. This is a research heuristic, not a forecast.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import json
 import sys
 from pathlib import Path
@@ -380,8 +381,7 @@ def main() -> None:
     weekly_data: dict[str, pd.DataFrame] = {}
     liquidity_rows, errors = [], []
 
-    for i, symbol in enumerate(symbols, 1):
-        print(f"[WEEKLY YAHOO {i}/{len(symbols)}] {symbol}", flush=True)
+    def load_one(symbol: str):
         try:
             weekly, meta = fetch_completed_weekly(symbol, args.period)
             turnover = (
@@ -395,8 +395,7 @@ def main() -> None:
             valid_vfi = pd.to_numeric(vfi_frame["VFI"], errors="coerce").dropna()
             if len(valid_vfi) < 200:
                 raise ValueError(f"Only {len(valid_vfi)} valid weekly VFI bars; need >=200 for a fully warmed EMA200")
-            weekly_data[symbol] = weekly
-            liquidity_rows.append({
+            return symbol, weekly, {
                 "Symbol": symbol,
                 "Average_Dollar_Turnover_4W": dollar_turnover,
                 "Data_Date": meta["Weekly_Candle_Date"],
@@ -405,15 +404,25 @@ def main() -> None:
                 "Yahoo_Interval": "1wk",
                 "Data_Source": meta["Source"],
                 "Status": "OK",
-            })
+            }, None
         except Exception as exc:
-            errors.append({"Symbol": symbol, "Stage": "WEEKLY_DATA", "Error": repr(exc)})
-            liquidity_rows.append({
+            return symbol, None, {
                 "Symbol": symbol, "Average_Dollar_Turnover_4W": np.nan,
                 "Data_Date": "", "Weekly_Bars": 0, "Synthetic_Weekly_Bars": 0,
                 "Yahoo_Interval": "1wk", "Data_Source": "Yahoo Finance native weekly OHLCV",
                 "Status": f"ERROR: {exc!r}",
-            })
+            }, {"Symbol": symbol, "Stage": "WEEKLY_DATA", "Error": repr(exc)}
+
+    print(f"Fetching native weekly Yahoo OHLCV for {len(symbols)} symbols (6 concurrent workers)...", flush=True)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        results = list(pool.map(load_one, symbols))
+    for i, (symbol, weekly, liquidity_row, error) in enumerate(results, 1):
+        print(f"[WEEKLY YAHOO {i}/{len(symbols)}] {symbol}: {liquidity_row['Status']}", flush=True)
+        if weekly is not None:
+            weekly_data[symbol] = weekly
+        liquidity_rows.append(liquidity_row)
+        if error is not None:
+            errors.append(error)
 
     liquidity_df = pd.DataFrame(liquidity_rows)
     eligible = liquidity_df[
