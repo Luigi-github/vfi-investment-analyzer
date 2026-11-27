@@ -311,8 +311,8 @@ def fetch_completed_weekly(symbol: str, period: str = "max") -> tuple[pd.DataFra
     frame["Synthetic_Bar"] = synthetic
     frame = frame.dropna(subset=["Close"])
     frame[required] = frame[required].apply(pd.to_numeric, errors="coerce")
-    if len(frame) < 260:
-        raise ValueError(f"Only {len(frame)} completed weekly bars; need at least 260")
+    if len(frame) < 330:
+        raise ValueError(f"Only {len(frame)} completed weekly bars; need at least 330 to warm up VFI(130) and EMA200")
     metadata = {
         "Weekly_Candle_Date": frame.index[-1].strftime("%Y-%m-%d"),
         "Weekly_Bars": int(len(frame)),
@@ -351,8 +351,8 @@ def main() -> None:
                 raise ValueError("Insufficient recent completed weekly dollar-volume observations")
             vfi_frame = VFIIndicator().calculate(weekly)
             valid_vfi = pd.to_numeric(vfi_frame["VFI"], errors="coerce").dropna()
-            if len(valid_vfi) < 60:
-                raise ValueError(f"Only {len(valid_vfi)} valid weekly VFI bars; need >=60")
+            if len(valid_vfi) < 200:
+                raise ValueError(f"Only {len(valid_vfi)} valid weekly VFI bars; need >=200 for a fully warmed EMA200")
             weekly_data[symbol] = weekly
             liquidity_rows.append({
                 "Symbol": symbol,
@@ -432,7 +432,7 @@ def main() -> None:
         "incomplete_current_week_excluded": True,
         "missing_week_policy": "Fill missing weekly slots with prior close as flat OHLC, volume=0, Synthetic_Bar=True; never invent volume",
         "liquidity_definition": "Mean Close*Volume over the latest four completed native Yahoo weekly candles",
-        "minimum_history": "260 completed weekly bars and at least 60 valid VFI bars",
+        "minimum_history": "330 completed weekly bars and at least 200 valid VFI bars so VFI(130) and EMA200 are fully warmed",
         "ema_calculation": "EMA5/20/80/200 calculated over full valid weekly VFI history; percentiles use trailing 260 prior observations",
         "score_weights": {
             "EMA_persistence": 0.30, "EMA_signed_level": 0.20,
