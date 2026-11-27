@@ -27,6 +27,10 @@ on:
       - "tests/test_relative_vfi_early_accumulation.py"
       - ".github/workflows/us-relative-vfi-early-accumulation.yml"
 
+concurrency:
+  group: us-relative-vfi-ranking-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
