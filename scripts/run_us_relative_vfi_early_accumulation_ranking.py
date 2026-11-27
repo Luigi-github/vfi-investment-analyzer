@@ -13,18 +13,13 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
+import yfinance as yf
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from app.data.market_data import MarketDataService
 from app.indicators.vfi import VFIIndicator
-from scripts.run_us_weekly_then_daily_screen import (
-    US_LIQUID_UNIVERSE,
-    completed_daily,
-    load_or_download_daily,
-    to_weekly,
-)
+from scripts.run_us_weekly_then_daily_screen import US_LIQUID_UNIVERSE
 
 EMA_PERIODS = {"ema5": 5, "ema20": 20, "ema80": 80, "ema200": 200}
 EMA_WEIGHTS = {"ema5": 0.05, "ema20": 0.15, "ema80": 0.30, "ema200": 0.50}
@@ -265,94 +260,186 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
     }
 
 
+def fetch_completed_weekly(symbol: str, period: str = "max") -> tuple[pd.DataFrame, dict]:
+    """Fetch Yahoo's native 1wk OHLCV bars; never request or resample daily bars."""
+    ticker = yf.Ticker(symbol)
+    frame = ticker.history(
+        period=period,
+        interval="1wk",
+        auto_adjust=False,
+        actions=False,
+        repair=False,
+        keepna=True,
+    )
+    if frame is None or frame.empty:
+        raise ValueError("Yahoo returned no native weekly bars")
+    if isinstance(frame.columns, pd.MultiIndex):
+        frame.columns = frame.columns.get_level_values(0)
+    frame = frame.rename(columns={str(col): str(col).title() for col in frame.columns})
+    required = ["Open", "High", "Low", "Close", "Volume"]
+    missing = [col for col in required if col not in frame.columns]
+    if missing:
+        raise ValueError(f"Yahoo weekly response missing columns: {missing}")
+    frame = frame[required].copy()
+    idx = pd.DatetimeIndex(pd.to_datetime(frame.index))
+    if idx.tz is not None:
+        idx = idx.tz_localize(None)
+    # Yahoo weekly timestamps can label the bar by its first session. Map each
+    # provider bar to its Friday-ending exchange week, then remove the still
+    # incomplete current week (including Thanksgiving's short week).
+    week_ends = idx.to_period("W-FRI").end_time.normalize()
+    frame.index = week_ends
+    frame.index.name = "Week_End"
+    frame = frame[~frame.index.duplicated(keep="last")].sort_index()
+    today = pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize()
+    current_week_end = today.to_period("W-FRI").end_time.normalize()
+    frame = frame.loc[frame.index < current_week_end].copy()
+    frame = frame.dropna(subset=["Close"])
+    if frame.empty:
+        raise ValueError("No completed weekly Yahoo bars after excluding the open week")
+
+    # Preserve missing weeks without fabricating volume: carry forward only
+    # the prior close as flat OHLC and set volume to zero. Keep an audit flag.
+    full_index = pd.date_range(frame.index.min(), frame.index.max(), freq="W-FRI", name="Week_End")
+    original_dates = set(frame.index)
+    frame = frame.reindex(full_index)
+    synthetic = ~frame.index.isin(original_dates)
+    previous_close = frame["Close"].ffill()
+    for col in ("Open", "High", "Low", "Close"):
+        frame[col] = frame[col].fillna(previous_close)
+    frame["Volume"] = frame["Volume"].fillna(0.0)
+    frame["Synthetic_Bar"] = synthetic
+    frame = frame.dropna(subset=["Close"])
+    frame[required] = frame[required].apply(pd.to_numeric, errors="coerce")
+    if len(frame) < 260:
+        raise ValueError(f"Only {len(frame)} completed weekly bars; need at least 260")
+    metadata = {
+        "Weekly_Candle_Date": frame.index[-1].strftime("%Y-%m-%d"),
+        "Weekly_Bars": int(len(frame)),
+        "Synthetic_Weekly_Bars": int(frame["Synthetic_Bar"].sum()),
+        "Yahoo_Interval": "1wk",
+        "Source": "Yahoo Finance native weekly OHLCV",
+    }
+    return frame, metadata
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Rank US stocks by relative early accumulation in weekly VFI.")
+    parser = argparse.ArgumentParser(description="Rank US stocks by relative early accumulation in native Yahoo weekly VFI.")
     parser.add_argument("--symbols", default=",".join(US_LIQUID_UNIVERSE))
     parser.add_argument("--period", default="max")
     parser.add_argument("--top", type=int, default=200)
     parser.add_argument("--output-dir", default="reports/us_relative_vfi_ranking")
-    parser.add_argument("--cache-dir", default="data/market_cache/us_equities")
-    parser.add_argument("--refresh-cache", action="store_true")
+    parser.add_argument("--refresh-cache", action="store_true", help="Compatibility flag; Yahoo native weekly bars are fetched fresh on every run.")
     args = parser.parse_args()
 
     symbols = list(dict.fromkeys(x.strip().upper() for x in args.symbols.split(",") if x.strip()))
-    service = MarketDataService()
-    cache = ROOT / args.cache_dir
     out = ROOT / args.output_dir
     out.mkdir(parents=True, exist_ok=True)
-    raw_data: dict[str, pd.DataFrame] = {}
+    weekly_data: dict[str, pd.DataFrame] = {}
     liquidity_rows, errors = [], []
 
     for i, symbol in enumerate(symbols, 1):
-        print(f"[DATA {i}/{len(symbols)}] {symbol}", flush=True)
+        print(f"[WEEKLY YAHOO {i}/{len(symbols)}] {symbol}", flush=True)
         try:
-            data, source = load_or_download_daily(
-                service, symbol, args.period, cache, refresh=args.refresh_cache
-            )
-            data = completed_daily(data)
-            if data.empty or not {"Close", "Volume"}.issubset(data.columns):
-                raise ValueError("No usable OHLCV data")
-            raw_data[symbol] = data
-            turnover = (pd.to_numeric(data["Close"], errors="coerce") *
-                        pd.to_numeric(data["Volume"], errors="coerce")).replace([np.inf, -np.inf], np.nan).dropna().tail(20)
-            liquidity = float(turnover.mean()) if len(turnover) >= 10 else float("nan")
+            weekly, meta = fetch_completed_weekly(symbol, args.period)
+            turnover = (
+                pd.to_numeric(weekly["Close"], errors="coerce")
+                * pd.to_numeric(weekly["Volume"], errors="coerce")
+            ).replace([np.inf, -np.inf], np.nan).dropna().tail(4)
+            dollar_turnover = float(turnover.mean()) if len(turnover) >= 3 else float("nan")
+            if not np.isfinite(dollar_turnover):
+                raise ValueError("Insufficient recent completed weekly dollar-volume observations")
+            vfi_frame = VFIIndicator().calculate(weekly)
+            valid_vfi = pd.to_numeric(vfi_frame["VFI"], errors="coerce").dropna()
+            if len(valid_vfi) < 60:
+                raise ValueError(f"Only {len(valid_vfi)} valid weekly VFI bars; need >=60")
+            weekly_data[symbol] = weekly
             liquidity_rows.append({
-                "Symbol": symbol, "Average_Dollar_Turnover_20D": liquidity,
-                "Data_Date": data.index[-1].strftime("%Y-%m-%d"), "Data_Source": source,
+                "Symbol": symbol,
+                "Average_Dollar_Turnover_4W": dollar_turnover,
+                "Data_Date": meta["Weekly_Candle_Date"],
+                "Weekly_Bars": meta["Weekly_Bars"],
+                "Synthetic_Weekly_Bars": meta["Synthetic_Weekly_Bars"],
+                "Yahoo_Interval": "1wk",
+                "Data_Source": meta["Source"],
+                "Status": "OK",
             })
         except Exception as exc:
-            errors.append({"Symbol": symbol, "Stage": "DATA", "Error": repr(exc)})
-            liquidity_rows.append({"Symbol": symbol, "Average_Dollar_Turnover_20D": np.nan,
-                                   "Data_Date": "", "Data_Source": f"ERROR: {exc!r}"})
+            errors.append({"Symbol": symbol, "Stage": "WEEKLY_DATA", "Error": repr(exc)})
+            liquidity_rows.append({
+                "Symbol": symbol, "Average_Dollar_Turnover_4W": np.nan,
+                "Data_Date": "", "Weekly_Bars": 0, "Synthetic_Weekly_Bars": 0,
+                "Yahoo_Interval": "1wk", "Data_Source": "Yahoo Finance native weekly OHLCV",
+                "Status": f"ERROR: {exc!r}",
+            })
 
     liquidity_df = pd.DataFrame(liquidity_rows)
-    eligible = liquidity_df[np.isfinite(pd.to_numeric(liquidity_df["Average_Dollar_Turnover_20D"], errors="coerce"))]
-    selected = eligible.sort_values("Average_Dollar_Turnover_20D", ascending=False).head(args.top)
+    eligible = liquidity_df[
+        liquidity_df["Status"].eq("OK")
+        & np.isfinite(pd.to_numeric(liquidity_df["Average_Dollar_Turnover_4W"], errors="coerce"))
+    ]
+    selected = eligible.sort_values("Average_Dollar_Turnover_4W", ascending=False).head(args.top)
     rows = []
     for i, item in enumerate(selected.itertuples(index=False), 1):
         symbol = item.Symbol
         print(f"[SCORE {i}/{len(selected)}] {symbol}", flush=True)
         try:
-            weekly = to_weekly(raw_data[symbol])
-            weekly = completed_daily(weekly)
+            weekly = weekly_data[symbol]
             vfi_frame = VFIIndicator().calculate(weekly)
             vfi = pd.to_numeric(vfi_frame["VFI"], errors="coerce").dropna()
             scored = score_weekly_vfi(vfi)
             scored.update({
                 "Symbol": symbol,
                 "Liquidity_Rank": i,
-                "Average_Dollar_Turnover_20D": float(item.Average_Dollar_Turnover_20D),
+                "Average_Dollar_Turnover_4W": float(item.Average_Dollar_Turnover_4W),
                 "Weekly_Candle_Date": vfi.index[-1].strftime("%Y-%m-%d"),
                 "Weekly_Bars": len(weekly),
-                "Data_Date": item.Data_Date,
+                "Synthetic_Weekly_Bars": int(weekly["Synthetic_Bar"].sum()),
+                "Yahoo_Interval": "1wk",
+                "Data_Source": "Yahoo Finance native weekly OHLCV",
                 "Status": "OK",
             })
             rows.append(scored)
         except Exception as exc:
             errors.append({"Symbol": symbol, "Stage": "SCORING", "Error": repr(exc)})
-            rows.append({"Symbol": symbol, "Liquidity_Rank": i,
-                         "Average_Dollar_Turnover_20D": float(item.Average_Dollar_Turnover_20D),
-                         "Status": "ERROR", "Error": repr(exc)})
+            rows.append({
+                "Symbol": symbol, "Liquidity_Rank": i,
+                "Average_Dollar_Turnover_4W": float(item.Average_Dollar_Turnover_4W),
+                "Status": "ERROR", "Error": repr(exc),
+            })
 
     ranking = pd.DataFrame(rows)
     if not ranking.empty:
-        ranking = ranking.sort_values(["Final_Score", "EMA_Persistence_Score"], ascending=[False, False], na_position="last").reset_index(drop=True)
+        ranking = ranking.sort_values(
+            ["Final_Score", "EMA_Persistence_Score"],
+            ascending=[False, False], na_position="last"
+        ).reset_index(drop=True)
         ranking.insert(0, "Rank", range(1, len(ranking) + 1))
     ranking.to_csv(out / "us_relative_vfi_early_accumulation_ranking.csv", index=False)
-    liquidity_df.sort_values("Average_Dollar_Turnover_20D", ascending=False).to_csv(out / "us_liquidity_universe.csv", index=False)
+    liquidity_df.sort_values("Average_Dollar_Turnover_4W", ascending=False).to_csv(
+        out / "us_liquidity_universe.csv", index=False
+    )
     summary = {
         "requested_top": args.top,
-        "universe_size": len(symbols),
+        "seed_universe_size": len(symbols),
+        "eligible_assets_with_native_weekly_data": int(len(eligible)),
         "ranked_assets": int((ranking.get("Status", pd.Series(dtype=str)) == "OK").sum()),
         "failed_assets": errors,
-        "completed_weekly_candles_only": True,
+        "weekly_data_source": "Yahoo Finance chart history interval=1wk via yfinance; no daily interval requested and no daily-to-weekly resampling",
+        "latest_completed_week": (
+            str(ranking["Weekly_Candle_Date"].max()) if not ranking.empty else None
+        ),
+        "incomplete_current_week_excluded": True,
+        "missing_week_policy": "Fill missing weekly slots with prior close as flat OHLC, volume=0, Synthetic_Bar=True; never invent volume",
+        "liquidity_definition": "Mean Close*Volume over the latest four completed native Yahoo weekly candles",
+        "minimum_history": "260 completed weekly bars and at least 60 valid VFI bars",
         "ema_calculation": "EMA5/20/80/200 calculated over full valid weekly VFI history; percentiles use trailing 260 prior observations",
-        "score_weights": {"EMA_persistence": 0.30, "EMA_signed_level": 0.20,
-                          "VFI_relative_near_zero": 0.05,
-                          "VFI_persistence_and_quality": 0.25, "VFI_acceleration": 0.20},
-        "near_zero_rule": "Included at 5% of total score using the inverse historical percentile of absolute VFI; EMA signed level contributes 20%",
-        "pullback_penalties": "Proportional penalties for negative 4W/8W/13W/26W VFI slopes and declining EMAs; capped at 55% of gross score",
-        "normalization": "EMA values are scored by sign: negative values add according to inverse historical percentile; positive values subtract according to historical percentile, weighted EMA5/20/80/200 at 5/15/30/50; near-zero VFI uses inverse historical percentile of absolute VFI and contributes 5%; pullback penalties use multiple horizons and EMA slope deterioration",
+        "score_weights": {
+            "EMA_persistence": 0.30, "EMA_signed_level": 0.20,
+            "VFI_relative_near_zero": 0.05,
+            "VFI_persistence_and_quality": 0.25, "VFI_acceleration": 0.20
+        },
+        "ranking_scope": "VFI weekly ranking only; this workflow does not calculate monthly Volume Divergence or combined ranking",
         "caveat": "Heuristic technical ranking for research, not a prediction or investment recommendation",
     }
     (out / "run_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
