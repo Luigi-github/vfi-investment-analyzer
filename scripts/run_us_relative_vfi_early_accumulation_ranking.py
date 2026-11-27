@@ -71,144 +71,85 @@ def regression_slope(values) -> float:
 
 
 def score_weekly_vfi(vfi: pd.Series) -> dict:
-    """Score a completed weekly VFI series on comparable, asset-relative scales."""
+    """EMA-only score on weekly VFI; raw VFI is used only to construct EMA curves."""
     s = pd.to_numeric(vfi, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
-    if len(s) < 220:
-        raise ValueError(f"Insufficient valid weekly VFI history ({len(s)}; need >=220)")
+    if len(s) < 200:
+        raise ValueError(f"Insufficient valid weekly VFI history ({len(s)}; need >=200 for EMA200)")
 
-    # Critical: calculate each EMA on the FULL series, then use trailing history
-    # only for percentile estimates. Slicing before EMA would truncate EMA200.
     emas = {
         key: s.ewm(span=period, adjust=False, min_periods=period).mean()
         for key, period in EMA_PERIODS.items()
     }
     ema_now = {key: float(series.iloc[-1]) for key, series in emas.items()}
-    ema_streaks = {
-        key: trailing_true_streak(series.diff() > 0)
-        for key, series in emas.items()
-    }
-    ema_streak_score = sum(
-        100.0 * EMA_WEIGHTS[key] * min(ema_streaks[key], STREAK_CAP) / STREAK_CAP
-        for key in EMA_PERIODS
-    )
-
+    ema_streaks = {key: trailing_true_streak(series.diff() > 0) for key, series in emas.items()}
     ema_percentiles = {
-        key: historical_percentile(series.iloc[:-1], ema_now[key])
+        key: historical_percentile(series.iloc[:-1], ema_now[key], lookback=260)
         for key, series in emas.items()
     }
-    # Signed EMA level score: negative EMA values add points; positive values
-    # subtract points in proportion to their own historical percentile. Thus a
-    # mildly positive EMA at a low percentile is penalized lightly, while an
-    # unusually positive EMA at a high percentile is penalized more strongly.
-    # The weighted signed result is mapped to [0, 100] for a stable score range.
-    ema_signed_components = {}
+
+    # Signed position: negative EMA values are rewarded more when unusually
+    # depressed versus their own history; positive values are penalized more
+    # when unusually elevated. EMA timeframe weights remain 5/15/30/50.
+    signed_components = {}
     for key in EMA_PERIODS:
-        pct = ema_percentiles[key]
-        value = ema_now[key]
-        if not np.isfinite(pct) or not np.isfinite(value):
-            ema_signed_components[key] = float("nan")
-        elif value < 0:
-            ema_signed_components[key] = 100.0 - pct
-        elif value > 0:
-            ema_signed_components[key] = -pct
+        pct, value = ema_percentiles[key], ema_now[key]
+        if not np.isfinite(pct):
+            pct = 50.0
+        signed_components[key] = (100.0 - pct) if value < 0 else (-pct if value > 0 else 0.0)
+    signed_raw = sum(EMA_WEIGHTS[k] * signed_components[k] for k in EMA_PERIODS)
+    ema_level_score = float(np.clip(50.0 + 0.5 * signed_raw, 0.0, 100.0))
+
+    # Persistence is the weighted uninterrupted rising duration of each EMA.
+    ema_persistence_score = sum(
+        100.0 * EMA_WEIGHTS[k] * min(ema_streaks[k], STREAK_CAP) / STREAK_CAP
+        for k in EMA_PERIODS
+    )
+
+    # EMA acceleration is measured on each EMA curve, not on price or raw VFI.
+    acceleration_percentiles = {}
+    ema_acceleration_values = {}
+    ema_last_slopes = {}
+    for key, series in emas.items():
+        slope4_series = series.rolling(4).apply(regression_slope, raw=True)
+        acceleration = slope4_series.diff(4)
+        current_acceleration = float(acceleration.iloc[-1]) if len(acceleration) else float("nan")
+        pct = historical_percentile(acceleration.iloc[:-1], current_acceleration, lookback=260)
+        if not np.isfinite(pct):
+            pct = 50.0
+        current_slope = float(slope4_series.iloc[-1]) if len(slope4_series) else float("nan")
+        # Positive acceleration is useful only when the EMA is actually rising.
+        if not np.isfinite(current_slope) or current_slope <= 0:
+            pct *= 0.50
+        acceleration_percentiles[key] = pct
+        ema_acceleration_values[key] = current_acceleration
+        ema_last_slopes[key] = current_slope
+    acceleration_score = float(sum(EMA_WEIGHTS[k] * acceleration_percentiles[k] for k in EMA_PERIODS))
+
+    # Early accumulation rewards EMAs that remain below zero while beginning
+    # a sustained rise. No near-zero threshold or raw VFI level is used.
+    early_components = {}
+    for key in EMA_PERIODS:
+        if ema_now[key] < 0 and np.isfinite(ema_last_slopes[key]) and ema_last_slopes[key] > 0:
+            duration = min(ema_streaks[key], 13) / 13.0
+            acceleration = acceleration_percentiles[key] / 100.0
+            early_components[key] = 100.0 * (0.60 * duration + 0.40 * acceleration)
         else:
-            ema_signed_components[key] = 0.0
-    available_ema_weights = sum(
-        EMA_WEIGHTS[key] for key in EMA_PERIODS
-        if np.isfinite(ema_signed_components[key])
-    )
-    ema_signed_raw_score = (
-        sum(EMA_WEIGHTS[key] * ema_signed_components[key]
-            for key in EMA_PERIODS if np.isfinite(ema_signed_components[key]))
-        / available_ema_weights
-        if available_ema_weights else 0.0
-    )
-    ema_level_score = float(np.clip(50.0 + 0.5 * ema_signed_raw_score, 0.0, 100.0))
+            early_components[key] = 0.0
+    early_accumulation_score = float(sum(EMA_WEIGHTS[k] * early_components[k] for k in EMA_PERIODS))
 
-    current = float(s.iloc[-1])
-    vfi_pct = historical_percentile(s.iloc[:-1], current)
-    abs_history = s.iloc[:-1].abs()
-    abs_current_pct = historical_percentile(abs_history, abs(current))
-    # Position near zero is measured relative to this asset's own historical
-    # absolute VFI distribution, not the raw VFI magnitude.
-    near_zero_score = float(np.clip(100.0 - abs_current_pct, 0.0, 100.0))
-
-    # VFI persistence: current uninterrupted rise, recent up-week ratio, and
-    # linearity, with R² rewarded only if the recent slope is positive.
-    vfi_streak = trailing_true_streak(s.diff() > 0)
-    streak_component = min(vfi_streak, 13) / 13.0 * 100.0
-    recent13 = s.tail(13)
-    up_ratio = float((recent13.diff().dropna() > 0).mean()) if len(recent13) > 1 else 0.0
-    slope4 = regression_slope(s.tail(4).to_numpy())
-    prior4 = regression_slope(s.iloc[-8:-4].to_numpy()) if len(s) >= 8 else float("nan")
-    slope13 = regression_slope(recent13.to_numpy())
-    r2_13 = linear_r2(recent13.to_numpy())
-    quality_component = r2_13 * 100.0 if np.isfinite(slope13) and slope13 > 0 else r2_13 * 35.0
-    vfi_persistence_score = 0.45 * streak_component + 0.35 * up_ratio * 100.0 + 0.20 * quality_component
-
-    # Acceleration = recent 4-week slope minus the preceding 4-week slope.
-    # Compare it to the asset's own historical acceleration distribution.
-    slope4_series = s.rolling(4).apply(regression_slope, raw=True)
-    acceleration = slope4_series.diff(4)
-    acceleration_pct = historical_percentile(acceleration.iloc[:-1], float(acceleration.iloc[-1]))
-    slope_pct = historical_percentile(s.diff(), float(s.diff().iloc[-1]))
-    if not np.isfinite(acceleration_pct):
-        acceleration_pct = 50.0
-    if not np.isfinite(slope_pct):
-        slope_pct = 50.0
-    acceleration_score = 0.70 * acceleration_pct + 0.30 * slope_pct
-    # A decelerating decline is an early watch signal, but less attractive than
-    # positive momentum already confirmed.
-    if not (np.isfinite(slope4) and slope4 > 0):
-        acceleration_score *= 0.60
-    if np.isfinite(slope4) and np.isfinite(prior4) and slope4 > 0 and prior4 <= 0:
-        acceleration_score = min(100.0, acceleration_score + 8.0)
-
-    # Early-accumulation blocks. Relative proximity to zero is asset-normalized
-    # by the historical percentile of |VFI|. It receives 5% of the total score;
-    # EMA signed level receives 20%, preserving the 25% position block.
-    persistence_block = ema_streak_score
-    near_zero_block = near_zero_score
-    relative_position_block = 0.80 * ema_level_score + 0.20 * near_zero_block
-    trend_block = float(np.clip(vfi_persistence_score, 0.0, 100.0))
-    acceleration_block = float(np.clip(acceleration_score, 0.0, 100.0))
-    gross_score = (
-        0.30 * persistence_block
-        + 0.20 * ema_level_score
-        + 0.05 * near_zero_block
-        + 0.25 * trend_block
-        + 0.20 * acceleration_block
+    gross_score = float(
+        0.45 * ema_persistence_score
+        + 0.30 * ema_level_score
+        + 0.20 * acceleration_score
+        + 0.05 * early_accumulation_score
     )
 
-    # Penalize deterioration, but distinguish a pause from a sustained pullback.
-    slope8 = regression_slope(s.tail(8).to_numpy())
-    slope26 = regression_slope(s.tail(26).to_numpy())
-    ema_negative_weights = sum(
-        EMA_WEIGHTS[key] for key, series in emas.items()
-        if len(series.dropna()) >= 2 and float(series.diff().iloc[-1]) < 0
+    # Deterioration penalty: a falling long EMA costs more than a falling short EMA.
+    ema_negative_slope_weight = sum(
+        EMA_WEIGHTS[k] for k in EMA_PERIODS
+        if np.isfinite(ema_last_slopes[k]) and ema_last_slopes[k] < 0
     )
-    pullback_penalty = 0.0
-    if np.isfinite(slope4) and slope4 < 0:
-        pullback_penalty += 0.06 * gross_score
-    if np.isfinite(slope8) and slope8 < 0:
-        pullback_penalty += 0.05 * gross_score
-    if np.isfinite(slope13) and slope13 < 0:
-        pullback_penalty += 0.07 * gross_score
-    if np.isfinite(slope26) and slope26 < 0:
-        pullback_penalty += 0.04 * gross_score
-    # EMA deterioration adds a smaller confirmation penalty, not a single-week cliff.
-    ema_pullback_penalty = 0.10 * gross_score * ema_negative_weights
-    # A short pause (flat slope) is not treated like a falling trend.
-    if np.isfinite(slope4) and slope4 >= 0 and np.isfinite(slope13) and slope13 >= 0:
-        pullback_penalty *= 0.50
-
-    positive_vfi_penalty = 0.0
-    if current > 0 and np.isfinite(vfi_pct):
-        positive_vfi_penalty = 0.25 * max(0.0, vfi_pct - 50.0)
-    positive_ema_weights = sum(
-        EMA_WEIGHTS[key] for key, value in ema_now.items() if value > 0
-    )
-    all_positive_penalty = 8.0 if positive_ema_weights >= 0.999 else 0.0
+    ema_pullback_penalty = 0.25 * gross_score * ema_negative_slope_weight
     ema_structure_penalty = 0.0
     if ema_now["ema5"] < ema_now["ema20"]:
         ema_structure_penalty += 2.0
@@ -216,49 +157,58 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         ema_structure_penalty += 4.0
     if ema_now["ema80"] < ema_now["ema200"]:
         ema_structure_penalty += 6.0
-
+    all_positive_penalty = 8.0 if all(value > 0 for value in ema_now.values()) else 0.0
     total_penalty = min(
-        positive_vfi_penalty + all_positive_penalty + ema_structure_penalty
-        + pullback_penalty + ema_pullback_penalty,
+        ema_pullback_penalty + ema_structure_penalty + all_positive_penalty,
         0.55 * gross_score,
     )
     final_score = float(np.clip(gross_score - total_penalty, 0.0, 100.0))
 
+    # VFI raw-value diagnostics are exported for interpretation only; they do
+    # not enter Gross_Score, penalties, or Final_Score.
+    current = float(s.iloc[-1])
+    vfi_pct = historical_percentile(s.iloc[:-1], current, lookback=260)
+    abs_pct = historical_percentile(s.iloc[:-1].abs(), abs(current), lookback=260)
+    near_zero_diagnostic = float(np.clip(100.0 - abs_pct, 0.0, 100.0)) if np.isfinite(abs_pct) else float("nan")
+    vfi_slope4 = regression_slope(s.tail(4).to_numpy())
+    vfi_slope8 = regression_slope(s.tail(8).to_numpy())
+    vfi_slope13 = regression_slope(s.tail(13).to_numpy())
+    vfi_slope26 = regression_slope(s.tail(26).to_numpy())
+
     return {
         "VFI": current,
-        "VFI_Historical_Percentile": vfi_pct,
-        "VFI_Absolute_Magnitude_Percentile": abs_current_pct,
-        "VFI_Near_Zero_Score": near_zero_score,
-        "VFI_Near_Zero_Contribution": 0.05 * near_zero_score,
-        "EMA_Level_Contribution": 0.20 * ema_level_score,
-        "VFI_Up_Streak_Weeks": vfi_streak,
-        "VFI_Up_Weeks_Ratio_13W": up_ratio,
-        "VFI_Slope_4W": slope4,
-        "VFI_Slope_Previous_4W": prior4,
-        "VFI_Slope_13W": slope13,
-        "VFI_Slope_8W": slope8,
-        "VFI_Slope_26W": slope26,
-        "VFI_Acceleration_4W": float(acceleration.iloc[-1]) if len(acceleration) else float("nan"),
-        "VFI_Acceleration_Percentile": acceleration_pct,
-        "VFI_Persistence_Score": trend_block,
-        "EMA_Persistence_Score": persistence_block,
+        "VFI_Historical_Percentile_DIAGNOSTIC": vfi_pct,
+        "VFI_Near_Zero_Score_DIAGNOSTIC": near_zero_diagnostic,
+        "VFI_Near_Zero_Contribution": 0.0,
+        "VFI_Slope_4W_DIAGNOSTIC": vfi_slope4,
+        "VFI_Slope_8W_DIAGNOSTIC": vfi_slope8,
+        "VFI_Slope_13W_DIAGNOSTIC": vfi_slope13,
+        "VFI_Slope_26W_DIAGNOSTIC": vfi_slope26,
+        "EMA_Persistence_Score": float(ema_persistence_score),
         "EMA_Level_Signed_Score": ema_level_score,
-        "EMA_Level_Signed_Raw_Score": ema_signed_raw_score,
-        **{f"{key.upper()}_Signed_Level_Component": value for key, value in ema_signed_components.items()},
-        "Relative_Position_Score": relative_position_block,
-        "Acceleration_Score": acceleration_block,
+        "EMA_Level_Signed_Raw_Score": float(signed_raw),
+        "EMA_Acceleration_Score": acceleration_score,
+        "Acceleration_Score": acceleration_score,
+        "Early_Accumulation_Score": early_accumulation_score,
+        "Relative_Position_Score": ema_level_score,
+        "EMA_Level_Contribution": 0.30 * ema_level_score,
+        "VFI_Persistence_Score": 0.0,
         "Gross_Score": gross_score,
-        "VFI_Positive_Extension_Penalty": positive_vfi_penalty,
+        "VFI_Positive_Extension_Penalty": 0.0,
         "All_EMAs_Positive_Penalty": all_positive_penalty,
         "EMA_Inversion_Penalty": ema_structure_penalty,
-        "Pullback_Penalty": pullback_penalty,
+        "Pullback_Penalty": ema_pullback_penalty,
         "EMA_Pullback_Penalty": ema_pullback_penalty,
-        "EMA_Negative_Slope_Weight": ema_negative_weights,
+        "EMA_Negative_Slope_Weight": ema_negative_slope_weight,
         "Total_Penalty": total_penalty,
         "Final_Score": final_score,
+        **{f"{key.upper()}_Signed_Level_Component": signed_components[key] for key in EMA_PERIODS},
         **{f"{key.upper()}_Value": value for key, value in ema_now.items()},
-        **{f"{key.upper()}_Percentile": value for key, value in ema_percentiles.items()},
+        **{f"{key.upper()}_Percentile": (ema_percentiles[key] if np.isfinite(ema_percentiles[key]) else 50.0) for key in EMA_PERIODS},
         **{f"{key.upper()}_Rising_Streak_Weeks": value for key, value in ema_streaks.items()},
+        **{f"{key.upper()}_Acceleration_Percentile": acceleration_percentiles[key] for key in EMA_PERIODS},
+        **{f"{key.upper()}_Acceleration_Value": ema_acceleration_values[key] for key in EMA_PERIODS},
+        **{f"{key.upper()}_Slope_4W": ema_last_slopes[key] for key in EMA_PERIODS},
     }
 
 
