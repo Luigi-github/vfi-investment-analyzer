@@ -185,6 +185,7 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         "VFI": current,
         "VFI_Historical_Percentile_DIAGNOSTIC": vfi_pct,
         "VFI_Near_Zero_Score_DIAGNOSTIC": near_zero_diagnostic,
+        "VFI_Absolute_Magnitude_Percentile": abs_pct,
         "VFI_Near_Zero_Contribution": 0.0,
         "VFI_Slope_4W_DIAGNOSTIC": vfi_slope4,
         "VFI_Slope_8W_DIAGNOSTIC": vfi_slope8,
