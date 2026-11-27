@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from app.indicators.vfi import VFIIndicator
+from app.indicators.volume_divergence_mm import VolumeDivergenceMM
 from scripts.run_us_weekly_then_daily_screen import US_LIQUID_UNIVERSE
 
 EMA_PERIODS = {"ema5": 5, "ema20": 20, "ema80": 80, "ema200": 200}
@@ -323,6 +324,46 @@ def fetch_completed_weekly(symbol: str, period: str = "max") -> tuple[pd.DataFra
     return frame, metadata
 
 
+
+def monthly_from_weekly(weekly: pd.DataFrame) -> pd.DataFrame:
+    """Approximate calendar-month OHLCV using only native Yahoo weekly bars."""
+    monthly = weekly.resample("ME").agg({
+        "Open": "first", "High": "max", "Low": "min",
+        "Close": "last", "Volume": "sum",
+    }).dropna(subset=["Open", "High", "Low", "Close"])
+    current_month_start = pd.Timestamp.now(tz="America/New_York").tz_localize(None).normalize().replace(day=1)
+    return monthly.loc[monthly.index < current_month_start].copy()
+
+
+def score_monthly_divergence(series: pd.Series) -> dict:
+    """EMA-only monthly divergence score; weights 5/20/80 = 10/30/60."""
+    s = pd.to_numeric(series, errors="coerce").replace([np.inf, -np.inf], np.nan).dropna()
+    if len(s) < 80:
+        raise ValueError(f"Only {len(s)} valid monthly divergence values; need >=80 for EMA80")
+    periods = {"ema5": 5, "ema20": 20, "ema80": 80}
+    weights = {"ema5": 0.10, "ema20": 0.30, "ema80": 0.60}
+    emas = {k: s.ewm(span=p, adjust=False, min_periods=p).mean() for k, p in periods.items()}
+    values = {k: float(v.iloc[-1]) for k, v in emas.items()}
+    streaks = {k: trailing_true_streak(v.diff() > 0) for k, v in emas.items()}
+    persistence = sum(100.0 * weights[k] * min(streaks[k], 52) / 52.0 for k in periods)
+    percentiles = {k: historical_percentile(v.iloc[:-1], values[k], lookback=240) for k, v in emas.items()}
+    components = {}
+    for k in periods:
+        pct, value = percentiles[k], values[k]
+        components[k] = (100.0 - pct) if value < 0 else (-pct if value > 0 else 0.0)
+    raw_level = sum(weights[k] * components[k] for k in periods)
+    level_score = float(np.clip(50.0 + 0.5 * raw_level, 0.0, 100.0))
+    score = float(np.clip(0.60 * persistence + 0.40 * level_score, 0.0, 100.0))
+    return {
+        "Monthly_Divergence_Value": float(s.iloc[-1]),
+        "Monthly_Divergence_EMA_Persistence_Score": float(persistence),
+        "Monthly_Divergence_EMA_Level_Score": level_score,
+        "Monthly_Divergence_Final_Score": score,
+        **{f"Monthly_{k.upper()}_Value": values[k] for k in periods},
+        **{f"Monthly_{k.upper()}_Percentile": percentiles[k] for k in periods},
+        **{f"Monthly_{k.upper()}_Rising_Streak_Months": streaks[k] for k in periods},
+    }
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="Rank US stocks by relative early accumulation in native Yahoo weekly VFI.")
     parser.add_argument("--symbols", default=",".join(US_LIQUID_UNIVERSE))
@@ -419,11 +460,68 @@ def main() -> None:
     liquidity_df.sort_values("Average_Dollar_Turnover_4W", ascending=False).to_csv(
         out / "us_liquidity_universe.csv", index=False
     )
+
+    # Monthly Volume Divergence is calculated from monthly OHLCV bars derived
+    # solely from the already-downloaded native Yahoo weekly candles. This is
+    # explicitly an approximation; no daily data is fetched or resampled.
+    monthly_rows = []
+    for i, item in enumerate(selected.itertuples(index=False), 1):
+        symbol = item.Symbol
+        print(f"[MONTHLY DIVERGENCE {i}/{len(selected)}] {symbol}", flush=True)
+        try:
+            monthly = monthly_from_weekly(weekly_data[symbol])
+            divergence = VolumeDivergenceMM().calculate(monthly)
+            valid = pd.to_numeric(divergence["Volume_Divergence_MM"], errors="coerce").dropna()
+            scored = score_monthly_divergence(valid)
+            latest = divergence.loc[valid.index[-1]]
+            scored.update({
+                "Symbol": symbol,
+                "Monthly_Candle_Date": valid.index[-1].strftime("%Y-%m-%d"),
+                "Monthly_Bars": int(len(monthly)),
+                "Monthly_Divergence_Bars": int(len(valid)),
+                "Monthly_Bullish_Divergence": bool(latest["Volume_Div_Bullish"]),
+                "Monthly_Bearish_Divergence": bool(latest["Volume_Div_Bearish"]),
+                "Monthly_Divergence_Signal": str(latest["Volume_Div_Signal"]),
+                "Average_Dollar_Turnover_4W": float(item.Average_Dollar_Turnover_4W),
+                "Monthly_Source": "Calendar-month OHLCV aggregated from native Yahoo 1wk candles",
+                "Status": "OK",
+            })
+            monthly_rows.append(scored)
+        except Exception as exc:
+            errors.append({"Symbol": symbol, "Stage": "MONTHLY_DIVERGENCE", "Error": repr(exc)})
+            monthly_rows.append({"Symbol": symbol, "Status": "ERROR", "Error": repr(exc)})
+
+    monthly_ranking = pd.DataFrame(monthly_rows)
+    if not monthly_ranking.empty:
+        monthly_ranking = monthly_ranking.sort_values(
+            ["Monthly_Divergence_Final_Score"], ascending=False, na_position="last"
+        ).reset_index(drop=True)
+        monthly_ranking.insert(0, "Rank", range(1, len(monthly_ranking) + 1))
+    monthly_ranking.to_csv(out / "us_monthly_volume_divergence_ranking.csv", index=False)
+
+    weekly_valid = ranking[ranking.get("Status", pd.Series(index=ranking.index, dtype=str)).eq("OK")][
+        ["Symbol", "Final_Score"]
+    ].rename(columns={"Final_Score": "Weekly_VFI_Score"})
+    monthly_valid = monthly_ranking[
+        monthly_ranking.get("Status", pd.Series(index=monthly_ranking.index, dtype=str)).eq("OK")
+    ][["Symbol", "Monthly_Divergence_Final_Score"]]
+    combined = weekly_valid.merge(monthly_valid, on="Symbol", how="inner")
+    if not combined.empty:
+        combined["Combined_Score"] = (
+            0.50 * combined["Weekly_VFI_Score"]
+            + 0.50 * combined["Monthly_Divergence_Final_Score"]
+        )
+        combined = combined.sort_values("Combined_Score", ascending=False).reset_index(drop=True)
+        combined.insert(0, "Rank", range(1, len(combined) + 1))
+    combined.to_csv(out / "us_combined_weekly_vfi_monthly_divergence_ranking.csv", index=False)
+
     summary = {
         "requested_top": args.top,
         "seed_universe_size": len(symbols),
         "eligible_assets_with_native_weekly_data": int(len(eligible)),
         "ranked_assets": int((ranking.get("Status", pd.Series(dtype=str)) == "OK").sum()),
+        "monthly_divergence_ranked_assets": int((monthly_ranking.get("Status", pd.Series(dtype=str)) == "OK").sum()),
+        "combined_ranked_assets": int(len(combined)),
         "failed_assets": errors,
         "weekly_data_source": "Yahoo Finance chart history interval=1wk via yfinance; no daily interval requested and no daily-to-weekly resampling",
         "latest_completed_week": (
@@ -439,7 +537,9 @@ def main() -> None:
             "VFI_relative_near_zero": 0.05,
             "VFI_persistence_and_quality": 0.25, "VFI_acceleration": 0.20
         },
-        "ranking_scope": "VFI weekly ranking only; this workflow does not calculate monthly Volume Divergence or combined ranking",
+        "ranking_scope": "Three outputs: weekly VFI, monthly Volume Divergence, and 50/50 combined ranking",
+        "monthly_divergence_method": "Volume Divergence MM calculated on completed calendar-month OHLCV aggregated from native Yahoo 1wk candles; EMA5/20/80 weighted 10/30/60; EMA200 excluded. Monthly candles are approximations because a weekly candle crossing a calendar-month boundary cannot be split without daily data.",
+        "combined_method": "50% weekly VFI Final_Score + 50% monthly Volume Divergence Final_Score; only assets with both valid scores are included.",
         "caveat": "Heuristic technical ranking for research, not a prediction or investment recommendation",
     }
     (out / "run_summary.json").write_text(json.dumps(summary, indent=2, default=str), encoding="utf-8")
