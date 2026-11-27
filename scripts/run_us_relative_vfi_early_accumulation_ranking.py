@@ -503,10 +503,11 @@ def main() -> None:
         "minimum_history": "330 completed weekly bars and at least 200 valid VFI bars so VFI(130) and EMA200 are fully warmed",
         "ema_calculation": "EMA5/20/80/200 calculated over full valid weekly VFI history; percentiles use trailing 260 prior observations",
         "score_weights": {
-            "EMA_persistence": 0.30, "EMA_signed_level": 0.20,
-            "VFI_relative_near_zero": 0.05,
-            "VFI_persistence_and_quality": 0.25, "VFI_acceleration": 0.20
+            "EMA_persistence": 0.45, "EMA_signed_level": 0.30,
+            "EMA_acceleration": 0.20, "early_accumulation_below_zero": 0.05
         },
+        "ema_timeframe_weights": {"EMA5": 0.05, "EMA20": 0.15, "EMA80": 0.30, "EMA200": 0.50},
+        "weekly_score_policy": "EMA-only: raw VFI is used only to construct EMA curves; VFI value, sign, near-zero proximity, raw VFI slopes, raw VFI acceleration and R2 do not affect score or penalties. Early accumulation rewards negative EMAs with positive sustained slopes; falling EMAs are penalized in proportion to their timeframe weight.",
         "ranking_scope": "Three outputs: weekly VFI, monthly Volume Divergence, and 50/50 combined ranking",
         "monthly_divergence_method": "Volume Divergence MM calculated on completed calendar-month OHLCV aggregated from native Yahoo 1wk candles; EMA5/20/80 weighted 10/30/60; EMA200 excluded. Monthly candles are approximations because a weekly candle crossing a calendar-month boundary cannot be split without daily data.",
         "combined_method": "50% weekly VFI Final_Score + 50% monthly Volume Divergence Final_Score; only assets with both valid scores are included.",
