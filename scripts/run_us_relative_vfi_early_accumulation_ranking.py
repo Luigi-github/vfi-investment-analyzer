@@ -174,6 +174,12 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
     vfi_slope8 = regression_slope(s.tail(8).to_numpy())
     vfi_slope13 = regression_slope(s.tail(13).to_numpy())
     vfi_slope26 = regression_slope(s.tail(26).to_numpy())
+    vfi_slope4_series = s.rolling(4).apply(regression_slope, raw=True)
+    vfi_acceleration = vfi_slope4_series.diff(4)
+    vfi_acceleration_value = float(vfi_acceleration.iloc[-1]) if len(vfi_acceleration) else float("nan")
+    vfi_acceleration_pct = historical_percentile(vfi_acceleration.iloc[:-1], vfi_acceleration_value, lookback=260)
+    if not np.isfinite(vfi_acceleration_pct):
+        vfi_acceleration_pct = 50.0
 
     return {
         "VFI": current,
@@ -184,6 +190,10 @@ def score_weekly_vfi(vfi: pd.Series) -> dict:
         "VFI_Slope_8W_DIAGNOSTIC": vfi_slope8,
         "VFI_Slope_13W_DIAGNOSTIC": vfi_slope13,
         "VFI_Slope_26W_DIAGNOSTIC": vfi_slope26,
+        "VFI_Slope_8W": vfi_slope8,
+        "VFI_Slope_26W": vfi_slope26,
+        "VFI_Acceleration_4W_DIAGNOSTIC": vfi_acceleration_value,
+        "VFI_Acceleration_Percentile": vfi_acceleration_pct,
         "EMA_Persistence_Score": float(ema_persistence_score),
         "EMA_Level_Signed_Score": ema_level_score,
         "EMA_Level_Signed_Raw_Score": float(signed_raw),
