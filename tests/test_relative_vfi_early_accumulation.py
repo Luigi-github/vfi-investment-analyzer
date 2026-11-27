@@ -50,25 +50,20 @@ class RelativeVfiRankingTests(unittest.TestCase):
         self.assertLessEqual(result["Final_Score"], 100.0)
 
 
-    def test_near_zero_contributes_five_percent_of_gross_score(self):
+    def test_near_zero_is_diagnostic_only_and_ema_blocks_drive_gross_score(self):
         idx = pd.date_range("2010-01-01", periods=420, freq="W-FRI")
         t = np.arange(len(idx), dtype=float)
         values = -25.0 + 0.04 * t + 0.8 * np.sin(t / 9.0)
         result = score_weekly_vfi(pd.Series(values, index=idx))
         expected = (
-            0.30 * result["EMA_Persistence_Score"]
-            + 0.20 * result["EMA_Level_Signed_Score"]
-            + 0.05 * result["VFI_Near_Zero_Score"]
-            + 0.25 * result["VFI_Persistence_Score"]
-            + 0.20 * result["Acceleration_Score"]
+            0.45 * result["EMA_Persistence_Score"]
+            + 0.30 * result["EMA_Level_Signed_Score"]
+            + 0.20 * result["EMA_Acceleration_Score"]
+            + 0.05 * result["Early_Accumulation_Score"]
         )
         self.assertAlmostEqual(result["Gross_Score"], expected, places=7)
-        self.assertAlmostEqual(
-            result["VFI_Near_Zero_Contribution"],
-            0.05 * result["VFI_Near_Zero_Score"],
-            places=7,
-        )
-        self.assertIn("VFI_Near_Zero_Score", result)
+        self.assertEqual(result["VFI_Near_Zero_Contribution"], 0.0)
+        self.assertIn("VFI_Near_Zero_Score_DIAGNOSTIC", result)
 
     def test_ema200_uses_the_full_weekly_vfi_history(self):
         idx = pd.date_range("2008-01-04", periods=520, freq="W-FRI")
