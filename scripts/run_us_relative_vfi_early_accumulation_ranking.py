@@ -347,6 +347,7 @@ def score_monthly_divergence(series: pd.Series) -> dict:
     streaks = {k: trailing_true_streak(v.diff() > 0) for k, v in emas.items()}
     persistence = sum(100.0 * weights[k] * min(streaks[k], 52) / 52.0 for k in periods)
     percentiles = {k: historical_percentile(v.iloc[:-1], values[k], lookback=240) for k, v in emas.items()}
+    percentiles = {k: (pct if np.isfinite(pct) else 50.0) for k, pct in percentiles.items()}
     components = {}
     for k in periods:
         pct, value = percentiles[k], values[k]
